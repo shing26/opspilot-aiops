@@ -1,0 +1,36 @@
+package com.opspilot.storm;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.stereotype.Service;
+
+/**
+ * 进程内 Single-Flight（ADR-0003）：key = fingerprint + authLevel。
+ * leader 内联执行全链路并 complete future；follower 等待并复用结果。
+ * 掺 authLevel 防低权限等待者复用高权限答案。
+ */
+@Service
+public class SingleFlightRegistry {
+
+    public record Registration(CompletableFuture<String> future, boolean leader) {}
+
+    private final ConcurrentHashMap<String, CompletableFuture<String>> flights = new ConcurrentHashMap<>();
+
+    public Registration getOrCreate(String key) {
+        CompletableFuture<String> mine = new CompletableFuture<>();
+        CompletableFuture<String> existing = flights.putIfAbsent(key, mine);
+        if (existing != null) {
+            return new Registration(existing, false);
+        }
+        return new Registration(mine, true);
+    }
+
+    /** leader 完成后必须调用，移除 in-flight 记录。 */
+    public void finish(String key, CompletableFuture<String> future) {
+        flights.remove(key, future);
+    }
+
+    public int inFlightCount() {
+        return flights.size();
+    }
+}

@@ -1,0 +1,37 @@
+# 构建产物
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# 环境与凭据（绝不入库）
+.env
+*.local
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Python
+offline/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 运行时产物
+offline/corpus/chunks.jsonl
+offline/eval/reports/
+offline/load/reports/
+logs/
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# 本地扫描状态
+.mimosa/
+
+# 生成的演示 Token（由 JWT_SECRET 签名，不入库）
+scripts/demo_tokens.txt

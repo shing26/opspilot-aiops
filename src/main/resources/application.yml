@@ -1,0 +1,55 @@
+server:
+  port: ${SERVER_PORT:8081}   # 8080 被本机 nexus-web 占用，OpsPilot 用 8081
+
+spring:
+  application:
+    name: opspilot-gateway
+  threads:
+    virtual:
+      enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+opspilot:
+  dashscope:
+    base-url: https://dashscope.aliyuncs.com
+    api-key: ${DASHSCOPE_API_KEY:}
+    mode: ${DASHSCOPE_MODE:auto}   # auto=有Key走live否则mock | live | mock
+    embedding-model: text-embedding-v3
+    embedding-dim: 1024
+    rerank-model: gte-rerank
+    llm-model: qwen-plus
+    llm-timeout-seconds: 60
+  es:
+    uri: http://${ES_HOST:localhost}:9200
+    index: opspilot-chunks
+  qdrant:
+    host: ${QDRANT_HOST:localhost}
+    grpc-port: 6334
+    collection: opspilot-vectors
+    cache-collection: semantic-cache
+  jwt:
+    secret: ${JWT_SECRET:}
+  cache:
+    l1-ttl-hours: 2
+    l2-threshold: 0.95
+  storm:
+    window-seconds: 30
+    alert-window-seconds: 60
+  retrieval:
+    es-top-k: 50
+    qdrant-top-k: 50
+    rrf-k: 60
+    rerank-top-k: 20
+    final-top-k: 3
+    leg-timeout-ms: 800
+  degrade:
+    inflight-threshold: 40
+    llm-failure-threshold: 3
+    llm-open-seconds: 60
+
+logging:
+  level:
+    com.opspilot: INFO

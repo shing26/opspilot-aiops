@@ -1,0 +1,50 @@
+{"id": "exact-50012_DB_TIMEOUT", "type": "exact", "query": "50012_DB_TIMEOUT", "expected_docs": ["order-center-api", "pm-001", "rb-001"], "auth_level": 3}
+{"id": "exact-50013_DB_DEADLOCK", "type": "exact", "query": "50013_DB_DEADLOCK", "expected_docs": ["order-center-api", "pm-002", "rb-002"], "auth_level": 3}
+{"id": "exact-50021_REDIS_TIMEOUT", "type": "exact", "query": "50021_REDIS_TIMEOUT", "expected_docs": ["order-center-api", "pm-003", "rb-003"], "auth_level": 3}
+{"id": "exact-50022_REDIS_CONN_REFUSED", "type": "exact", "query": "50022_REDIS_CONN_REFUSED", "expected_docs": ["order-center-api", "pm-004", "rb-003"], "auth_level": 3}
+{"id": "exact-50031_MQ_CONSUME_LAG", "type": "exact", "query": "50031_MQ_CONSUME_LAG", "expected_docs": ["order-center-api", "pm-005", "rb-004"], "auth_level": 3}
+{"id": "exact-50032_MQ_SEND_FAILED", "type": "exact", "query": "50032_MQ_SEND_FAILED", "expected_docs": ["order-center-api", "pm-006", "rb-004"], "auth_level": 3}
+{"id": "exact-50041_PAY_GATEWAY_502", "type": "exact", "query": "50041_PAY_GATEWAY_502", "expected_docs": ["order-center-api", "pm-007", "rb-005"], "auth_level": 3}
+{"id": "exact-50042_PAY_SIGN_INVALID", "type": "exact", "query": "50042_PAY_SIGN_INVALID", "expected_docs": ["order-center-api", "pm-005", "pm-008", "rb-005"], "auth_level": 3}
+{"id": "exact-40901_ORDER_STATE_CONFLICT", "type": "exact", "query": "40901_ORDER_STATE_CONFLICT", "expected_docs": ["order-center-api", "pm-006", "pm-009", "rb-006"], "auth_level": 3}
+{"id": "exact-40902_INVENTORY_INSUFFICIENT", "type": "exact", "query": "40902_INVENTORY_INSUFFICIENT", "expected_docs": ["order-center-api", "pm-002", "rb-007"], "auth_level": 3}
+{"id": "exact-42901_RATE_LIMIT_EXCEEDED", "type": "exact", "query": "42901_RATE_LIMIT_EXCEEDED", "expected_docs": ["order-center-api", "pm-015", "rb-008"], "auth_level": 3}
+{"id": "exact-50051_ES_INDEX_MISSING", "type": "exact", "query": "50051_ES_INDEX_MISSING", "expected_docs": ["order-center-api", "rb-013"], "auth_level": 3}
+{"id": "exact-50061_OSS_UPLOAD_DENIED", "type": "exact", "query": "50061_OSS_UPLOAD_DENIED", "expected_docs": ["order-center-api", "rb-013"], "auth_level": 3}
+{"id": "exact-50071_CONFIG_CENTER_UNREACHABLE", "type": "exact", "query": "50071_CONFIG_CENTER_UNREACHABLE", "expected_docs": ["pm-004", "pm-014", "pm-015", "rb-008"], "auth_level": 3}
+{"id": "exact-50081_K8S_POD_OOMKILLED", "type": "exact", "query": "50081_K8S_POD_OOMKILLED", "expected_docs": ["order-center-api", "pm-010", "rb-009"], "auth_level": 3}
+{"id": "exact-50082_K8S_NODE_NOT_READY", "type": "exact", "query": "50082_K8S_NODE_NOT_READY", "expected_docs": ["order-center-api", "pm-011", "rb-010"], "auth_level": 3}
+{"id": "exact-50091_JVM_GC_PAUSE", "type": "exact", "query": "50091_JVM_GC_PAUSE", "expected_docs": ["order-center-api", "pm-012", "rb-011"], "auth_level": 3}
+{"id": "exact-50092_THREAD_POOL_EXHAUSTED", "type": "exact", "query": "50092_THREAD_POOL_EXHAUSTED", "expected_docs": ["pm-013", "rb-012"], "auth_level": 3}
+{"id": "exact-50101_SLOW_SQL_DETECTED", "type": "exact", "query": "50101_SLOW_SQL_DETECTED", "expected_docs": ["order-center-api", "pm-001", "rb-001"], "auth_level": 3}
+{"id": "exact-50111_CERT_EXPIRING", "type": "exact", "query": "50111_CERT_EXPIRING", "expected_docs": ["rb-014"], "auth_level": 3}
+{"id": "exact-50121_DNS_RESOLUTION_FAILED", "type": "exact", "query": "50121_DNS_RESOLUTION_FAILED", "expected_docs": ["order-center-api", "pm-014"], "auth_level": 3}
+{"id": "exact-50131_NTP_DRIFT", "type": "exact", "query": "50131_NTP_DRIFT", "expected_docs": ["order-center-api", "pm-011", "rb-010"], "auth_level": 3}
+{"id": "exact-50141_CONNECTION_POOL_EXHAUSTED", "type": "exact", "query": "50141_CONNECTION_POOL_EXHAUSTED", "expected_docs": ["pm-001", "rb-001"], "auth_level": 3}
+{"id": "exact-50151_FEIGN_TIMEOUT", "type": "exact", "query": "50151_FEIGN_TIMEOUT", "expected_docs": ["order-center-api", "pm-007", "pm-013", "rb-005", "rb-012"], "auth_level": 3}
+{"id": "exact-50161_SENTINEL_BLOCKED", "type": "exact", "query": "50161_SENTINEL_BLOCKED", "expected_docs": ["order-center-api", "pm-003", "rb-008"], "auth_level": 3}
+{"id": "sem-01", "type": "semantic", "query": "下单一直超时页面转圈，数据库是不是扛不住了", "expected_docs": ["rb-001", "pm-001"], "auth_level": 3}
+{"id": "sem-02", "type": "semantic", "query": "连接池被占满，获取连接等待超时", "expected_docs": ["rb-001", "pm-001", "rb-012"], "auth_level": 3}
+{"id": "sem-03", "type": "semantic", "query": "库存扣减的时候事务互相卡住回滚了", "expected_docs": ["rb-002", "pm-002"], "auth_level": 3}
+{"id": "sem-04", "type": "semantic", "query": "购物车加载不出来，缓存服务响应太慢", "expected_docs": ["rb-003", "pm-003"], "auth_level": 3}
+{"id": "sem-05", "type": "semantic", "query": "登录失败，连不上会话存储的 Redis", "expected_docs": ["rb-003", "pm-004"], "auth_level": 3}
+{"id": "sem-06", "type": "semantic", "query": "支付回调处理特别慢，消息堆积了几十万", "expected_docs": ["rb-004", "pm-005"], "auth_level": 3}
+{"id": "sem-07", "type": "semantic", "query": "订单事件发不出去，消息队列投递失败", "expected_docs": ["rb-004", "pm-006"], "auth_level": 3}
+{"id": "sem-08", "type": "semantic", "query": "第三方支付渠道挂了，下单付款全部报错", "expected_docs": ["rb-005", "pm-007"], "auth_level": 3}
+{"id": "sem-09", "type": "semantic", "query": "回调签名验证不通过，密钥版本对不上", "expected_docs": ["rb-005", "pm-008"], "auth_level": 3}
+{"id": "sem-10", "type": "semantic", "query": "订单取消和支付撞车了，状态机报错", "expected_docs": ["rb-006", "pm-009"], "auth_level": 3}
+{"id": "sem-11", "type": "semantic", "query": "明明显示有货，提交订单却说库存不足", "expected_docs": ["rb-007", "pm-002"], "auth_level": 3}
+{"id": "sem-12", "type": "semantic", "query": "大促流量太大，接口被限流拒绝请求", "expected_docs": ["rb-008", "pm-015"], "auth_level": 3}
+{"id": "sem-13", "type": "semantic", "query": "搜索商品报错，说索引不存在", "expected_docs": ["rb-013"], "auth_level": 3}
+{"id": "sem-14", "type": "semantic", "query": "用户头像上传失败，对象存储拒绝访问", "expected_docs": ["rb-013"], "auth_level": 3}
+{"id": "sem-15", "type": "semantic", "query": "配置中心连不上，服务拉不到最新配置", "expected_docs": ["pm-015", "pm-004", "pm-014"], "auth_level": 3}
+{"id": "sem-16", "type": "semantic", "query": "发券服务容器被杀掉了，反复重启", "expected_docs": ["rb-009", "pm-010"], "auth_level": 3}
+{"id": "sem-17", "type": "semantic", "query": "K8s 节点掉线了，Pod 调度不上去", "expected_docs": ["rb-010", "pm-011"], "auth_level": 3}
+{"id": "sem-18", "type": "semantic", "query": "接口每隔几秒卡一下，像是垃圾回收停顿", "expected_docs": ["rb-011", "pm-012"], "auth_level": 3}
+{"id": "sem-19", "type": "semantic", "query": "异步任务全部排队，线程池满了拒绝执行", "expected_docs": ["rb-012", "pm-013"], "auth_level": 3}
+{"id": "sem-20", "type": "semantic", "query": "内部域名解析不了，服务之间调不通", "expected_docs": ["pm-014"], "auth_level": 3}
+{"id": "sem-21", "type": "semantic", "query": "机器时间不准，签名被判定为未来时间", "expected_docs": ["rb-010", "pm-011"], "auth_level": 3}
+{"id": "sem-22", "type": "semantic", "query": "数据库连接泄漏，池子耗尽要重启", "expected_docs": ["rb-001", "pm-001"], "auth_level": 3}
+{"id": "sem-23", "type": "semantic", "query": "调用下游服务超时，Feign 读超时", "expected_docs": ["rb-005", "pm-007", "pm-013"], "auth_level": 3}
+{"id": "sem-24", "type": "semantic", "query": "HTTPS 握手失败，证书快要过期了", "expected_docs": ["rb-014"], "auth_level": 3}
+{"id": "sem-25", "type": "semantic", "query": "热点商品加购被熔断保护挡住了", "expected_docs": ["rb-008", "pm-003"], "auth_level": 3}

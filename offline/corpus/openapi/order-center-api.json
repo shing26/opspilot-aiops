@@ -1,0 +1,313 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Order Center API",
+    "description": "订单中心微服务集群统一契约。错误响应体统一为 {code, message, traceId}，code 为业务错误码（如 50012_DB_TIMEOUT）。",
+    "version": "2.7.1"
+  },
+  "servers": [{ "url": "https://api.ordercenter.example.com" }],
+  "tags": [
+    { "name": "order-service" },
+    { "name": "payment-service" },
+    { "name": "inventory-service" },
+    { "name": "cart-service" },
+    { "name": "user-service" },
+    { "name": "coupon-service" },
+    { "name": "search-service" },
+    { "name": "logistics-service" }
+  ],
+  "paths": {
+    "/api/v1/orders": {
+      "post": {
+        "tags": ["order-service"],
+        "operationId": "createOrder",
+        "summary": "创建订单",
+        "description": "com.ordercenter.order.OrderCreateService#createOrder。依赖 inventory-service 扣减与 MQ 异步通知。",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateOrderRequest" } } } },
+        "responses": {
+          "201": { "description": "下单成功", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrderVO" } } } },
+          "409": { "description": "40901_ORDER_STATE_CONFLICT 订单状态冲突 或 40902_INVENTORY_INSUFFICIENT 库存不足" },
+          "429": { "description": "42901_RATE_LIMIT_EXCEEDED 触发 Sentinel 限流" },
+          "500": { "description": "50012_DB_TIMEOUT MySQL 查询超时 或 50032_MQ_SEND_FAILED 订单事件投递失败" }
+        }
+      },
+      "get": {
+        "tags": ["order-service"],
+        "operationId": "listOrders",
+        "summary": "订单列表分页查询",
+        "description": "com.ordercenter.order.OrderQueryService#listOrders。大分页易触发 50101_SLOW_SQL_DETECTED。",
+        "parameters": [
+          { "name": "page", "in": "query", "schema": { "type": "integer" } },
+          { "name": "size", "in": "query", "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": { "description": "分页结果" },
+          "500": { "description": "50012_DB_TIMEOUT 或 50101_SLOW_SQL_DETECTED 慢 SQL 告警" }
+        }
+      }
+    },
+    "/api/v1/orders/{orderId}": {
+      "get": {
+        "tags": ["order-service"],
+        "operationId": "getOrderDetail",
+        "summary": "订单详情",
+        "responses": {
+          "200": { "description": "订单详情", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OrderVO" } } } },
+          "500": { "description": "50012_DB_TIMEOUT 主库超时" }
+        }
+      }
+    },
+    "/api/v1/orders/{orderId}/pay": {
+      "post": {
+        "tags": ["order-service"],
+        "operationId": "startPayment",
+        "summary": "发起支付",
+        "description": "com.ordercenter.payment.PaymentGatewayClient#pay，经 Feign 调用支付网关，超时抛 50151_FEIGN_TIMEOUT。",
+        "responses": {
+          "200": { "description": "支付受理成功" },
+          "502": { "description": "50041_PAY_GATEWAY_502 第三方支付网关不可用" },
+          "500": { "description": "50042_PAY_SIGN_INVALID 签名校验失败 或 50151_FEIGN_TIMEOUT" }
+        }
+      }
+    },
+    "/api/v1/orders/{orderId}/cancel": {
+      "post": {
+        "tags": ["order-service"],
+        "operationId": "cancelOrder",
+        "summary": "取消订单",
+        "responses": {
+          "200": { "description": "取消成功" },
+          "409": { "description": "40901_ORDER_STATE_CONFLICT 已支付订单不可直接取消" }
+        }
+      }
+    },
+    "/api/v1/payments/notify": {
+      "post": {
+        "tags": ["payment-service"],
+        "operationId": "paymentNotify",
+        "summary": "支付结果异步回调",
+        "description": "com.ordercenter.payment.PaymentNotifyConsumer#onMessage，RocketMQ 消费，积压时返回 50031_MQ_CONSUME_LAG。",
+        "responses": {
+          "200": { "description": "回调处理成功" },
+          "500": { "description": "50031_MQ_CONSUME_LAG 消费积压 或 50042_PAY_SIGN_INVALID 回调验签失败" }
+        }
+      }
+    },
+    "/api/v1/payments/{paymentId}": {
+      "get": {
+        "tags": ["payment-service"],
+        "operationId": "getPayment",
+        "summary": "支付单查询",
+        "responses": { "200": { "description": "支付单" }, "500": { "description": "50012_DB_TIMEOUT" } }
+      }
+    },
+    "/api/v1/payments/refund": {
+      "post": {
+        "tags": ["payment-service"],
+        "operationId": "refund",
+        "summary": "发起退款",
+        "responses": {
+          "200": { "description": "退款受理" },
+          "502": { "description": "50041_PAY_GATEWAY_502" },
+          "500": { "description": "50032_MQ_SEND_FAILED 退款事件投递失败" }
+        }
+      }
+    },
+    "/api/v1/payments/{paymentId}/receipt": {
+      "get": {
+        "tags": ["payment-service"],
+        "operationId": "downloadReceipt",
+        "summary": "下载电子回单",
+        "responses": {
+          "200": { "description": "回单文件" },
+          "500": { "description": "50061_OSS_UPLOAD_DENIED OSS 凭证过期导致回单归档失败" }
+        }
+      }
+    },
+    "/api/v1/inventory/deduct": {
+      "post": {
+        "tags": ["inventory-service"],
+        "operationId": "deductStock",
+        "summary": "库存扣减",
+        "description": "com.ordercenter.inventory.StockDeductService#deduct，热点 SKU 并发扣减易死锁 50013_DB_DEADLOCK。",
+        "responses": {
+          "200": { "description": "扣减成功" },
+          "409": { "description": "40902_INVENTORY_INSUFFICIENT 库存不足" },
+          "500": { "description": "50013_DB_DEADLOCK 行锁死锁" }
+        }
+      }
+    },
+    "/api/v1/inventory/release": {
+      "post": {
+        "tags": ["inventory-service"],
+        "operationId": "releaseStock",
+        "summary": "库存释放",
+        "responses": { "200": { "description": "释放成功" }, "500": { "description": "50013_DB_DEADLOCK" } }
+      }
+    },
+    "/api/v1/inventory/{skuId}/stock": {
+      "get": {
+        "tags": ["inventory-service"],
+        "operationId": "getStock",
+        "summary": "库存查询",
+        "responses": { "200": { "description": "库存数" }, "500": { "description": "50012_DB_TIMEOUT" } }
+      }
+    },
+    "/api/v1/inventory/sync": {
+      "post": {
+        "tags": ["inventory-service"],
+        "operationId": "syncInventory",
+        "summary": "库存全量同步",
+        "description": "依赖 WMS 域名解析，DNS 故障时抛 50121_DNS_RESOLUTION_FAILED。",
+        "responses": { "200": { "description": "同步完成" }, "500": { "description": "50121_DNS_RESOLUTION_FAILED" } }
+      }
+    },
+    "/api/v1/cart": {
+      "get": {
+        "tags": ["cart-service"],
+        "operationId": "getCart",
+        "summary": "购物车查询",
+        "description": "com.ordercenter.cart.CartCacheService#getCart，Redis 读缓存。",
+        "responses": { "200": { "description": "购物车" }, "500": { "description": "50021_REDIS_TIMEOUT" } }
+      }
+    },
+    "/api/v1/cart/items": {
+      "post": {
+        "tags": ["cart-service"],
+        "operationId": "addCartItem",
+        "summary": "加入购物车",
+        "responses": {
+          "200": { "description": "加入成功" },
+          "500": { "description": "50021_REDIS_TIMEOUT" },
+          "429": { "description": "50161_SENTINEL_BLOCKED 热点商品加购被限流" }
+        }
+      }
+    },
+    "/api/v1/cart/items/{itemId}": {
+      "delete": {
+        "tags": ["cart-service"],
+        "operationId": "removeCartItem",
+        "summary": "移除购物车项",
+        "responses": { "200": { "description": "移除成功" }, "500": { "description": "50021_REDIS_TIMEOUT" } }
+      }
+    },
+    "/api/v1/users/login": {
+      "post": {
+        "tags": ["user-service"],
+        "operationId": "login",
+        "summary": "用户登录",
+        "description": "com.ordercenter.user.SessionService#createSession，Session 写入 Redis。",
+        "responses": {
+          "200": { "description": "登录成功" },
+          "500": { "description": "50022_REDIS_CONN_REFUSED 或 50091_JVM_GC_PAUSE 导致登录超时" }
+        }
+      }
+    },
+    "/api/v1/users/profile": {
+      "get": {
+        "tags": ["user-service"],
+        "operationId": "getProfile",
+        "summary": "用户资料",
+        "responses": { "200": { "description": "资料" }, "500": { "description": "50012_DB_TIMEOUT" } }
+      }
+    },
+    "/api/v1/users/avatar": {
+      "post": {
+        "tags": ["user-service"],
+        "operationId": "uploadAvatar",
+        "summary": "头像上传",
+        "responses": { "200": { "description": "上传成功" }, "500": { "description": "50061_OSS_UPLOAD_DENIED" } }
+      }
+    },
+    "/api/v1/coupons/issue": {
+      "post": {
+        "tags": ["coupon-service"],
+        "operationId": "issueCoupon",
+        "summary": "发券",
+        "description": "com.ordercenter.coupon.CouponIssueService#issue，大促批量发券易 OOM。",
+        "responses": {
+          "200": { "description": "发放成功" },
+          "409": { "description": "40901_ORDER_STATE_CONFLICT 券已领完" },
+          "500": { "description": "50081_K8S_POD_OOMKILLED" }
+        }
+      }
+    },
+    "/api/v1/coupons/available": {
+      "get": {
+        "tags": ["coupon-service"],
+        "operationId": "listAvailableCoupons",
+        "summary": "可用券查询",
+        "responses": { "200": { "description": "券列表" }, "500": { "description": "50021_REDIS_TIMEOUT" } }
+      }
+    },
+    "/api/v1/search/products": {
+      "get": {
+        "tags": ["search-service"],
+        "operationId": "searchProducts",
+        "summary": "商品搜索",
+        "description": "com.ordercenter.search.ProductIndexService#search，索引缺失抛 50051_ES_INDEX_MISSING。",
+        "responses": { "200": { "description": "搜索结果" }, "500": { "description": "50051_ES_INDEX_MISSING" } }
+      }
+    },
+    "/api/v1/search/reindex": {
+      "post": {
+        "tags": ["search-service"],
+        "operationId": "reindexProducts",
+        "summary": "重建搜索索引",
+        "responses": { "200": { "description": "重建任务已提交" }, "500": { "description": "50051_ES_INDEX_MISSING 别名指向失效" } }
+      }
+    },
+    "/api/v1/logistics/orders/{orderId}/ship": {
+      "post": {
+        "tags": ["logistics-service"],
+        "operationId": "shipOrder",
+        "summary": "发货",
+        "responses": {
+          "200": { "description": "发货成功" },
+          "500": { "description": "50082_K8S_NODE_NOT_READY 调度失败 或 50131_NTP_DRIFT 时钟漂移导致签名拒绝" }
+        }
+      }
+    },
+    "/api/v1/logistics/{shipmentId}/trace": {
+      "get": {
+        "tags": ["logistics-service"],
+        "operationId": "getShipmentTrace",
+        "summary": "物流轨迹",
+        "responses": { "200": { "description": "轨迹" }, "500": { "description": "50012_DB_TIMEOUT" } }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CreateOrderRequest": {
+        "type": "object",
+        "required": ["userId", "items"],
+        "properties": {
+          "userId": { "type": "integer", "format": "int64" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/OrderItem" } },
+          "couponId": { "type": "integer", "format": "int64" }
+        }
+      },
+      "OrderItem": {
+        "type": "object",
+        "properties": { "skuId": { "type": "integer", "format": "int64" }, "quantity": { "type": "integer" } }
+      },
+      "OrderVO": {
+        "type": "object",
+        "properties": {
+          "orderId": { "type": "integer", "format": "int64" },
+          "status": { "type": "string", "enum": ["CREATED", "PAID", "SHIPPED", "CANCELLED"] },
+          "totalAmount": { "type": "number" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string", "example": "50012_DB_TIMEOUT" },
+          "message": { "type": "string" },
+          "traceId": { "type": "string" }
+        }
+      }
+    }
+  }
+}
