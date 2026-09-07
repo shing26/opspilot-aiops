@@ -40,6 +40,11 @@ public class SearchController {
         }
         int level = user.authLevel();
         String mode = req.mode() == null ? "hybrid" : req.mode();
+        if (!java.util.Set.of("hybrid", "es_only", "vector_only").contains(mode)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "mode 仅允许 hybrid|es_only|vector_only");
+        }
         SearchOutcome outcome = searchService.search(req.query(), level, mode);
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("mode", outcome.mode());

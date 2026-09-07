@@ -18,9 +18,6 @@ import java.util.regex.Pattern;
 public final class MockEngine {
 
     private static final Pattern WORD = Pattern.compile("[A-Za-z0-9_]+|[\\u4e00-\\u9fa5]");
-    private static final Pattern SECTION = Pattern.compile(
-            "^#{1,4}\\s*(止损操作|修复措施|排查步骤|止损建议)[^\\n]*\\n([\\s\\S]*?)(?=^#{1,4}\\s|\\Z)",
-            Pattern.MULTILINE);
 
     /** 语料级 IDF 表（BM25 式词法加权）：启动时从 chunks.jsonl 计算一次。 */
     private static volatile Map<String, Double> idf = null;
@@ -79,37 +76,47 @@ public final class MockEngine {
         return dot;
     }
 
-    /** 从召回 chunk 文本组装排障答案（抽取止损/修复小节，带来源引用）。 */
+    /** 从召回 chunk 文本组装排障答案：按面包屑关键词分类，逐来源标注出处。 */
     static String answer(List<String> chunkTexts) {
         if (chunkTexts.isEmpty()) {
             return "当前知识库无相关参考，无法作答，请补充上下文或联系值班 SRE。";
         }
-        StringBuilder locate = new StringBuilder();
-        StringBuilder steps = new StringBuilder();
-        StringBuilder fixes = new StringBuilder();
-        int ref = 0;
-        for (String t : chunkTexts) {
-            ref++;
-            Matcher s = SECTION.matcher(t);
-            while (s.find()) {
-                String head = s.group(1);
-                String body = s.group(2).trim();
-                if (body.isEmpty()) continue;
-                String quoted = body.length() > 400 ? body.substring(0, 400) + "…" : body;
-                switch (head) {
-                    case "排查步骤" -> steps.append(quoted).append("\n（来源 [参考").append(ref).append("]）\n\n");
-                    case "止损操作", "修复措施", "止损建议" ->
-                            fixes.append(quoted).append("\n（来源 [参考").append(ref).append("]）\n\n");
-                    default -> { }
-                }
-            }
-            String firstLine = t.lines().skip(1).findFirst().orElse("");
-            if (!firstLine.isBlank() && locate.isEmpty()) {
-                locate.append(firstLine).append("（来源 [参考").append(ref).append("]）");
-            }
+        StringBuilder sb = new StringBuilder();
+        String topCrumb = crumbOf(chunkTexts.get(0));
+        sb.append("## 问题定位\n").append(topCrumb).append("（来源 [参考1]）\n");
+        for (int i = 0; i < chunkTexts.size(); i++) {
+            String t = chunkTexts.get(i);
+            String crumb = crumbOf(t);
+            String body = bodyOf(t);
+            if (body.isEmpty()) continue;
+            String kind = classify(crumb);
+            String quoted = body.length() > 500 ? body.substring(0, 500) + "…" : body;
+            sb.append("\n### ").append(kind).append(" · ").append(crumb)
+              .append("（来源 [参考").append(i + 1).append("]）\n").append(quoted).append("\n");
         }
-        return "## 问题定位\n" + (locate.isEmpty() ? "依据召回上下文综合判断" : locate)
-                + "\n\n## 排查步骤\n" + (steps.isEmpty() ? "参考上述来源文档逐步排查" : steps)
-                + "\n## 止损建议\n" + (fixes.isEmpty() ? "优先执行来源文档中的止损操作" : fixes);
+        return sb.toString().trim();
+    }
+
+    private static String crumbOf(String chunkText) {
+        String first = chunkText.lines().findFirst().orElse("");
+        return first.replaceAll("^\\[|\\]$", "").trim();
+    }
+
+    private static String bodyOf(String chunkText) {
+        // 跳过 renderContext 的首行面包屑，再跳过 chunk 自带的 [..] 行与 # 标题行，保留正文
+        String[] lines = chunkText.split("\n", -1);
+        int i = 1;
+        while (i < lines.length && (lines[i].startsWith("[") || lines[i].startsWith("#"))) i++;
+        StringBuilder b = new StringBuilder();
+        for (; i < lines.length; i++) b.append(lines[i]).append("\n");
+        return b.toString().trim();
+    }
+
+    private static String classify(String crumb) {
+        if (crumb.contains("止损") || crumb.contains("修复")) return "止损/修复";
+        if (crumb.contains("排查") || crumb.contains("步骤")) return "排查";
+        if (crumb.contains("根因") || crumb.contains("分析")) return "根因";
+        if (crumb.contains("症状") || crumb.contains("适用")) return "症状";
+        return "参考";
     }
 }

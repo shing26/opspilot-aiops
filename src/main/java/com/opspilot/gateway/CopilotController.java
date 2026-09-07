@@ -153,15 +153,15 @@ public class CopilotController {
         Level level = degrade.current();
         String query = req.query();
 
-        // Level 2：熔断 LLM，直出静态 SOP
+        // Level 2：熔断 LLM，直出静态 SOP（分片流式，保留打字机体验）
         if (level == Level.L2) {
             metrics.sopFallback();
             String sop = sopFallback.lookup(query, req.service());
             String answer = sop != null ? sop : "系统高负载，已触发熔断降级，暂无可用止损清单，请联系值班 SRE。";
             AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false, user.authLevel());
             String json = mapper.writeValueAsString(p);
-            emitMeta(emitter, fp, "none", level, false, 0);
-            emitDelta(emitter, answer);
+            emitMeta(emitter, fp, "none", level, false, false, 0);
+            streamInChunks(emitter, answer);
             emitDone(emitter, t0, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
             return json;
@@ -171,9 +171,22 @@ public class CopilotController {
         String mode = level == Level.L1 ? "es_only" : "hybrid";
         SearchOutcome outcome = searchService.search(query, user.authLevel(), mode);
         List<ScoredChunk> chunks = outcome.chunks();
+
+        // 空态：无任何召回 → 显式拒答，不调用 LLM（省算力 + 不误导）
+        if (chunks.isEmpty()) {
+            String refusal = "当前知识库无相关参考，无法作答。请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
+            AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel());
+            String json = mapper.writeValueAsString(p);
+            emitMeta(emitter, fp, "none", level, false, false, outcome.tookMs());
+            emitDelta(emitter, refusal);
+            emitDone(emitter, t0, List.of());
+            l1.put(user.tenantId(), user.authLevel(), query, json);
+            return json;
+        }
+
         int maxAuth = chunks.stream().mapToInt(ScoredChunk::authLevel).max().orElse(user.authLevel());
 
-        emitMeta(emitter, fp, "none", level, outcome.fastPath(), outcome.tookMs());
+        emitMeta(emitter, fp, "none", level, outcome.fastPath(), false, outcome.tookMs());
 
         // LLM 流式
         metrics.llmCall();
@@ -211,20 +224,28 @@ public class CopilotController {
     private void replay(SseEmitter emitter, String json, String cacheHit, boolean deduplicated,
                         String fp, long t0) throws Exception {
         AnswerPayload p = mapper.readValue(json, AnswerPayload.class);
-        emitMeta(emitter, fp, cacheHit, degrade.current(), deduplicated, 0);
-        emitDelta(emitter, p.answer());
+        emitMeta(emitter, fp, cacheHit, degrade.current(), p.fastPath(), deduplicated, 0);
+        streamInChunks(emitter, p.answer());
         emitDone(emitter, t0, p.refs());
     }
 
     private void emitMeta(SseEmitter emitter, String fp, String cacheHit, Level level,
-                          boolean fastPath, long retrievalMs) {
+                          boolean fastPath, boolean deduplicated, long retrievalMs) {
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("fingerprint", fp);
         meta.put("cache_hit", cacheHit);
         meta.put("degradation_level", level.name());
         meta.put("fast_path", fastPath);
+        meta.put("deduplicated", deduplicated);
         meta.put("retrieval_ms", retrievalMs);
         trySend(emitter, "meta", meta);
+    }
+
+    /** 完整答案分片下发，保留打字机流式体验（缓存回放/降级直出用）。 */
+    private void streamInChunks(SseEmitter emitter, String answer) {
+        for (int i = 0; i < answer.length(); i += 48) {
+            emitDelta(emitter, answer.substring(i, Math.min(i + 48, answer.length())));
+        }
     }
 
     private void emitDelta(SseEmitter emitter, String token) {
