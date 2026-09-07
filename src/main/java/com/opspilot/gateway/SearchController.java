@@ -16,13 +16,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * 非流式纯检索端点：供评测脚本（HitRate/MRR）与降级演示使用，不触发 LLM。
- * mode: hybrid | es_only | vector_only。authLevel<=0 时引擎层不过滤（仅评测内部用）。
+ * mode: hybrid | es_only | vector_only。
+ * 权限：检索密级恒等于 token 的 auth_level，客户端不可覆盖（防越权提权）。
  */
 @RestController
 @RequestMapping("/api/v1/copilot")
 public class SearchController {
 
-    public record SearchReq(String query, String mode, Integer authLevelOverride) {}
+    public record SearchReq(String query, String mode) {}
 
     private final HybridSearchService searchService;
 
@@ -33,7 +34,11 @@ public class SearchController {
     @PostMapping("/search")
     public Map<String, Object> search(@RequestBody SearchReq req, HttpServletRequest http) {
         UserContext user = JwtAuthFilter.from(http);
-        int level = req.authLevelOverride() != null ? req.authLevelOverride() : user.authLevel();
+        if (req.query() == null || req.query().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "query 不能为空");
+        }
+        int level = user.authLevel();
         String mode = req.mode() == null ? "hybrid" : req.mode();
         SearchOutcome outcome = searchService.search(req.query(), level, mode);
         Map<String, Object> resp = new LinkedHashMap<>();

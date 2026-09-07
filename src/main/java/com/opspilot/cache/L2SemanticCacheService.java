@@ -22,7 +22,7 @@ import static io.qdrant.client.VectorsFactory.vectors;
 @Service
 public class L2SemanticCacheService {
 
-    public record CacheHit(String answer, double score) {}
+    public record CacheHit(String payloadJson, double score) {}
 
     private final QdrantClient qdrant;
     private final EmbeddingClient embedding;
@@ -55,7 +55,7 @@ public class L2SemanticCacheService {
             List<Points.ScoredPoint> hits = qdrant.searchAsync(req).get(3, TimeUnit.SECONDS);
             if (hits.isEmpty()) return null;
             Map<String, io.qdrant.client.grpc.JsonWithInt.Value> pl = hits.get(0).getPayloadMap();
-            return new CacheHit(pl.get("answer").getStringValue(), hits.get(0).getScore());
+            return new CacheHit(pl.get("payload_json").getStringValue(), hits.get(0).getScore());
         } catch (Exception e) {
             return null; // 缓存故障不致命
         }
@@ -71,14 +71,14 @@ public class L2SemanticCacheService {
         }
     }
 
-    /** LLM 完整回答结束后才写入（避免半成品入缓存）。 */
-    public void store(String query, float[] queryVector, String answer, int maxAuthLevel) {
+    /** LLM 完整回答结束后才写入（避免半成品入缓存）。payloadJson 含 refs，回放时溯源完整。 */
+    public void store(String query, float[] queryVector, String payloadJson, int maxAuthLevel) {
         try {
             Points.PointStruct point = Points.PointStruct.newBuilder()
                     .setId(id(UUID.randomUUID()))
                     .setVectors(vectors(queryVector))
                     .putPayload("query_text", value(query))
-                    .putPayload("answer", value(answer))
+                    .putPayload("payload_json", value(payloadJson))
                     .putPayload("max_auth_level", value(maxAuthLevel))
                     .putPayload("created_at", value(System.currentTimeMillis()))
                     .build();

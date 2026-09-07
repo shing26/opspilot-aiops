@@ -35,7 +35,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse resp, FilterChain chain)
             throws ServletException, IOException {
         String path = req.getRequestURI();
-        if (!path.startsWith("/api/v1/copilot")) {
+        // 仅放行健康检查等公开路径；copilot 与 admin 均需有效凭证
+        boolean guarded = path.startsWith("/api/v1/copilot") || path.startsWith("/api/v1/admin");
+        if (!guarded) {
             chain.doFilter(req, resp);
             return;
         }

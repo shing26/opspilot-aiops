@@ -97,8 +97,10 @@ public class LlmClient {
         int idx = user.indexOf("【参考上下文】");
         if (idx >= 0) {
             String ctx = user.substring(idx);
-            for (String part : ctx.split("\\[参考\\d+\\] ")) {
-                if (!part.isBlank()) chunks.add(part.trim());
+            // 按 [参考N] 标记切块：split 首段为「【参考上下文】」前言，须丢弃
+            String[] parts = ctx.split("\\[参考\\d+\\] ");
+            for (int i = 1; i < parts.length; i++) {
+                if (!parts[i].isBlank()) chunks.add(parts[i].trim());
             }
         }
         String answer = MockEngine.answer(chunks);

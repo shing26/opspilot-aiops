@@ -80,7 +80,7 @@ public class CopilotController {
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chatStream(@RequestBody ChatRequest req, HttpServletRequest http) {
+    public SseEmitter chatStream(@jakarta.validation.Valid @RequestBody ChatRequest req, HttpServletRequest http) {
         UserContext user = JwtAuthFilter.from(http);
         SseEmitter emitter = new SseEmitter(120_000L);
         metrics.request();
@@ -89,9 +89,9 @@ public class CopilotController {
             try {
                 handle(req, user, emitter);
             } catch (Exception e) {
-                log.warn("stream error: {}", e.getMessage());
-                trySend(emitter, "error", Map.of("message", String.valueOf(e.getMessage())));
-                emitter.completeWithError(e);
+                log.warn("stream error: {}", e.getClass().getSimpleName());
+                trySend(emitter, "error", Map.of("code", "PIPELINE_ERROR", "message", "排障链路异常，请重试或联系值班 SRE"));
+                emitter.complete();
             } finally {
                 degrade.exit();
             }
@@ -131,8 +131,7 @@ public class CopilotController {
             L2SemanticCacheService.CacheHit l2hit = l2.lookup(query, user.authLevel());
             if (l2hit != null) {
                 metrics.l2Hit();
-                AnswerPayload p = new AnswerPayload(l2hit.answer(), List.of(), "cache", false, user.authLevel());
-                String json = mapper.writeValueAsString(p);
+                String json = l2hit.payloadJson();   // 含 refs，回放溯源完整
                 l1.put(user.tenantId(), user.authLevel(), query, json);
                 reg.future().complete(json);
                 replay(emitter, json, "L2", false, fp, t0);
@@ -192,9 +191,9 @@ public class CopilotController {
             AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth);
             String json = mapper.writeValueAsString(p);
             l1.put(user.tenantId(), user.authLevel(), query, json);
-            // L2 写入：复用检索时已算好的 query 向量
+            // L2 写入：存完整 payload（含 refs），复用检索时已算好的 query 向量
             float[] qv = embedding.embedOne(query);
-            l2.store(query, qv, answer, maxAuth);
+            l2.store(query, qv, json, maxAuth);
             emitDone(emitter, t0, refs);
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {

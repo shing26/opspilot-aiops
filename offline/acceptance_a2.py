@@ -45,7 +45,9 @@ def check(name, ok, detail=""):
 
 
 def metrics():
-    with _open(BASE + "/api/v1/admin/metrics", 10) as r:
+    req = urllib.request.Request(_assert_local(BASE + "/api/v1/admin/metrics"), method="GET",
+                                 headers={"Authorization": "Bearer " + L3})
+    with urllib.request.urlopen(req, timeout=10) as r:
         return json.load(r)
 
 
@@ -65,8 +67,8 @@ def flush_cache():
         return json.load(r)
 
 
-# 验收隔离：清空 L1/L2 缓存，避免跨运行残留
-flush_cache()
+# 验收隔离：清空 L1/L2 缓存，避免跨运行残留（复用已校验的 post 辅助）
+post("/api/v1/admin/cache/flush", {}, L3)
 
 # ---- A2-1 SSE 事件序列 ----
 r = stream_chat("支付回调报 50031_MQ_CONSUME_LAG 怎么处理", L3, typewriter=False)

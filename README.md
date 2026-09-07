@@ -102,11 +102,26 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 ## 安全设计
 
 - **凭据零入库**：`DASHSCOPE_API_KEY`/`JWT_SECRET` 仅从环境变量读取，`.env` 已 gitignore。
-- **权限引擎层硬隔离**：`auth_level <= user_level` 注入 ES Query DSL 与 Qdrant Filter，Prompt 越狱无法跨越数据级过滤（实测 5 用例零泄漏）。
-- **缓存不成为泄漏通道**：L1 Key 掺 authLevel；L2 payload 携带 `max_auth_level` 并在检索时过滤。
+- **权限引擎层硬隔离**：`auth_level <= user_level` 注入 ES Query DSL 与 Qdrant Filter，Prompt 越狱无法跨越数据级过滤（实测 5 用例零泄漏）。检索密级恒等于 token 的 auth_level，**客户端不可通过参数覆盖**（QA 红队发现 `authLevelOverride` 提权面后已移除）。
+- **运维端点鉴权**：`/api/v1/admin/**` 需有效 JWT，状态变更（降级/清缓存）额外要求 `auth_level>=3`，杜绝匿名强制降级 DoS。
+- **缓存不成为泄漏通道**：L1 Key 掺 authLevel；L2 payload 携带 `max_auth_level` 并在检索时过滤；L2 命中回放携带完整 refs 保证溯源。
 - **Single-Flight 按权限分组**：key=fingerprint+authLevel，防低权限等待者复用高权限答案。
+- **指纹归一化抗噪**：掩码时间戳/UUID/traceId/msgId/引号串/数字（保留错误码身份），使真实告警变体（每条带唯一 ID）收敛到同一指纹——实测 10 条变体并发 → LLM 仅 1 次。
+- **输入校验与错误卫生**：空/null query 在流开始前返回 400；全局异常处理器屏蔽 JVM 内部文案。
 - **SSRF 防护**：离线客户端/脚本仅允许 localhost 白名单。
 - **哈希升级**：缓存 Key 由任务书原 MD5 升级为 SHA-256（安全扫描建议，语义不变）。
+
+## QA 红队加固记录
+
+首轮验收全绿后，经 Persona-QA-Simulator 黑盒红队发现并修复：
+| 缺陷 | 等级 | 修复 |
+| --- | --- | --- |
+| search `authLevelOverride` 客户端提权 | P0 | 移除该参数，密级恒取 token |
+| `/api/v1/admin/**` 零鉴权 | P0 | JWT + auth_level≥3 门禁 |
+| 指纹归一化不足致真实风暴不收敛 | P1 | 强化噪声掩码管道 + 回归单测 |
+| 缺 query 时 SSE 错误帧损坏 + NPE 泄露 | P1 | @Valid 前置校验 + 全局异常卫生 |
+| degrade 非法枚举 500 | P2 | 白名单校验返回 400 |
+| L2 命中丢 refs / 引用标号错位 | P2 | 缓存存完整 payload + 修正切块 |
 
 ## 面试 STAR 话术
 

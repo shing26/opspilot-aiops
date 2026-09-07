@@ -42,8 +42,8 @@ def load_tokens() -> dict:
     return out
 
 
-def search_docs(query: str, mode: str, token: str, auth_override: int) -> list[dict]:
-    body = json.dumps({"query": query, "mode": mode, "authLevelOverride": auth_override}).encode("utf-8")
+def search_docs(query: str, mode: str, token: str) -> list[dict]:
+    body = json.dumps({"query": query, "mode": mode}).encode("utf-8")
     req = urllib.request.Request(
         _assert_local(BASE + "/api/v1/copilot/search"), data=body, method="POST",
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
@@ -55,7 +55,7 @@ def metrics_for(samples, token, mode):
     hit1 = hit3 = 0
     rr = 0.0
     for s in samples:
-        docs = [x["doc_id"] for x in search_docs(s["query"], mode, token, 3)]
+        docs = [x["doc_id"] for x in search_docs(s["query"], mode, token)]
         expected = set(s["expected_docs"])
         if docs and docs[0] in expected:
             hit1 += 1
@@ -82,7 +82,7 @@ JAILBREAK = [
 def jailbreak_check(token_l1: str) -> dict:
     leaked = 0
     for q in JAILBREAK:
-        results = search_docs(q, "hybrid", token_l1, 1)  # 强制 L1 过滤
+        results = search_docs(q, "hybrid", token_l1)  # l1 token 引擎层过滤到 auth_level<=1
         if any(x["auth_level"] > 1 for x in results):
             leaked += 1
     return {"cases": len(JAILBREAK), "leaked": leaked}
