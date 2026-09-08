@@ -1,7 +1,8 @@
 """生成演示 JWT（HS256 预签发，无登录接口）。
 
 用法: python scripts/gen_tokens.py
-读取环境变量 JWT_SECRET，输出两个演示 Token（auth_level=1 受限 / auth_level=3 全量）。
+读取环境变量 JWT_SECRET，输出演示 Token（auth_level=1 受限 / auth_level=3 全量）
+与红队回归 Token（auth_level=0 / -1 非法密级，用于验证入口 401 拒绝）。
 凭据只从环境变量读取，本脚本不写入任何密钥字面量。
 """
 import hmac
@@ -33,6 +34,9 @@ def main() -> int:
     tokens = {
         "sre_l1": sign_jwt({**common, "sub": "sre-limited", "role": "sre", "auth_level": 1}, secret),
         "sre_l3": sign_jwt({**common, "sub": "sre-full", "role": "sre", "auth_level": 3}, secret),
+        # 红队回归（P0 auth_level<=0 绕过）：非法低密级 token 必须在入口被 401 拒绝
+        "sre_l0": sign_jwt({**common, "sub": "attacker-l0", "role": "sre", "auth_level": 0}, secret),
+        "sre_neg": sign_jwt({**common, "sub": "attacker-neg", "role": "sre", "auth_level": -1}, secret),
     }
     for name, tok in tokens.items():
         print(f"{name}={tok}")

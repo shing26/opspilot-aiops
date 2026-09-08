@@ -28,14 +28,12 @@ public class QdrantSearchService {
 
     public List<ScoredChunk> search(String query, int authLevel, int topK) throws Exception {
         float[] vector = embedding.embedOne(query);
-        Points.Filter filter = authFilter(authLevel);
-
         Points.SearchPoints.Builder req = Points.SearchPoints.newBuilder()
                 .setCollectionName(props.qdrant().collection())
                 .addAllVector(toFloatList(vector))
                 .setLimit(topK)
-                .setWithPayload(Points.WithPayloadSelector.newBuilder().setEnable(true).build());
-        if (filter != null) req.setFilter(filter);
+                .setWithPayload(Points.WithPayloadSelector.newBuilder().setEnable(true).build())
+                .setFilter(authFilter(authLevel));
 
         List<Points.ScoredPoint> hits = qdrant.searchAsync(req.build()).get(5, TimeUnit.SECONDS);
         List<ScoredChunk> out = new ArrayList<>();
@@ -45,14 +43,17 @@ public class QdrantSearchService {
         return out;
     }
 
-    /** auth_level <= user 的 Payload 过滤；authLevel<=0 表示不过滤（内部评测用）。 */
+    /**
+     * auth_level <= user 的 Payload 过滤。恒构建、失败关闭：
+     * authLevel<=0 时边界钳到 lte(0)（库内文档 auth_level>=1，命中空集），
+     * 与 ES 侧 lte(0) 行为一致，杜绝 level-0 token 绕过向量路过滤的提权。
+     */
     static Points.Filter authFilter(int authLevel) {
-        if (authLevel <= 0) return null;
         return Points.Filter.newBuilder()
                 .addMust(Points.Condition.newBuilder()
                         .setField(Points.FieldCondition.newBuilder()
                                 .setKey("metadata.auth_level")
-                                .setRange(Points.Range.newBuilder().setLte(authLevel).build())
+                                .setRange(Points.Range.newBuilder().setLte(Math.max(authLevel, 0)).build())
                                 .build())
                         .build())
                 .build();

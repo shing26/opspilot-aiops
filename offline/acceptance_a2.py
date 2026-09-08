@@ -35,6 +35,8 @@ def _open(url: str, timeout: int = 60):
 TOKENS = load_tokens()
 L3 = TOKENS["sre_l3"]
 L1 = TOKENS["sre_l1"]
+L0 = TOKENS["sre_l0"]      # 红队回归：非法密级 auth_level=0
+LNEG = TOKENS["sre_neg"]   # 红队回归：负数密级 auth_level=-1
 
 results = []
 
@@ -57,6 +59,18 @@ def post(path, body, token):
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=60) as r:
         return json.load(r)
+
+
+def expect_http_status(path, body, token, expected):
+    """断言端点返回指定状态码；返回 (ok, 实际码)。"""
+    req = urllib.request.Request(
+        _assert_local(BASE + path), data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.status == expected, r.status
+    except urllib.error.HTTPError as e:
+        return e.code == expected, e.code
 
 
 def flush_cache():
@@ -129,6 +143,20 @@ visible = any(x["auth_level"] == 3 for x in s_l3["results"])
 check("A2-8 权限硬隔离（L1 零越权 / L3 可见）",
       (not leak) and visible,
       f"L1_leak={leak} L3_sees_level3={visible}")
+
+# ---- A2-8b P0 回归：auth_level<=0 提权边界，入口必须 401（含 /search 与 /chat/stream 两路） ----
+boundary_cases = [
+    ("search/L0", "/api/v1/copilot/search", {"query": "50022_REDIS_CONN_REFUSED", "mode": "hybrid"}, L0),
+    ("search/L-1", "/api/v1/copilot/search", {"query": "50022_REDIS_CONN_REFUSED", "mode": "hybrid"}, LNEG),
+    ("stream/L0", "/api/v1/copilot/chat/stream", {"query": "50022_REDIS_CONN_REFUSED", "source": "manual"}, L0),
+    ("stream/L-1", "/api/v1/copilot/chat/stream", {"query": "50022_REDIS_CONN_REFUSED", "source": "manual"}, LNEG),
+]
+boundary = {name: expect_http_status(path, body, tok, 401)
+            for name, path, body, tok in boundary_cases}
+boundary_ok = all(ok for ok, _ in boundary.values())
+check("A2-8b auth_level<=0 提权边界（4 路全部 401 拒绝）",
+      boundary_ok,
+      " ".join(f"{name}={code}" for name, (_, code) in boundary.items()))
 
 passed = sum(1 for _, ok, _ in results if ok)
 print(f"\n=== A2: {passed}/{len(results)} PASS ===")

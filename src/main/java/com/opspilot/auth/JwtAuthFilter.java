@@ -49,10 +49,16 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         try {
             var claims = Jwts.parser().verifyWith(key).build()
                     .parseSignedClaims(header.substring(7)).getPayload();
+            Integer level = claims.get("auth_level", Integer.class);
+            if (level == null || level < 1) {
+                // 下限校验：auth_level 缺失或 <1 视为非法凭证，防止 level-0 token 提权
+                resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid token");
+                return;
+            }
             UserContext ctx = new UserContext(
                     claims.getSubject(),
                     claims.get("role", String.class),
-                    claims.get("auth_level", Integer.class),
+                    level,
                     claims.get("tenant_id", String.class));
             req.setAttribute(UserContext.REQUEST_ATTR, ctx);
             chain.doFilter(req, resp);
