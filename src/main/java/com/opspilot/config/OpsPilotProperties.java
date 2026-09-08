@@ -36,7 +36,7 @@ public record OpsPilotProperties(
     public record Storm(int windowSeconds, int alertWindowSeconds) {}
 
     public record Retrieval(int esTopK, int qdrantTopK, int rrfK, int rerankTopK,
-                            int finalTopK, int legTimeoutMs) {}
+                            int finalTopK, int legTimeoutMs, double minRelevance) {}
 
     public record Degrade(int inflightThreshold, int llmFailureThreshold, int llmOpenSeconds) {}
 }

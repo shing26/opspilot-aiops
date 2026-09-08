@@ -17,6 +17,7 @@ public class OpsMetrics {
     private final AtomicLong esOnlyRequests = new AtomicLong();
     private final AtomicLong sopFallbacks = new AtomicLong();
     private final AtomicLong retrievalTimeouts = new AtomicLong();
+    private final AtomicLong lowConfidenceRefusals = new AtomicLong();
     private final AtomicLong totalRequests = new AtomicLong();
 
     public void llmCall() { llmCalls.incrementAndGet(); }
@@ -27,6 +28,7 @@ public class OpsMetrics {
     public void esOnly() { esOnlyRequests.incrementAndGet(); }
     public void sopFallback() { sopFallbacks.incrementAndGet(); }
     public void retrievalTimeout() { retrievalTimeouts.incrementAndGet(); }
+    public void lowConfidence() { lowConfidenceRefusals.incrementAndGet(); }
     public void request() { totalRequests.incrementAndGet(); }
 
     public long llmCallsValue() { return llmCalls.get(); }
@@ -42,6 +44,7 @@ public class OpsMetrics {
         m.put("es_only_requests", esOnlyRequests.get());
         m.put("sop_fallbacks", sopFallbacks.get());
         m.put("retrieval_timeouts", retrievalTimeouts.get());
+        m.put("low_confidence_refusals", lowConfidenceRefusals.get());
         return m;
     }
 }

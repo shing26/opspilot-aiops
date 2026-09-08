@@ -45,6 +45,7 @@ opspilot:
     rerank-top-k: 20
     final-top-k: 3
     leg-timeout-ms: 800
+    min-relevance: ${MIN_RELEVANCE:0.2}   # Top-1 相关度低于此值→空态拒答（快路径豁免）
   degrade:
     inflight-threshold: 40
     llm-failure-threshold: 3

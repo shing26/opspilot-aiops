@@ -68,12 +68,29 @@ public final class MockEngine {
         return v;
     }
 
+    /**
+     * Mock 精排分：IDF 加权的查询词元覆盖率（0~1），替代哈希向量余弦。
+     * 乱码/无重叠 → ≈0；含领域词/错误码 → 高。避免哈希碰撞造成的虚高。
+     */
     static double rerankScore(String query, String doc) {
-        float[] a = embed(query, 1024);
-        float[] b = embed(doc, 1024);
-        double dot = 0;
-        for (int i = 0; i < a.length; i++) dot += a[i] * b[i];
-        return dot;
+        java.util.Set<String> qt = unigrams(query);
+        java.util.Set<String> dt = unigrams(doc);
+        if (qt.isEmpty()) return 0;
+        Map<String, Double> idfTable = idf;
+        double total = 0, hit = 0;
+        for (String t : qt) {
+            double w = idfTable == null ? 1.0 : Math.max(idfTable.getOrDefault(t, 0.1), 0.1);
+            total += w;
+            if (dt.contains(t)) hit += w;
+        }
+        return total > 0 ? hit / total : 0;
+    }
+
+    private static java.util.Set<String> unigrams(String text) {
+        java.util.Set<String> s = new java.util.HashSet<>();
+        Matcher m = WORD.matcher(text.toLowerCase());
+        while (m.find()) s.add(m.group());
+        return s;
     }
 
     /** 从召回 chunk 文本组装排障答案：按面包屑关键词分类，逐来源标注出处。 */

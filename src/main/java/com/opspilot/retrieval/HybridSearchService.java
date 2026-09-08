@@ -63,21 +63,28 @@ public class HybridSearchService {
 
         List<ScoredChunk> fused = RrfFuser.apply(esRes, vecRes, cfg.rrfK());
         List<ScoredChunk> top;
+        double topRelevance;
         if (fastPath) {
             top = fused.subList(0, Math.min(cfg.finalTopK(), fused.size()));
+            topRelevance = 1.0;   // 精确符号命中天然高置信
         } else {
-            top = rerankStage(query, fused, cfg);
+            RerankResult rr = rerankStage(query, fused, cfg);
+            top = rr.chunks();
+            // rerank 不可用时不门控（避免误杀），置 1.0；正常则用 Top-1 相关度
+            topRelevance = rr.applied() && !top.isEmpty() ? top.get(0).rerankScore() : 1.0;
         }
         long tookMs = (System.nanoTime() - t0) / 1_000_000;
         String effectiveMode = degraded ? (esRes.isEmpty() ? "vector_only" : "es_only") : mode;
         if (degraded && !esRes.isEmpty()) metrics.esOnly();
-        return new SearchOutcome(top, effectiveMode, fastPath, degraded, tookMs);
+        return new SearchOutcome(top, effectiveMode, fastPath, degraded, topRelevance, tookMs);
     }
 
-    private List<ScoredChunk> rerankStage(String query, List<ScoredChunk> fused,
-                                          OpsPilotProperties.Retrieval cfg) {
+    private record RerankResult(List<ScoredChunk> chunks, boolean applied) {}
+
+    private RerankResult rerankStage(String query, List<ScoredChunk> fused,
+                                     OpsPilotProperties.Retrieval cfg) {
         List<ScoredChunk> candidates = fused.subList(0, Math.min(cfg.rerankTopK(), fused.size()));
-        if (candidates.isEmpty()) return candidates;
+        if (candidates.isEmpty()) return new RerankResult(candidates, false);
         try {
             List<String> docs = candidates.stream().map(ScoredChunk::text).toList();
             List<RerankClient.Ranked> ranked = rerank.rerank(query, docs, cfg.finalTopK());
@@ -85,10 +92,10 @@ public class HybridSearchService {
             for (RerankClient.Ranked r : ranked) {
                 out.add(candidates.get(r.index()).withRerank(r.score()));
             }
-            return out;
+            return new RerankResult(out, true);
         } catch (Exception e) {
-            // Rerank 失败不致命：回退 RRF 顺序
-            return candidates.subList(0, Math.min(cfg.finalTopK(), candidates.size()));
+            // Rerank 失败不致命：回退 RRF 顺序，标记未应用（不触发置信度门控）
+            return new RerankResult(candidates.subList(0, Math.min(cfg.finalTopK(), candidates.size())), false);
         }
     }
 

@@ -172,9 +172,17 @@ public class CopilotController {
         SearchOutcome outcome = searchService.search(query, user.authLevel(), mode);
         List<ScoredChunk> chunks = outcome.chunks();
 
-        // 空态：无任何召回 → 显式拒答，不调用 LLM（省算力 + 不误导）
-        if (chunks.isEmpty()) {
-            String refusal = "当前知识库无相关参考，无法作答。请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
+        // 置信度空态门控：零召回，或非快路径且 Top-1 相关度低于阈值 → 显式拒答，不调 LLM。
+        // 快路径（精确符号命中）天然高置信，豁免门控。
+        double minRel = props.retrieval().minRelevance();
+        boolean lowConfidence = chunks.isEmpty()
+                || (!outcome.fastPath() && outcome.topRelevance() < minRel);
+        if (lowConfidence) {
+            metrics.lowConfidence();
+            String reason = chunks.isEmpty() ? "未匹配到任何参考"
+                    : String.format("检索置信度不足（%.2f<%.2f）", outcome.topRelevance(), minRel);
+            String refusal = "当前知识库无足够相关的参考（" + reason + "），无法可靠作答。"
+                    + "请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
             AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel());
             String json = mapper.writeValueAsString(p);
             emitMeta(emitter, fp, "none", level, false, false, outcome.tookMs());
