@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -161,8 +162,9 @@ public class CopilotController {
             AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false, user.authLevel());
             String json = mapper.writeValueAsString(p);
             emitMeta(emitter, fp, "none", level, false, false, 0);
+            long sopFirstDeltaNano = System.nanoTime();
             streamInChunks(emitter, answer);
-            emitDone(emitter, t0, List.of());
+            emitDone(emitter, t0, sopFirstDeltaNano, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
             return json;
         }
@@ -186,8 +188,9 @@ public class CopilotController {
             AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel());
             String json = mapper.writeValueAsString(p);
             emitMeta(emitter, fp, "none", level, false, false, outcome.tookMs());
+            long refusalNano = System.nanoTime();
             emitDelta(emitter, refusal);
-            emitDone(emitter, t0, List.of());
+            emitDone(emitter, t0, refusalNano, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
             return json;
         }
@@ -199,7 +202,7 @@ public class CopilotController {
         // LLM 流式
         metrics.llmCall();
         StringBuilder full = new StringBuilder();
-        java.util.concurrent.atomic.AtomicLong firstTokenNano = new java.util.concurrent.atomic.AtomicLong(0);
+        AtomicLong firstTokenNano = new AtomicLong(0);
         List<AnswerPayload.Ref> refs = new ArrayList<>();
         for (ScoredChunk c : chunks) {
             refs.add(new AnswerPayload.Ref(c.chunkId(), c.breadcrumb(), c.service()));
@@ -217,8 +220,8 @@ public class CopilotController {
             // L2 写入：存完整 payload（含 refs），复用检索时已算好的 query 向量
             float[] qv = embedding.embedOne(query);
             l2.store(query, qv, json, maxAuth);
-            long ft = firstTokenNano.get() == 0 ? System.nanoTime() : firstTokenNano.get();
-            emitDone(emitter, t0, ft, refs);
+            long ftNano = firstTokenNano.get();
+            emitDone(emitter, t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();
@@ -236,8 +239,9 @@ public class CopilotController {
                         String fp, long t0) throws Exception {
         AnswerPayload p = mapper.readValue(json, AnswerPayload.class);
         emitMeta(emitter, fp, cacheHit, degrade.current(), p.fastPath(), deduplicated, 0);
+        long replayFirstDeltaNano = System.nanoTime();
         streamInChunks(emitter, p.answer());
-        emitDone(emitter, t0, p.refs());
+        emitDone(emitter, t0, replayFirstDeltaNano, p.refs());
     }
 
     private void emitMeta(SseEmitter emitter, String fp, String cacheHit, Level level,
@@ -261,10 +265,6 @@ public class CopilotController {
 
     private void emitDelta(SseEmitter emitter, String token) {
         trySend(emitter, "delta", Map.of("token", token));
-    }
-
-    private void emitDone(SseEmitter emitter, long t0, List<AnswerPayload.Ref> refs) {
-        emitDone(emitter, t0, System.nanoTime(), refs);
     }
 
     private void emitDone(SseEmitter emitter, long t0, long firstTokenNano, List<AnswerPayload.Ref> refs) {

@@ -12,7 +12,7 @@ import org.springframework.stereotype.Service;
 import com.opspilot.config.OpsPilotProperties;
 
 /**
- * L1 精确缓存：key = tenant + authLevel + MD5(normalize(query))，TTL 2h。
+ * L1 精确缓存：key = tenant + authLevel + SHA-256(normalize(query))，TTL 2h。
  * 掺 authLevel 防止不同密级用户串答案（权限隔离延伸）。
  */
 @Service

@@ -39,6 +39,11 @@ public class SearchController {
                     org.springframework.http.HttpStatus.BAD_REQUEST, "query 不能为空");
         }
         int level = user.authLevel();
+        // 纵深防御：JwtAuthFilter 已在入口拒绝 level<1（401）；此处兜底拦截任何绕过 filter 的调用路径
+        if (level < 1) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "auth_level 非法（须 >=1）");
+        }
         String mode = req.mode() == null ? "hybrid" : req.mode();
         if (!java.util.Set.of("hybrid", "es_only", "vector_only").contains(mode)) {
             throw new org.springframework.web.server.ResponseStatusException(
