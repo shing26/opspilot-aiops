@@ -109,9 +109,10 @@ check("A2-4 L2 语义缓存命中（改写查询）",
       f"paraphrase cache_hit={r_b['meta'].get('cache_hit')}")
 
 # ---- A2-5 风暴收敛：500 并发同指纹 → llm_calls +1 ----
+# 锁 P1-4：workers 必须等于任务数，保证 500 个请求真正同窗口并发（而非排队的 100 路）
 m0 = metrics()["llm_calls"]
 storm_q = "org.springframework.jdbc.SQLTransientException error code 50092_THREAD_POOL_EXHAUSTED at com.ordercenter.order.PostOrderExecutor"
-with ThreadPoolExecutor(max_workers=100) as ex:
+with ThreadPoolExecutor(max_workers=500) as ex:
     futs = [ex.submit(stream_chat, storm_q, L3, "alert", "order-service", False) for _ in range(500)]
     [f.result() for f in futs]
 m1 = metrics()

@@ -90,12 +90,19 @@ def main():
     a = Path("load/reports/locust_a.html").exists()
     b = Path("load/reports/locust_b.html").exists()
     check("A3-5 Locust HTML 报告落盘", a and b, f"A={a} B={b}")
-    # A3-6 TTFT 双口径（连接 + 首 token）
+    # A3-6 TTFT 双口径（连接 + 首 token）：客户端观测 vs 服务端 done 事件
     sys.path.insert(0, ".")
     from console_client import stream_chat
     r = stream_chat("订单超时 50012_DB_TIMEOUT 排查", l3, typewriter=False)
-    check("A3-6 TTFT 可测（first_token 口径）", r["ttft_s"] is not None,
-          f"ttft={r['ttft_s']:.3f}s")
+    # 锁 P1-2 语义：done.ttft_ms 必须是 first_token 口径。服务端计时起点在请求到达
+    # 之后，恒 ≤ 客户端观测的首 delta 时刻（+250ms 余量给 SSE 落盘/调度抖动）；
+    # 若回退成"流式结束后才计时"的端到端口径，live 模式下该不等式必然被击穿。
+    server_ttft_ms = r["done"].get("ttft_ms")
+    ttft_consistent = (isinstance(server_ttft_ms, (int, float)) and server_ttft_ms >= 0
+                       and server_ttft_ms <= r["ttft_s"] * 1000 + 250)
+    check("A3-6 TTFT 可测（first_token 口径, 双源一致）",
+          r["ttft_s"] is not None and ttft_consistent,
+          f"client={r['ttft_s']:.3f}s server={server_ttft_ms}ms")
     # A3-7 端到端演示含 refs
     check("A3-7 端到端演示闭环", bool(r["done"].get("refs")), f"refs={len(r['done'].get('refs', []))}")
     # A3-8 物料完备
