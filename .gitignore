@@ -19,10 +19,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# 运行时产物
-offline/corpus/chunks.jsonl
-offline/eval/reports/
-offline/load/reports/
+# 运行时产物（chunks.jsonl 与评测/压测报告按 ADR-0001 / DoD 需入库，不再排除）
 logs/
 *.log
 

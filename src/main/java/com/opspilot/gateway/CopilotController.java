@@ -199,12 +199,14 @@ public class CopilotController {
         // LLM 流式
         metrics.llmCall();
         StringBuilder full = new StringBuilder();
+        java.util.concurrent.atomic.AtomicLong firstTokenNano = new java.util.concurrent.atomic.AtomicLong(0);
         List<AnswerPayload.Ref> refs = new ArrayList<>();
         for (ScoredChunk c : chunks) {
             refs.add(new AnswerPayload.Ref(c.chunkId(), c.breadcrumb(), c.service()));
         }
         try {
             String answer = llm.streamChat(promptAssembler.build(query, chunks), token -> {
+                firstTokenNano.compareAndSet(0, System.nanoTime());
                 full.append(token);
                 emitDelta(emitter, token);
             });
@@ -215,7 +217,8 @@ public class CopilotController {
             // L2 写入：存完整 payload（含 refs），复用检索时已算好的 query 向量
             float[] qv = embedding.embedOne(query);
             l2.store(query, qv, json, maxAuth);
-            emitDone(emitter, t0, refs);
+            long ft = firstTokenNano.get() == 0 ? System.nanoTime() : firstTokenNano.get();
+            emitDone(emitter, t0, ft, refs);
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();
@@ -261,7 +264,11 @@ public class CopilotController {
     }
 
     private void emitDone(SseEmitter emitter, long t0, List<AnswerPayload.Ref> refs) {
-        long ttftMs = (System.nanoTime() - t0) / 1_000_000;
+        emitDone(emitter, t0, System.nanoTime(), refs);
+    }
+
+    private void emitDone(SseEmitter emitter, long t0, long firstTokenNano, List<AnswerPayload.Ref> refs) {
+        long ttftMs = (firstTokenNano - t0) / 1_000_000;
         Map<String, Object> done = new LinkedHashMap<>();
         done.put("ttft_ms", ttftMs);
         done.put("refs", refs);

@@ -1,0 +1,45 @@
+{
+  "embedding_backend": "mock-lexical-hash",
+  "modes": {
+    "es_only": {
+      "exact": {
+        "hit@1": 1.0,
+        "hit@3": 1.0,
+        "mrr": 1.0
+      },
+      "semantic": {
+        "hit@1": 0.72,
+        "hit@3": 1.0,
+        "mrr": 0.8533
+      }
+    },
+    "vector_only": {
+      "exact": {
+        "hit@1": 1.0,
+        "hit@3": 1.0,
+        "mrr": 1.0
+      },
+      "semantic": {
+        "hit@1": 0.8,
+        "hit@3": 1.0,
+        "mrr": 0.8933
+      }
+    },
+    "hybrid": {
+      "exact": {
+        "hit@1": 1.0,
+        "hit@3": 1.0,
+        "mrr": 1.0
+      },
+      "semantic": {
+        "hit@1": 0.8,
+        "hit@3": 1.0,
+        "mrr": 0.8933
+      }
+    }
+  },
+  "jailbreak": {
+    "cases": 5,
+    "leaked": 0
+  }
+}
