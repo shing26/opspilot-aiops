@@ -97,7 +97,6 @@ def chunk_markdown(raw: str, doc_id: str) -> list[dict]:
 
 def chunk_file(path: str) -> list[dict]:
     p = Path(path)
-    doc_id = p.stem.split("-")[0] + "-" + p.stem.split("-")[1] if p.stem.count("-") >= 2 else p.stem
     # doc_id 取形如 pm-001 / rb-001 的前缀
     m = re.match(r"([a-z]+-\d+)", p.stem)
     doc_id = m.group(1) if m else p.stem

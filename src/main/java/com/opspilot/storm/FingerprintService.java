@@ -23,8 +23,21 @@ public class FingerprintService {
     private static final Pattern ID_KV = Pattern.compile("(?i)(msg_?id|trace_?id|request_?id|order_?id|span_?id|txn_?id|[0-9a-f]{6,})\\s*[=:]\\s*\\S+");
     private static final Pattern QUOTED = Pattern.compile("\"[^\"]*\"|'[^']*'");
     private static final Pattern WS = Pattern.compile("\\s+");
-    // 错误码需保留（不同码=不同故障），先抽出占位再归一化其余
+    // 错误码需保留（不同码=不同故障），先抽出占位再归一化其余。
+    // 占位符必须是纯字母（数字会被 NUM 掩码破坏），下标用 26 进制字母编码
+    // （a…z, aa, ab…），突破单字母 26 个上限；« 与 » 不与正文冲突，
+    // 且整段字面匹配保证 «ECa» 不会命中 «ECan»（其后是 'n' 而非 '»'）。
     private static final Pattern ERROR_CODE = Pattern.compile("\\b\\d{5}_[A-Z][A-Z0-9_]*\\b");
+
+    private static String ecToken(int index) {
+        StringBuilder letters = new StringBuilder();
+        int i = index;
+        do {
+            letters.insert(0, (char) ('a' + i % 26));
+            i = i / 26 - 1;
+        } while (i >= 0);
+        return "«EC" + letters + "»";
+    }
 
     public String normalizeError(String msg) {
         String s = msg == null ? "" : msg;
@@ -34,7 +47,7 @@ public class FingerprintService {
         StringBuffer sb = new StringBuffer();
         while (ec.find()) {
             codes.add(ec.group());
-            ec.appendReplacement(sb, "«EC" + (char) ('a' + codes.size() - 1) + "»");
+            ec.appendReplacement(sb, ecToken(codes.size() - 1));
         }
         ec.appendTail(sb);
         s = sb.toString();
@@ -48,7 +61,7 @@ public class FingerprintService {
         s = WS.matcher(s.trim()).replaceAll(" ");
         // 3) 还原错误码
         for (int i = 0; i < codes.size(); i++) {
-            s = s.replace("«EC" + (char) ('a' + i) + "»", codes.get(i));
+            s = s.replace(ecToken(i), codes.get(i));
         }
         return s;
     }

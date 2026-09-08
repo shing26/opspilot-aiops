@@ -1,6 +1,7 @@
 """自动化评测：3 检索模式 × (HitRate@1, HitRate@3, MRR) + 越狱权限验证。
 
-调用在线 /api/v1/copilot/search（authLevelOverride=3 放开全密级以测召回质量）。
+调用在线 /api/v1/copilot/search，用 L3 token 放开全密级以测召回质量
+（检索密级恒取 token auth_level，authLevelOverride 参数已因提权面移除）。
 输出 eval/reports/eval_report.json 与 markdown 对比表。
 安全：URL 固定 localhost 且经校验，路径经 resolve 限定目录。
 """

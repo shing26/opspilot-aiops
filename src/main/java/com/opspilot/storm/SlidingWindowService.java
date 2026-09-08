@@ -40,9 +40,4 @@ public class SlidingWindowService {
         zset.expire(Duration.ofSeconds(windowSec + 10L));
         return new WindowResult(size == 0, size);
     }
-
-    public long windowCount(String fingerprint) {
-        RScoredSortedSet<String> zset = redisson.getScoredSortedSet("storm:win:" + fingerprint);
-        return zset.size();
-    }
 }

@@ -29,8 +29,4 @@ public class SingleFlightRegistry {
     public void finish(String key, CompletableFuture<String> future) {
         flights.remove(key, future);
     }
-
-    public int inFlightCount() {
-        return flights.size();
-    }
 }

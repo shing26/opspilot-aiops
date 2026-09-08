@@ -8,7 +8,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 import javax.crypto.SecretKey;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -16,7 +15,9 @@ import com.opspilot.config.OpsPilotProperties;
 
 /**
  * 鉴权拦截器：解析 Bearer JWT，注入 UserContext。
- * /api/v1/admin/** 与 /actuator 放行（仅本机演示）；/api/v1/copilot/** 强制凭证。
+ * /api/v1/copilot/** 与 /api/v1/admin/** 均需有效凭证；auth_level claim 必须存在且 >=1
+ * （level<=0 一律 401，防签发低密级 token 绕过检索过滤提权）；
+ * admin 状态变更端点在 Controller 层另有 auth_level>=3 门禁。
  */
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
@@ -70,9 +71,5 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     /** 供 Controller 便捷取用。 */
     public static UserContext from(HttpServletRequest req) {
         return (UserContext) req.getAttribute(UserContext.REQUEST_ATTR);
-    }
-
-    static List<String> roles() {
-        return List.of("sre", "dev", "manager");
     }
 }

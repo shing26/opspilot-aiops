@@ -58,9 +58,11 @@ public class LlmClient {
 
             HttpResponse<java.io.InputStream> resp =
                     http.send(req, HttpResponse.BodyHandlers.ofInputStream());
-            if (resp.statusCode() == 429) throw new LlmRateLimitedException();
-            if (resp.statusCode() != 200) {
-                throw new RuntimeException("LLM HTTP " + resp.statusCode());
+            int status = resp.statusCode();
+            if (status != 200) {
+                closeQuietly(resp.body());   // 错误分支不排空/关闭 body 会泄漏连接
+                if (status == 429) throw new LlmRateLimitedException();
+                throw new RuntimeException("LLM HTTP " + status);
             }
 
             StringBuilder full = new StringBuilder();
@@ -87,6 +89,15 @@ public class LlmClient {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException("LLM 调用失败: " + e.getMessage(), e);
+        }
+    }
+
+    private static void closeQuietly(java.io.Closeable c) {
+        if (c == null) return;
+        try {
+            c.close();
+        } catch (java.io.IOException ignored) {
+            // 关闭失败不影响错误传播
         }
     }
 

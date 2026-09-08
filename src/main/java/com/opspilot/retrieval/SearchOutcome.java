@@ -8,6 +8,6 @@ public record SearchOutcome(
         String mode,          // hybrid | es_only | vector_only
         boolean fastPath,     // 精确符号快路径（跳过 Rerank）
         boolean degraded,     // 是否有检索路超时被丢弃
-        double topRelevance,  // 置信度：快路径=1.0；否则 Top-1 rerank 分；es_only 无 rerank 用 esScore 归一
+        double topRelevance,  // 置信度门控输入：快路径 / es_only / rerank 不可用 = 1.0（不门控）；否则 Top-1 rerank 分
         long tookMs
 ) {}

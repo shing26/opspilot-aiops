@@ -41,7 +41,7 @@ Redis ZSET 实现的 30s 去重窗口（alert 来源可配更长），窗口内�
 ### 缓存域
 
 **L1 精确缓存**:
-`tenant + authLevel + MD5(normalize(query))` 为 Key 的 Redis 哈希缓存，TTL 2h。_Avoid_: 热缓存
+`tenant + authLevel + SHA-256(normalize(query))` 为 Key 的 Redis 哈希缓存，TTL 2h。_Avoid_: 热缓存
 
 **L2 语义缓存**:
 Qdrant 专属 Collection，余弦相似度 > 0.95 判定命中，跳过检索与 LLM 直接回放答案；payload 携带 `max_auth_level` 防权限泄漏。_Avoid_: 向量缓存

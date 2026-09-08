@@ -73,14 +73,6 @@ def expect_http_status(path, body, token, expected):
         return e.code == expected, e.code
 
 
-def flush_cache():
-    req = urllib.request.Request(_assert_local(BASE + "/api/v1/admin/cache/flush"),
-                                 data=b"{}", method="POST",
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
-
-
 # 验收隔离：清空 L1/L2 缓存，避免跨运行残留（复用已校验的 post 辅助）
 post("/api/v1/admin/cache/flush", {}, L3)
 
