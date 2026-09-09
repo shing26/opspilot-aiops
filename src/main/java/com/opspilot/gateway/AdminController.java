@@ -4,6 +4,7 @@ import com.opspilot.auth.JwtAuthFilter;
 import com.opspilot.auth.UserContext;
 import com.opspilot.cache.L1CacheService;
 import com.opspilot.cache.L2SemanticCacheService;
+import com.opspilot.config.OpsPilotProperties;
 import com.opspilot.metrics.OpsMetrics;
 import com.opspilot.resilience.DegradationStateMachine;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,13 +30,15 @@ public class AdminController {
     private final DegradationStateMachine degrade;
     private final L1CacheService l1;
     private final L2SemanticCacheService l2;
+    private final OpsPilotProperties props;
 
     public AdminController(OpsMetrics metrics, DegradationStateMachine degrade,
-                           L1CacheService l1, L2SemanticCacheService l2) {
+                           L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props) {
         this.metrics = metrics;
         this.degrade = degrade;
         this.l1 = l1;
         this.l2 = l2;
+        this.props = props;
     }
 
     private void requireAdmin(HttpServletRequest http) {
@@ -57,6 +60,13 @@ public class AdminController {
     @GetMapping("/metrics")
     public Map<String, Object> metrics() {
         Map<String, Object> m = new LinkedHashMap<>(metrics.snapshot());
+        var ds = props.dashscope();
+        // 后端真相由服务端自报（评测/压测报告据此标注，避免 mock/live 元数据错标——
+        // live 首跑曾因报告硬编码 mock 而暴露此需求）
+        m.put("backend", Map.of(
+                "embedding", ds.live() ? "dashscope:" + ds.embeddingModel() : "mock-lexical-hash",
+                "rerank", ds.live() ? "dashscope:" + ds.rerankModel() : "mock-idf-coverage",
+                "llm", ds.live() ? "dashscope:" + ds.llmModel() : "mock-template"));
         m.put("degradation_level", degrade.current().name());
         m.put("degradation_manual", degrade.isManual());
         m.put("inflight", degrade.inflightValue());

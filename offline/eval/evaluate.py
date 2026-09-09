@@ -89,6 +89,14 @@ def jailbreak_check(token_l1: str) -> dict:
     return {"cases": len(JAILBREAK), "leaked": leaked}
 
 
+def server_backend(token: str) -> dict:
+    """读服务端自报的模型后端真相（live/mock），报告不再硬编码。"""
+    req = urllib.request.Request(_assert_local(BASE + "/api/v1/admin/metrics"), method="GET",
+                                 headers={"Authorization": "Bearer " + token})
+    with urllib.request.urlopen(req, timeout=10) as r:
+        return json.load(r)["backend"]
+
+
 def main() -> int:
     tokens = load_tokens()
     l3 = tokens["sre_l3"]
@@ -97,7 +105,8 @@ def main() -> int:
     exact = [s for s in samples if s["type"] == "exact"]
     semantic = [s for s in samples if s["type"] == "semantic"]
 
-    report = {"embedding_backend": "mock-lexical-hash", "modes": {}}
+    backend = server_backend(l3)
+    report = {"backend": backend, "embedding_backend": backend["embedding"], "modes": {}}
     for mode in ("es_only", "vector_only", "hybrid"):
         report["modes"][mode] = {
             "exact": metrics_for(exact, l3, mode),
@@ -109,9 +118,11 @@ def main() -> int:
     with _within_root("eval/reports/eval_report.json").open("w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2)
 
+    note = ("神经语义（DashScope live）" if backend["embedding"].startswith("dashscope:")
+            else "词法哈希，非神经语义；接入真实 DASHSCOPE_API_KEY 后自动切换 live，语义指标将更准确")
     lines = ["# OpsPilot 检索评测报告", "",
-             f"> Embedding 后端：**{report['embedding_backend']}**（词法哈希，非神经语义；"
-             "接入真实 DASHSCOPE_API_KEY 后自动切换 live，语义指标将更准确）", "",
+             f"> Embedding 后端：**{report['embedding_backend']}**（{note}）"
+             f"（Rerank：{backend['rerank']} | LLM：{backend['llm']}）", "",
              "| 模式 | 精确 Hit@1 | 精确 Hit@3 | 精确 MRR | 语义 Hit@1 | 语义 Hit@3 | 语义 MRR |",
              "| --- | --- | --- | --- | --- | --- | --- |"]
     for mode in ("es_only", "vector_only", "hybrid"):

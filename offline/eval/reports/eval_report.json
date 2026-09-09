@@ -1,5 +1,10 @@
 {
-  "embedding_backend": "mock-lexical-hash",
+  "backend": {
+    "llm": "dashscope:qwen-plus",
+    "embedding": "dashscope:text-embedding-v3",
+    "rerank": "dashscope:gte-rerank-v2"
+  },
+  "embedding_backend": "dashscope:text-embedding-v3",
   "modes": {
     "es_only": {
       "exact": {
@@ -20,9 +25,9 @@
         "mrr": 1.0
       },
       "semantic": {
-        "hit@1": 0.8,
+        "hit@1": 0.88,
         "hit@3": 1.0,
-        "mrr": 0.8933
+        "mrr": 0.94
       }
     },
     "hybrid": {
@@ -32,9 +37,9 @@
         "mrr": 1.0
       },
       "semantic": {
-        "hit@1": 0.8,
+        "hit@1": 0.88,
         "hit@3": 1.0,
-        "mrr": 0.8933
+        "mrr": 0.94
       }
     }
   },

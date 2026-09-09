@@ -19,7 +19,7 @@ opspilot:
     mode: ${DASHSCOPE_MODE:auto}   # auto=有Key走live否则mock | live | mock
     embedding-model: text-embedding-v3
     embedding-dim: 1024
-    rerank-model: gte-rerank
+    rerank-model: ${RERANK_MODEL:gte-rerank-v2}   # 旧 gte-rerank 已停授权(403)，v2 为同族直升，min-relevance 分数分布兼容
     llm-model: qwen-plus
     llm-timeout-seconds: 60
   es:
@@ -44,7 +44,7 @@ opspilot:
     rrf-k: 60
     rerank-top-k: 20
     final-top-k: 3
-    leg-timeout-ms: 800
+    leg-timeout-ms: ${LEG_TIMEOUT_MS:4500}   # mock 时代 800ms；live 实测 DashScope embedding 2.2-3.7s，取观测 P99+检索余量
     min-relevance: ${MIN_RELEVANCE:0.2}   # Top-1 相关度低于此值→空态拒答（快路径豁免）
   degrade:
     inflight-threshold: 40
