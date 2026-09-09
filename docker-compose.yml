@@ -1,21 +1,25 @@
 # OpsPilot 本地中间件栈
 # 内存预算：ES 768m + Qdrant 512m + Redis 128m ≈ 1.4GB ≤ 2GB 上限
+# P3 生产基线：全部服务启用认证 + 端口仅绑定 127.0.0.1（防同机/局域网匿名直连绕权限）
+# 凭据只从 .env 注入（compose 自动读同目录 .env）；缺失时 compose 启动即报错，不会静默裸奔
 services:
   redis:
     image: redis:7-alpine
     container_name: opspilot-redis
-    command: redis-server --maxmemory 96mb --maxmemory-policy allkeys-lru --save ""
+    command: redis-server --maxmemory 96mb --maxmemory-policy allkeys-lru --save "" --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD 未设置（.env）}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     mem_limit: 128m
     restart: unless-stopped
 
   qdrant:
     image: qdrant/qdrant:v1.12.4
     container_name: opspilot-qdrant
+    environment:
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?QDRANT_API_KEY 未设置（.env）}
     ports:
-      - "6333:6333"   # REST
-      - "6334:6334"   # gRPC
+      - "127.0.0.1:6333:6333"   # REST
+      - "127.0.0.1:6334:6334"   # gRPC
     volumes:
       - qdrant-data:/qdrant/storage
     mem_limit: 512m
@@ -27,20 +31,22 @@ services:
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
-      - xpack.security.enabled=false
+      - xpack.security.enabled=true          # P3：开启原生认证（basic 免费档）
+      - xpack.security.http.ssl.enabled=false # 内网单机不上 TLS（决策见 ADR-0005）
       - xpack.ml.enabled=false
       - bootstrap.memory_lock=false
+      - ELASTIC_PASSWORD=${ES_PASSWORD:?ES_PASSWORD 未设置（.env）}
     ulimits:
       memlock:
         soft: -1
         hard: -1
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
     volumes:
       - es-data:/usr/share/elasticsearch/data
     mem_limit: 768m
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      test: ["CMD-SHELL", "curl -s -u elastic:${ES_PASSWORD} http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
       interval: 10s
       timeout: 5s
       retries: 30

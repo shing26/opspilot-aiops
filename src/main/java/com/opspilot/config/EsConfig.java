@@ -14,7 +14,19 @@ public class EsConfig {
 
     @Bean
     public RestClient esRestClient(OpsPilotProperties props) {
-        return RestClient.builder(HttpHost.create(props.es().uri())).build();
+        HttpHost host = HttpHost.create(props.es().uri());
+        org.elasticsearch.client.RestClientBuilder builder = RestClient.builder(host);
+        // P3：xpack security 形态下 Basic 认证；口令空保持无认证（CI/本地）
+        String pass = props.es().password();
+        if (pass != null && !pass.isBlank()) {
+            org.apache.http.impl.client.BasicCredentialsProvider creds =
+                    new org.apache.http.impl.client.BasicCredentialsProvider();
+            creds.setCredentials(
+                    new org.apache.http.auth.AuthScope(host.getHostName(), host.getPort()),
+                    new org.apache.http.auth.UsernamePasswordCredentials(props.es().username(), pass));
+            builder = builder.setHttpClientConfigCallback(c -> c.setDefaultCredentialsProvider(creds));
+        }
+        return builder.build();
     }
 
     @Bean

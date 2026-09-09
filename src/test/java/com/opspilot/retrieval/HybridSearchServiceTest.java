@@ -36,8 +36,8 @@ class HybridSearchServiceTest {
         vt = Executors.newVirtualThreadPerTaskExecutor();
         props = new OpsPilotProperties(
                 new OpsPilotProperties.DashScope("http://mock", "", "m", 1024, "m", "m", 30, "mock"),
-                new OpsPilotProperties.Es("http://localhost:9200", "idx"),
-                new OpsPilotProperties.Qdrant("localhost", 6334, "c", "cache"),
+                new OpsPilotProperties.Es("http://localhost:9200", "idx", "elastic", ""),
+                new OpsPilotProperties.Qdrant("localhost", 6334, "c", "cache", ""),
                 new OpsPilotProperties.Jwt("secret", 3600),
                 new OpsPilotProperties.Cache(2, 0.95),
                 new OpsPilotProperties.Storm(30, 60),

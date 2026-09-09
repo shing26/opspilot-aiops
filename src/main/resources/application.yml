@@ -20,6 +20,7 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}   # P3：中间件凭据只从环境注入；空=无认证（CI/单测形态）
 
 opspilot:
   dashscope:
@@ -34,11 +35,14 @@ opspilot:
   es:
     uri: http://${ES_HOST:localhost}:9200
     index: opspilot-chunks
+    username: ${ES_USER:elastic}
+    password: ${ES_PASSWORD:}        # P3：xpack security 开启后必填；空=本地无认证形态
   qdrant:
     host: ${QDRANT_HOST:localhost}
     grpc-port: 6334
     collection: opspilot-vectors
     cache-collection: semantic-cache
+    api-key: ${QDRANT_API_KEY:}      # P3：REST/gRPC 共用；空=无认证形态
   jwt:
     secret: ${JWT_SECRET:}
     ttl-seconds: ${JWT_TTL_SECONDS:86400}   # P2：短时凭证 24h（吊销靠每请求查库，不靠短 TTL 兜底）

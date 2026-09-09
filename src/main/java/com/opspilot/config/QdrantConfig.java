@@ -10,9 +10,12 @@ public class QdrantConfig {
 
     @Bean
     public QdrantClient qdrantClient(OpsPilotProperties props) {
-        QdrantGrpcClient grpc = QdrantGrpcClient.newBuilder(props.qdrant().host(), props.qdrant().grpcPort(), false)
-                .withTimeout(java.time.Duration.ofSeconds(5))
-                .build();
-        return new QdrantClient(grpc);
+        QdrantGrpcClient.Builder b = QdrantGrpcClient
+                .newBuilder(props.qdrant().host(), props.qdrant().grpcPort(), false)
+                .withTimeout(java.time.Duration.ofSeconds(5));
+        // P3：凭据存在才附加（空=CI/本地无认证形态）；api-key 同护 REST 与 gRPC
+        String apiKey = props.qdrant().apiKey();
+        if (apiKey != null && !apiKey.isBlank()) b.withApiKey(apiKey);
+        return new QdrantClient(b.build());
     }
 }

@@ -25,9 +25,9 @@ public record OpsPilotProperties(
         }
     }
 
-    public record Es(String uri, String index) {}
+    public record Es(String uri, String index, String username, String password) {}
 
-    public record Qdrant(String host, int grpcPort, String collection, String cacheCollection) {}
+    public record Qdrant(String host, int grpcPort, String collection, String cacheCollection, String apiKey) {}
 
     public record Jwt(String secret, long ttlSeconds) {}
 
