@@ -9,7 +9,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class RrfFuserTest {
 
     private static ScoredChunk c(String id) {
-        return new ScoredChunk(id, id, "test", "t", "b", "s", List.of(), 1, 0, 0, 0, 0);
+        return new ScoredChunk(id, id, "test", "t", "b", "s", List.of(), 1,
+                new ScoredChunk.Scores(0, 0, 0, 0));
     }
 
     @Test

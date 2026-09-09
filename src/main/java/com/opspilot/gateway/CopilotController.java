@@ -22,9 +22,7 @@ import com.opspilot.storm.FingerprintService;
 import com.opspilot.storm.SingleFlightRegistry;
 import com.opspilot.storm.SlidingWindowService;
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.IOException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -64,6 +62,7 @@ public class CopilotController {
     private final OpsMetrics metrics;
     private final ExecutorService vt;
     private final OpsPilotProperties props;
+    private final SseEvents events;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public CopilotController(L1CacheService l1, L2SemanticCacheService l2,
@@ -72,12 +71,13 @@ public class CopilotController {
                              EmbeddingClient embedding, LlmClient llm, PromptAssembler promptAssembler,
                              DegradationStateMachine degrade, SopFallbackService sopFallback,
                              OpsMetrics metrics, ExecutorService virtualThreadExecutor,
-                             OpsPilotProperties props) {
+                             OpsPilotProperties props, SseEvents events) {
         this.l1 = l1; this.l2 = l2; this.fingerprintService = fingerprintService;
         this.slidingWindow = slidingWindow; this.singleFlight = singleFlight;
         this.searchService = searchService; this.embedding = embedding; this.llm = llm;
         this.promptAssembler = promptAssembler; this.degrade = degrade; this.sopFallback = sopFallback;
         this.metrics = metrics; this.vt = virtualThreadExecutor; this.props = props;
+        this.events = events;
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -91,7 +91,7 @@ public class CopilotController {
                 handle(req, user, emitter);
             } catch (Exception e) {
                 log.warn("stream error: {}", e.getClass().getSimpleName());
-                trySend(emitter, "error", Map.of("code", "PIPELINE_ERROR", "message", "排障链路异常，请重试或联系值班 SRE"));
+                events.trySend(emitter, "error", Map.of("code", "PIPELINE_ERROR", "message", "排障链路异常，请重试或联系值班 SRE"));
                 emitter.complete();
             } finally {
                 degrade.exit();
@@ -161,10 +161,10 @@ public class CopilotController {
             String answer = sop != null ? sop : "系统高负载，已触发熔断降级，暂无可用止损清单，请联系值班 SRE。";
             AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false, user.authLevel());
             String json = mapper.writeValueAsString(p);
-            emitMeta(emitter, fp, "none", level, false, false, 0);
+            events.emitMeta(emitter, fp, "none", level, false, false, 0);
             long sopFirstDeltaNano = System.nanoTime();
-            streamInChunks(emitter, answer);
-            emitDone(emitter, t0, sopFirstDeltaNano, List.of());
+            events.streamInChunks(emitter, answer);
+            events.emitDone(emitter, t0, sopFirstDeltaNano, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
             return json;
         }
@@ -187,17 +187,17 @@ public class CopilotController {
                     + "请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
             AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel());
             String json = mapper.writeValueAsString(p);
-            emitMeta(emitter, fp, "none", level, false, false, outcome.tookMs());
+            events.emitMeta(emitter, fp, "none", level, false, false, outcome.tookMs());
             long refusalNano = System.nanoTime();
-            emitDelta(emitter, refusal);
-            emitDone(emitter, t0, refusalNano, List.of());
+            events.emitDelta(emitter, refusal);
+            events.emitDone(emitter, t0, refusalNano, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
             return json;
         }
 
         int maxAuth = chunks.stream().mapToInt(ScoredChunk::authLevel).max().orElse(user.authLevel());
 
-        emitMeta(emitter, fp, "none", level, outcome.fastPath(), false, outcome.tookMs());
+        events.emitMeta(emitter, fp, "none", level, outcome.fastPath(), false, outcome.tookMs());
 
         // LLM 流式
         metrics.llmCall();
@@ -211,7 +211,7 @@ public class CopilotController {
             String answer = llm.streamChat(promptAssembler.build(query, chunks), token -> {
                 firstTokenNano.compareAndSet(0, System.nanoTime());
                 full.append(token);
-                emitDelta(emitter, token);
+                events.emitDelta(emitter, token);
             });
             degrade.llmSuccess();
             AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth);
@@ -221,7 +221,7 @@ public class CopilotController {
             float[] qv = embedding.embedOne(query);
             l2.store(query, qv, json, maxAuth);
             long ftNano = firstTokenNano.get();
-            emitDone(emitter, t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
+            events.emitDone(emitter, t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();
@@ -233,54 +233,13 @@ public class CopilotController {
         }
     }
 
-    // ---- SSE 事件原语 ----
-
+    /** 缓存回放 / Single-Flight 共享答案 → 分片打字机下发（SSE 帧格式见 SseEvents）。 */
     private void replay(SseEmitter emitter, String json, String cacheHit, boolean deduplicated,
                         String fp, long t0) throws Exception {
         AnswerPayload p = mapper.readValue(json, AnswerPayload.class);
-        emitMeta(emitter, fp, cacheHit, degrade.current(), p.fastPath(), deduplicated, 0);
+        events.emitMeta(emitter, fp, cacheHit, degrade.current(), p.fastPath(), deduplicated, 0);
         long replayFirstDeltaNano = System.nanoTime();
-        streamInChunks(emitter, p.answer());
-        emitDone(emitter, t0, replayFirstDeltaNano, p.refs());
-    }
-
-    private void emitMeta(SseEmitter emitter, String fp, String cacheHit, Level level,
-                          boolean fastPath, boolean deduplicated, long retrievalMs) {
-        Map<String, Object> meta = new LinkedHashMap<>();
-        meta.put("fingerprint", fp);
-        meta.put("cache_hit", cacheHit);
-        meta.put("degradation_level", level.name());
-        meta.put("fast_path", fastPath);
-        meta.put("deduplicated", deduplicated);
-        meta.put("retrieval_ms", retrievalMs);
-        trySend(emitter, "meta", meta);
-    }
-
-    /** 完整答案分片下发，保留打字机流式体验（缓存回放/降级直出用）。 */
-    private void streamInChunks(SseEmitter emitter, String answer) {
-        for (int i = 0; i < answer.length(); i += 48) {
-            emitDelta(emitter, answer.substring(i, Math.min(i + 48, answer.length())));
-        }
-    }
-
-    private void emitDelta(SseEmitter emitter, String token) {
-        trySend(emitter, "delta", Map.of("token", token));
-    }
-
-    private void emitDone(SseEmitter emitter, long t0, long firstTokenNano, List<AnswerPayload.Ref> refs) {
-        long ttftMs = (firstTokenNano - t0) / 1_000_000;
-        Map<String, Object> done = new LinkedHashMap<>();
-        done.put("ttft_ms", ttftMs);
-        done.put("refs", refs);
-        trySend(emitter, "done", done);
-        emitter.complete();
-    }
-
-    private void trySend(SseEmitter emitter, String event, Object data) {
-        try {
-            emitter.send(SseEmitter.event().name(event).data(data, MediaType.APPLICATION_JSON));
-        } catch (IOException | IllegalStateException e) {
-            log.debug("SSE send failed (client gone): {}", e.getMessage());
-        }
+        events.streamInChunks(emitter, p.answer());
+        events.emitDone(emitter, t0, replayFirstDeltaNano, p.refs());
     }
 }

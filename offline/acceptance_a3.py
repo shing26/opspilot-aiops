@@ -1,6 +1,6 @@
 """A3 综合验收：检索质量阈值 + 越狱零泄漏 + 压测报告 + 端到端演示 + 物料完备。
 
-运行目录：offline/。仅访问本机服务。
+运行目录：offline/（golden_dataset 与报告/物料路径按此约定解析）。仅访问本机服务。
 """
 from __future__ import annotations
 
@@ -8,21 +8,13 @@ import json
 import os
 import subprocess
 import sys
-import urllib.request
 from pathlib import Path
-from urllib.parse import urlparse
+
+sys.path.insert(0, os.path.dirname(__file__))
+import localapi as api  # noqa: E402  # HTTP/token 辅助单一事实源（token 路径已 cwd 无关）
 
 ROOT = Path.cwd().resolve()
-BASE = "http://localhost:8081"
-_ALLOWED = {"localhost", "127.0.0.1"}
 results = []
-
-
-def _assert_local(url):
-    p = urlparse(url)
-    if p.scheme != "http" or p.hostname not in _ALLOWED:
-        raise ValueError(f"仅允许本机: {url}")
-    return url
 
 
 def check(name, ok, detail=""):
@@ -30,23 +22,8 @@ def check(name, ok, detail=""):
     print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}")
 
 
-def load_tokens():
-    out = {}
-    with open("../scripts/demo_tokens.txt", encoding="utf-8") as fh:
-        for line in fh:
-            if "=" in line:
-                k, v = line.strip().split("=", 1)
-                out[k] = v
-    return out
-
-
-def search_docs(query, mode, token):
-    body = json.dumps({"query": query, "mode": mode}).encode()
-    req = urllib.request.Request(_assert_local(BASE + "/api/v1/copilot/search"), data=body,
-                                 method="POST", headers={"Authorization": "Bearer " + token,
-                                                         "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)["results"]
+load_tokens = api.load_tokens
+search_docs = api.search_docs
 
 
 def main():

@@ -6,31 +6,13 @@ A2-2 RRF 由 JUnit 单测覆盖；A2-7 超时隔离由停 Qdrant 容器验证。
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
-import urllib.request
-import urllib.error
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.dirname(__file__))
 from console_client import load_tokens, stream_chat  # noqa: E402
-
-_ALLOWED = {"localhost", "127.0.0.1", "::1"}
-BASE = "http://localhost:8081"  # 固定本机，不接受外部输入
-
-
-def _assert_local(url: str) -> str:
-    p = urlparse(url)
-    if p.scheme != "http" or p.hostname not in _ALLOWED:
-        raise ValueError(f"验收脚本仅允许本机 http 服务，拒绝: {url}")
-    return url
-
-
-def _open(url: str, timeout: int = 60):
-    return urllib.request.urlopen(_assert_local(url), timeout=timeout)
-
+import localapi as api  # noqa: E402  # 共享 HTTP/token 辅助（单一事实源）
 
 TOKENS = load_tokens()
 L3 = TOKENS["sre_l3"]
@@ -47,30 +29,11 @@ def check(name, ok, detail=""):
 
 
 def metrics():
-    req = urllib.request.Request(_assert_local(BASE + "/api/v1/admin/metrics"), method="GET",
-                                 headers={"Authorization": "Bearer " + L3})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return json.load(r)
+    return api.get_json("/api/v1/admin/metrics", L3)
 
 
-def post(path, body, token):
-    req = urllib.request.Request(
-        _assert_local(BASE + path), data=json.dumps(body).encode("utf-8"), method="POST",
-        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        return json.load(r)
-
-
-def expect_http_status(path, body, token, expected):
-    """断言端点返回指定状态码；返回 (ok, 实际码)。"""
-    req = urllib.request.Request(
-        _assert_local(BASE + path), data=json.dumps(body).encode("utf-8"), method="POST",
-        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            return r.status == expected, r.status
-    except urllib.error.HTTPError as e:
-        return e.code == expected, e.code
+post = api.post_json                       # noqa: E402  本机校验内嵌于 localapi
+expect_http_status = api.expect_http_status  # noqa: E402  A2-8b 提权边界用
 
 
 # 验收隔离：清空 L1/L2 缓存，避免跨运行残留（复用已校验的 post 辅助）
@@ -91,7 +54,7 @@ check("A2-3 L1 精确缓存命中",
       f"first={r1['meta'].get('cache_hit')} second={r2['meta'].get('cache_hit')}")
 
 # ---- A2-4 L2 语义缓存（近义改写，L1 不命中但向量余弦 >0.95）----
-# 注：mock 为词法向量，此处用高重叠改写验证 L2 机制；神经语义缓存需真实 Key。
+# mock/live 双后端均适用：词法向量靠高重叠命中，神经向量（text-embedding-v3）真余弦命中。
 q_a = "下单接口报 50012_DB_TIMEOUT 怎么排查"
 q_b = "下单接口报 50012_DB_TIMEOUT 怎么排查啊"
 stream_chat(q_a, L3, typewriter=False)

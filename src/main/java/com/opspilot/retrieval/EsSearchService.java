@@ -83,7 +83,6 @@ public class EsSearchService {
                 (String) meta.getOrDefault("service", ""),
                 (List<String>) meta.getOrDefault("error_codes", List.of()),
                 ((Number) meta.getOrDefault("auth_level", 1)).intValue(),
-                h.score() == null ? 0 : h.score(),
-                0, 0, 0);
+                new ScoredChunk.Scores(h.score() == null ? 0 : h.score(), 0, 0, 0));
     }
 }

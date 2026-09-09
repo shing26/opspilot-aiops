@@ -32,16 +32,8 @@ def _safe_base(url: str) -> str:
 
 BASE = _safe_base(os.environ.get("OPSPILOT_BASE", "http://localhost:8081"))
 
-
-def load_tokens() -> dict:
-    p = os.path.join(os.path.dirname(__file__), "..", "scripts", "demo_tokens.txt")
-    out = {}
-    with open(p, encoding="utf-8") as f:
-        for line in f:
-            if "=" in line:
-                k, v = line.strip().split("=", 1)
-                out[k] = v
-    return out
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from localapi import load_tokens  # noqa: E402,F401  # 共享单一事实源（re-export 保持既有 import 点不变）
 
 
 def stream_chat(query: str, token: str, source: str = "manual",

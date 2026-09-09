@@ -62,11 +62,12 @@ public class HybridSearchService {
                 && esRes.get(0).errorCodes().contains(codes.get(0));
 
         List<ScoredChunk> fused = RrfFuser.apply(esRes, vecRes, cfg.rrfK());
-        // L1 降级 = es_only（手动锁定或向量路超时后仅存 ES），按 spec 摘除 Rerank
-        boolean esOnly = mode.equals("es_only") || (degraded && vecRes.isEmpty());
+        // L1 降级 = es_only（手动锁定或向量路超时后仅存 ES），按 spec 摘除 Rerank。
+        // 变量按真实语义命名：命中即"本次不调 Rerank"，而非字面"只有 ES"。
+        boolean noRerank = mode.equals("es_only") || (degraded && vecRes.isEmpty());
         List<ScoredChunk> top;
         double topRelevance;
-        if (fastPath || esOnly) {
+        if (fastPath || noRerank) {
             top = fused.subList(0, Math.min(cfg.finalTopK(), fused.size()));
             topRelevance = 1.0;   // 快路径精确命中 / 降级纯 ES：best-effort 不做 rerank 门控
         } else {

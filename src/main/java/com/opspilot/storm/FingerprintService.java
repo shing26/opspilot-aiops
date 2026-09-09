@@ -27,7 +27,9 @@ public class FingerprintService {
     // 占位符必须是纯字母（数字会被 NUM 掩码破坏），下标用 26 进制字母编码
     // （a…z, aa, ab…），突破单字母 26 个上限；« 与 » 不与正文冲突，
     // 且整段字面匹配保证 «ECa» 不会命中 «ECan»（其后是 'n' 而非 '»'）。
-    private static final Pattern ERROR_CODE = Pattern.compile("\\b\\d{5}_[A-Z][A-Z0-9_]*\\b");
+    // 错误码词法单一事实源在 EsSearchService.ERROR_CODE（fast-path/指纹共用同一形状）。
+    private static final java.util.regex.Pattern ERROR_CODE =
+            com.opspilot.retrieval.EsSearchService.ERROR_CODE;
 
     private static String ecToken(int index) {
         StringBuilder letters = new StringBuilder();

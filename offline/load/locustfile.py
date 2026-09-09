@@ -24,12 +24,11 @@ assert _p.scheme == "http" and _p.hostname in _ALLOWED, f"仅允许本机: {BASE
 
 TOKEN = os.environ.get("OPSPILOT_TOKEN", "")
 if not TOKEN:
-    # 从 demo_tokens.txt 读取（固定相对路径）
-    _tp = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "demo_tokens.txt")
-    with open(_tp, encoding="utf-8") as fh:
-        for line in fh:
-            if line.startswith("sre_l3="):
-                TOKEN = line.strip().split("=", 1)[1]
+    # token 读取去重至 localapi.load_tokens（cwd 无关）；OPSPILOT_BASE 覆盖为压测特需，保留本文件局部
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    import localapi
+    TOKEN = localapi.load_tokens()["sre_l3"]
 
 SCENARIO = os.environ.get("SCENARIO", "hot")
 

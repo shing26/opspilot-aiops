@@ -83,7 +83,7 @@ public class QdrantSearchService {
                 str(pl.get("text")), str(pl.get("breadcrumb")),
                 str(mf.get("service")), codes,
                 mf.get("auth_level") == null ? 1 : (int) mf.get("auth_level").getIntegerValue(),
-                0, p.getScore(), 0, 0);
+                new ScoredChunk.Scores(0, p.getScore(), 0, 0));
     }
 
     private static String str(io.qdrant.client.grpc.JsonWithInt.Value v) {

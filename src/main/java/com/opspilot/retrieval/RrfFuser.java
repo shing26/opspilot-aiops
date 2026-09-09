@@ -46,7 +46,8 @@ public final class RrfFuser {
             ScoredChunk v = vecById.get(e.getKey());
             out.add(new ScoredChunk(base.chunkId(), base.docId(), base.type(), base.text(),
                     base.breadcrumb(), base.service(), base.errorCodes(), base.authLevel(),
-                    base.esScore(), v == null ? 0 : v.vectorScore(), e.getValue(), 0));
+                    new ScoredChunk.Scores(base.esScore(), v == null ? 0 : v.vectorScore(),
+                            e.getValue(), 0)));
         }
         return out;
     }

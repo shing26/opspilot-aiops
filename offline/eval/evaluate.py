@@ -8,20 +8,14 @@
 from __future__ import annotations
 
 import json
-import urllib.request
+import os
+import sys
 from pathlib import Path
-from urllib.parse import urlparse
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import localapi as api  # noqa: E402  # 共享 HTTP/token 辅助（单一事实源）
 
 ROOT = Path.cwd().resolve()
-BASE = "http://localhost:8081"
-_ALLOWED = {"localhost", "127.0.0.1", "::1"}
-
-
-def _assert_local(url: str) -> str:
-    p = urlparse(url)
-    if p.scheme != "http" or p.hostname not in _ALLOWED:
-        raise ValueError(f"仅允许本机 http 服务，拒绝: {url}")
-    return url
 
 
 def _within_root(rel: str) -> Path:
@@ -33,23 +27,8 @@ def _within_root(rel: str) -> Path:
     return p
 
 
-def load_tokens() -> dict:
-    out = {}
-    with open("../scripts/demo_tokens.txt", encoding="utf-8") as fh:
-        for line in fh:
-            if "=" in line:
-                k, v = line.strip().split("=", 1)
-                out[k] = v
-    return out
-
-
-def search_docs(query: str, mode: str, token: str) -> list[dict]:
-    body = json.dumps({"query": query, "mode": mode}).encode("utf-8")
-    req = urllib.request.Request(
-        _assert_local(BASE + "/api/v1/copilot/search"), data=body, method="POST",
-        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)["results"]
+load_tokens = api.load_tokens
+search_docs = api.search_docs
 
 
 def metrics_for(samples, token, mode):
@@ -91,10 +70,7 @@ def jailbreak_check(token_l1: str) -> dict:
 
 def server_backend(token: str) -> dict:
     """读服务端自报的模型后端真相（live/mock），报告不再硬编码。"""
-    req = urllib.request.Request(_assert_local(BASE + "/api/v1/admin/metrics"), method="GET",
-                                 headers={"Authorization": "Bearer " + token})
-    with urllib.request.urlopen(req, timeout=10) as r:
-        return json.load(r)["backend"]
+    return api.get_json("/api/v1/admin/metrics", token)["backend"]
 
 
 def main() -> int:

@@ -51,7 +51,8 @@ class HybridSearchServiceTest {
     }
 
     private static ScoredChunk c(String id) {
-        return new ScoredChunk(id, id, "runbook", "text-" + id, "bc", "svc", List.of(), 1, 1.0, 0, 0, 0);
+        return new ScoredChunk(id, id, "runbook", "text-" + id, "bc", "svc", List.of(), 1,
+                new ScoredChunk.Scores(1.0, 0, 0, 0));
     }
 
     private static List<String> ids(SearchOutcome out) {
