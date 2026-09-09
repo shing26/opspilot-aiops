@@ -129,7 +129,7 @@ public class CopilotController {
                 replay(emitter, cached, "L1", false, fp, t0);
                 return;
             }
-            L2SemanticCacheService.CacheHit l2hit = l2.lookup(query, user.authLevel());
+            L2SemanticCacheService.CacheHit l2hit = l2.lookup(query, user.tenantId(), user.authLevel());
             if (l2hit != null) {
                 metrics.l2Hit();
                 String json = l2hit.payloadJson();   // 含 refs，回放溯源完整
@@ -157,9 +157,9 @@ public class CopilotController {
         // Level 2：熔断 LLM，直出静态 SOP（分片流式，保留打字机体验）
         if (level == Level.L2) {
             metrics.sopFallback();
-            String sop = sopFallback.lookup(query, req.service());
+            String sop = sopFallback.lookup(query, req.service(), user.tenantId());
             String answer = sop != null ? sop : "系统高负载，已触发熔断降级，暂无可用止损清单，请联系值班 SRE。";
-            AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false, user.authLevel());
+            AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false, user.authLevel(), user.tenantId());
             String json = mapper.writeValueAsString(p);
             events.emitMeta(emitter, fp, "none", level, false, false, 0);
             long sopFirstDeltaNano = System.nanoTime();
@@ -171,7 +171,7 @@ public class CopilotController {
 
         // 检索（L1 降级走 es_only）
         String mode = level == Level.L1 ? "es_only" : "hybrid";
-        SearchOutcome outcome = searchService.search(query, user.authLevel(), mode);
+        SearchOutcome outcome = searchService.search(query, user.tenantId(), user.authLevel(), mode);
         List<ScoredChunk> chunks = outcome.chunks();
 
         // 置信度空态门控：零召回，或非快路径且 Top-1 相关度低于阈值 → 显式拒答，不调 LLM。
@@ -185,7 +185,7 @@ public class CopilotController {
                     : String.format("检索置信度不足（%.2f<%.2f）", outcome.topRelevance(), minRel);
             String refusal = "当前知识库无足够相关的参考（" + reason + "），无法可靠作答。"
                     + "请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
-            AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel());
+            AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel(), user.tenantId());
             String json = mapper.writeValueAsString(p);
             events.emitMeta(emitter, fp, "none", level, false, false, outcome.tookMs());
             long refusalNano = System.nanoTime();
@@ -214,12 +214,12 @@ public class CopilotController {
                 events.emitDelta(emitter, token);
             });
             degrade.llmSuccess();
-            AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth);
+            AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth, user.tenantId());
             String json = mapper.writeValueAsString(p);
             l1.put(user.tenantId(), user.authLevel(), query, json);
             // L2 写入：存完整 payload（含 refs），复用检索时已算好的 query 向量
             float[] qv = embedding.embedOne(query);
-            l2.store(query, qv, json, maxAuth);
+            l2.store(query, qv, json, maxAuth, user.tenantId());
             long ftNano = firstTokenNano.get();
             events.emitDone(emitter, t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
             return json;

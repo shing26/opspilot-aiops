@@ -50,7 +50,7 @@ public class SearchController {
                     org.springframework.http.HttpStatus.BAD_REQUEST,
                     "mode 仅允许 hybrid|es_only|vector_only");
         }
-        SearchOutcome outcome = searchService.search(req.query(), level, mode);
+        SearchOutcome outcome = searchService.search(req.query(), user.tenantId(), level, mode);
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("mode", outcome.mode());
         resp.put("fast_path", outcome.fastPath());

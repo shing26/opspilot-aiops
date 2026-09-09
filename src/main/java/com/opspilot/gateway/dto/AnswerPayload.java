@@ -13,7 +13,8 @@ public record AnswerPayload(
         List<Ref> refs,
         String mode,
         boolean fastPath,
-        int maxAuthLevel
+        int maxAuthLevel,
+        String tenant
 ) {
     public record Ref(String chunkId, String breadcrumb, String service) {}
 }

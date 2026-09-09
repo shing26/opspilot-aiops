@@ -20,6 +20,7 @@ public record Chunk(
             String method,
             List<String> errorCodes,
             int authLevel,
-            String env
+            String env,
+            String tenant
     ) {}
 }

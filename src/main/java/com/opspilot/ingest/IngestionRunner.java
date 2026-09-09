@@ -79,7 +79,16 @@ public class IngestionRunner implements ApplicationRunner {
         try (BufferedReader r = Files.newBufferedReader(Path.of(chunksPath))) {
             String line;
             while ((line = r.readLine()) != null) {
-                if (!line.isBlank()) out.add(mapper.readValue(line, Chunk.class));
+                if (line.isBlank()) continue;
+                Chunk c = mapper.readValue(line, Chunk.class);
+                // P1 租户显式化 fail-closed：缺 tenant 的 chunk 拒绝入库——一旦入库就是
+                // "过滤 term 永不命中该文档"的静默丢失，比启动期报错难发现得多
+                if (c.metadata() == null || c.metadata().tenant() == null
+                        || c.metadata().tenant().isBlank()) {
+                    throw new IllegalStateException(
+                            "chunk 缺少 metadata.tenant，拒绝入库: " + c.chunkId());
+                }
+                out.add(c);
             }
         }
         return out;
@@ -105,14 +114,16 @@ public class IngestionRunner implements ApplicationRunner {
                                 .properties("method", pp -> pp.keyword(k -> k))
                                 .properties("error_codes", pp -> pp.keyword(k -> k))
                                 .properties("auth_level", pp -> pp.integer(i -> i))
-                                .properties("env", pp -> pp.keyword(k -> k))))));
+                                .properties("env", pp -> pp.keyword(k -> k))
+                                .properties("tenant", pp -> pp.keyword(k -> k))))));
         log.info("ES 索引已建: {}", index);
     }
 
     private void createQdrantCollections() throws Exception {
         recreateCollection(props.qdrant().collection());
         recreateCollection(props.qdrant().cacheCollection());
-        // Payload 索引：doc_id/service keyword、auth_level integer、缓存集合 max_auth_level integer
+        // Payload 索引：doc_id/service/tenant keyword、auth_level integer、
+        // 缓存集合 tenant keyword + max_auth_level integer（L2 双硬过滤维度）
         qdrant.createPayloadIndexAsync(props.qdrant().collection(), "doc_id",
                 Collections.PayloadSchemaType.Keyword, null, null, null,
                 java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
@@ -121,6 +132,12 @@ public class IngestionRunner implements ApplicationRunner {
                 java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
         qdrant.createPayloadIndexAsync(props.qdrant().collection(), "metadata.auth_level",
                 Collections.PayloadSchemaType.Integer, null, null, null,
+                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
+        qdrant.createPayloadIndexAsync(props.qdrant().collection(), "metadata.tenant",
+                Collections.PayloadSchemaType.Keyword, null, null, null,
+                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
+        qdrant.createPayloadIndexAsync(props.qdrant().cacheCollection(), "tenant",
+                Collections.PayloadSchemaType.Keyword, null, null, null,
                 java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
         qdrant.createPayloadIndexAsync(props.qdrant().cacheCollection(), "max_auth_level",
                 Collections.PayloadSchemaType.Integer, null, null, null,
@@ -167,6 +184,7 @@ public class IngestionRunner implements ApplicationRunner {
                                             .map(io.qdrant.client.ValueFactory::value).toList()))
                                     .putFields("auth_level", value(c.metadata().authLevel()))
                                     .putFields("env", value(str(c.metadata().env())))
+                                    .putFields("tenant", value(str(c.metadata().tenant())))
                                     .build())
                             .build();
             Map<String, io.qdrant.client.grpc.JsonWithInt.Value> payload = new LinkedHashMap<>();
@@ -200,25 +218,32 @@ public class IngestionRunner implements ApplicationRunner {
         meta.put("error_codes", c.metadata().errorCodes());
         meta.put("auth_level", c.metadata().authLevel());
         meta.put("env", c.metadata().env());
+        meta.put("tenant", c.metadata().tenant());
         m.put("metadata", meta);
         return m;
     }
 
     private static String str(String s) { return s == null ? "" : s; }
 
-    /** Level 2 兜底：止损步骤按 doc 与 error_code 双维度预热进 Redis。 */
+    /** Level 2 兜底：止损步骤按 doc 与 error_code 双维度预热进 Redis（P1：键按租户分片，杜绝跨租户 SOP 泄漏）。 */
     private void warmSop(List<Chunk> chunks) {
-        var steps = redisson.getMap("sop:steps");
-        steps.clear();
+        // 先清后写（按租户分片）：避免重建后残留已删除文档的旧 SOP
+        java.util.Set<String> tenants = chunks.stream()
+                .map(c -> c.metadata().tenant()).collect(java.util.stream.Collectors.toSet());
+        for (String t : tenants) {
+            redisson.getKeys().getKeysStreamByPattern("sop:" + t + ":*").forEach(k -> redisson.getKeys().delete(k));
+        }
         for (Chunk c : chunks) {
             if (c.breadcrumb() != null && c.breadcrumb().contains("止损操作")) {
+                String tenant = c.metadata().tenant();
+                var steps = redisson.getMap("sop:" + tenant + ":steps");
                 steps.put(c.docId(), c.text());
                 for (String code : c.metadata().errorCodes()) {
-                    redisson.getSet("sop:code:" + code).add(c.docId());
+                    redisson.getSet("sop:" + tenant + ":code:" + code).add(c.docId());
                 }
-                redisson.getSet("sop:service:" + c.metadata().service()).add(c.docId());
+                redisson.getSet("sop:" + tenant + ":service:" + c.metadata().service()).add(c.docId());
             }
         }
-        log.info("SOP 预热完成: {} 篇止损清单", steps.size());
+        log.info("SOP 预热完成（按租户分片）");
     }
 }

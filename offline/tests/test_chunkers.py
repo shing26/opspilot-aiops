@@ -116,3 +116,17 @@ def test_error_code_lexicon_matches_java():
     java_pattern = m.group(1).replace("\\\\", "\\")
     assert errorcode.ERROR_CODE_RE.pattern == java_pattern, (
         f"词法漂移: py={errorcode.ERROR_CODE_RE.pattern!r} java={java_pattern!r}")
+
+
+def test_tenant_explicit_on_every_chunk():
+    """P1 租户显式化：每个 chunk 的 metadata.tenant 必须非空——
+    在线 IngestionRunner 对缺 tenant 的 chunk fail-closed，产出不完整 JSONL 会被拒。"""
+    all_chunks = []
+    for _, cs in _all_md_chunks():
+        all_chunks.extend(cs)
+    for j in sorted((CORPUS / "openapi").glob("*.json")):
+        all_chunks.extend(oa.chunk_file(str(j), doc_id=j.stem))
+    assert all_chunks, "语料为空"
+    bad = [c["chunk_id"] for c in all_chunks
+           if not str(c["metadata"].get("tenant") or "").strip()]
+    assert not bad, f"缺 tenant 的 chunk: {bad[:5]}"

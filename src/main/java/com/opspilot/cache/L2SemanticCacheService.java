@@ -16,8 +16,9 @@ import static io.qdrant.client.VectorsFactory.vectors;
 
 /**
  * L2 语义缓存：复用检索时已算好的 Query 向量查专属 Collection，
- * 余弦 > 0.95 判定命中直接回放答案。payload 携带 max_auth_level，
- * 检索时硬过滤——语义缓存本身不能成为权限泄漏通道。
+ * 余弦 > 0.95 判定命中直接回放答案。payload 携带 tenant + max_auth_level，
+ * 检索时双硬过滤——语义缓存本身不能成为权限或租户的泄漏通道（P1：缓存串租户
+ * 与权限泄漏同级，回放前必须等值命中请求方 tenant）。
  */
 @Service
 public class L2SemanticCacheService {
@@ -34,7 +35,7 @@ public class L2SemanticCacheService {
         this.props = props;
     }
 
-    public CacheHit lookup(String query, int authLevel) {
+    public CacheHit lookup(String query, String tenant, int authLevel) {
         try {
             float[] vector = embedding.embedOne(query);
             Points.SearchPoints req = Points.SearchPoints.newBuilder()
@@ -43,6 +44,13 @@ public class L2SemanticCacheService {
                     .setLimit(1)
                     .setScoreThreshold((float) props.cache().l2Threshold())
                     .setFilter(Points.Filter.newBuilder()
+                            .addMust(Points.Condition.newBuilder()
+                                    .setField(Points.FieldCondition.newBuilder()
+                                            .setKey("tenant")
+                                            .setMatch(Points.Match.newBuilder()
+                                                    .setKeyword(tenant == null ? "" : tenant).build())
+                                            .build())
+                                    .build())
                             .addMust(Points.Condition.newBuilder()
                                     .setField(Points.FieldCondition.newBuilder()
                                             .setKey("max_auth_level")
@@ -72,7 +80,7 @@ public class L2SemanticCacheService {
     }
 
     /** LLM 完整回答结束后才写入（避免半成品入缓存）。payloadJson 含 refs，回放时溯源完整。 */
-    public void store(String query, float[] queryVector, String payloadJson, int maxAuthLevel) {
+    public void store(String query, float[] queryVector, String payloadJson, int maxAuthLevel, String tenant) {
         try {
             Points.PointStruct point = Points.PointStruct.newBuilder()
                     .setId(id(UUID.randomUUID()))
@@ -80,6 +88,7 @@ public class L2SemanticCacheService {
                     .putPayload("query_text", value(query))
                     .putPayload("payload_json", value(payloadJson))
                     .putPayload("max_auth_level", value(maxAuthLevel))
+                    .putPayload("tenant", value(tenant == null ? "" : tenant))
                     .putPayload("created_at", value(System.currentTimeMillis()))
                     .build();
             qdrant.upsertAsync(props.qdrant().cacheCollection(), List.of(point)).get(5, TimeUnit.SECONDS);

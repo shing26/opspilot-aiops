@@ -10,6 +10,7 @@ import json
 import re
 
 from errorcode import ERROR_CODE_RE  # 与在线 Java 词法同源，见 errorcode.py
+from defaults import DEFAULT_TENANT
 
 HTTP_METHODS = ("get", "post", "put", "delete", "patch", "head")
 
@@ -64,6 +65,7 @@ def chunk_openapi(spec: dict, doc_id: str = "openapi-order-center") -> list[dict
                         "error_codes": error_codes,
                         "auth_level": 1,
                         "env": "prod",
+                        "tenant": DEFAULT_TENANT,
                     },
                 }
             )

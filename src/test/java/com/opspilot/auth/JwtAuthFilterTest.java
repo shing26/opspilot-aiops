@@ -35,6 +35,15 @@ class JwtAuthFilterTest {
         return builder.signWith(KEY).compact();
     }
 
+    /** tenant claim 变体签发（P1 边界：缺失/空/超长必须 401，杜绝 null 进缓存 key/过滤参数）。 */
+    private static String tokenWithTenant(String tenant) {
+        var builder = Jwts.builder().subject("sre-test").claim("role", "sre")
+                .claim("auth_level", 1)
+                .expiration(new Date(System.currentTimeMillis() + 60_000));
+        if (tenant != null) builder.claim("tenant_id", tenant);
+        return builder.signWith(KEY).compact();
+    }
+
     private MockHttpServletResponse dispatch(String bearer, MockFilterChain chain) throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/v1/copilot/search");
         if (bearer != null) req.addHeader("Authorization", "Bearer " + bearer);
@@ -74,6 +83,33 @@ class JwtAuthFilterTest {
     void missingAuthLevelClaimIsRejected401() throws Exception {
         MockFilterChain chain = new MockFilterChain();
         MockHttpServletResponse resp = dispatch(tokenWithLevel(null), chain);
+        assertEquals(401, resp.getStatus());
+        assertNull(chain.getRequest());
+    }
+
+    @Test
+    void validTenantReachesContext() throws Exception {
+        MockFilterChain chain = new MockFilterChain();
+        MockHttpServletResponse resp = dispatch(tokenWithTenant("tenant-demo"), chain);
+        assertEquals(200, resp.getStatus());
+        UserContext ctx = (UserContext) chain.getRequest().getAttribute(UserContext.REQUEST_ATTR);
+        assertEquals("tenant-demo", ctx.tenantId());
+    }
+
+    @Test
+    void missingOrBlankTenantRejected401() throws Exception {
+        for (String t : new String[]{null, "", "   "}) {
+            MockFilterChain chain = new MockFilterChain();
+            MockHttpServletResponse resp = dispatch(tokenWithTenant(t), chain);
+            assertEquals(401, resp.getStatus(), "tenant=[" + t + "] 必须 401");
+            assertNull(chain.getRequest(), "tenant 非法不得进入下游");
+        }
+    }
+
+    @Test
+    void overlongTenantRejected401() throws Exception {
+        MockFilterChain chain = new MockFilterChain();
+        MockHttpServletResponse resp = dispatch(tokenWithTenant("t".repeat(65)), chain);
         assertEquals(401, resp.getStatus());
         assertNull(chain.getRequest());
     }

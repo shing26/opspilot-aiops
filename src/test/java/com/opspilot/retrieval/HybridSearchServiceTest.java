@@ -65,9 +65,9 @@ class HybridSearchServiceTest {
 
     @Test
     void esOnlyModeSkipsRerankAndKeepsEsOrder() throws Exception {
-        when(es.search(anyString(), anyInt(), anyInt())).thenReturn(List.of(c("A"), c("B"), c("C")));
+        when(es.search(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of(c("A"), c("B"), c("C")));
         // 无错误码符号的查询：不触发快路径，rerank 与否完全由降级分支决定
-        SearchOutcome out = service().search("数据库连接池耗尽的排查步骤", 1, "es_only");
+        SearchOutcome out = service().search("数据库连接池耗尽的排查步骤", "tenant-demo", 1, "es_only");
 
         verifyNoInteractions(rerank);
         assertEquals(List.of("A", "B", "C"), ids(out));
@@ -79,13 +79,13 @@ class HybridSearchServiceTest {
 
     @Test
     void hybridModeAppliesRerankOrderAndRelevance() throws Exception {
-        when(es.search(anyString(), anyInt(), anyInt())).thenReturn(List.of(c("A"), c("B"), c("C")));
-        when(qdrant.search(anyString(), anyInt(), anyInt())).thenReturn(List.of());
+        when(es.search(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of(c("A"), c("B"), c("C")));
+        when(qdrant.search(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of());
         when(rerank.rerank(anyString(), anyList(), anyInt())).thenReturn(List.of(
                 new RerankClient.Ranked(2, 0.9), new RerankClient.Ranked(0, 0.4),
                 new RerankClient.Ranked(1, 0.1)));
 
-        SearchOutcome out = service().search("数据库连接池耗尽的排查步骤", 1, "hybrid");
+        SearchOutcome out = service().search("数据库连接池耗尽的排查步骤", "tenant-demo", 1, "hybrid");
 
         verify(rerank, times(1)).rerank(anyString(), anyList(), eq(3)); // finalTopK
         assertEquals(List.of("C", "A", "B"), ids(out));                 // 精排序覆盖 RRF 序

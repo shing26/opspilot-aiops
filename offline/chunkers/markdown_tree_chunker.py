@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from errorcode import ERROR_CODE_RE  # 与在线 Java 词法同源，见 errorcode.py
+from defaults import DEFAULT_TENANT
 
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 HEADING_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
@@ -90,6 +91,7 @@ def chunk_markdown(raw: str, doc_id: str) -> list[dict]:
                     "error_codes": error_codes,
                     "auth_level": int(meta.get("auth_level", 1)),
                     "env": meta.get("env", "prod"),
+                    "tenant": str(meta.get("tenant") or DEFAULT_TENANT),  # front matter 可覆盖
                 },
             }
         )

@@ -33,6 +33,11 @@ public class L1CacheService {
     }
 
     public String key(String tenantId, int authLevel, String query) {
+        // 纵深防御（P1）：tenant 校验主闸门在 JwtAuthFilter（缺失/空/超长→401），
+        // 这里 fail-fast 兜底，确保 null 租户永远不会拼进缓存 key 造成跨租户串答案。
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("L1 缓存 key 拒绝空租户（上游鉴权应已 401）");
+        }
         String hash = sha256(normalize(query));
         return "cache:l1:" + tenantId + ":" + authLevel + ":" + hash;
     }

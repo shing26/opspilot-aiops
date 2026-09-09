@@ -14,6 +14,7 @@ import com.opspilot.metrics.OpsMetrics;
 /**
  * 双路并行召回编排：CompletableFuture（虚拟线程）+ 单路超时隔离 + RRF + Rerank。
  * mode: hybrid | es_only | vector_only（评测对比开关，A3-3 验收依据）。
+ * tenant+authLevel 恒透传两路引擎做硬过滤（权限第一/二道闸，见各 SearchService）。
  */
 @Service
 public class HybridSearchService {
@@ -36,17 +37,17 @@ public class HybridSearchService {
         this.props = props;
     }
 
-    public SearchOutcome search(String query, int authLevel, String mode) {
+    public SearchOutcome search(String query, String tenant, int authLevel, String mode) {
         long t0 = System.nanoTime();
         var cfg = props.retrieval();
         boolean useEs = !mode.equals("vector_only");
         boolean useVector = mode.equals("hybrid") || mode.equals("vector_only");
 
         CompletableFuture<List<ScoredChunk>> esF = useEs
-                ? supply(() -> es.search(query, authLevel, cfg.esTopK()))
+                ? supply(() -> es.search(query, tenant, authLevel, cfg.esTopK()))
                 : CompletableFuture.completedFuture(List.of());
         CompletableFuture<List<ScoredChunk>> vecF = useVector
-                ? supply(() -> qdrant.search(query, authLevel, cfg.qdrantTopK()))
+                ? supply(() -> qdrant.search(query, tenant, authLevel, cfg.qdrantTopK()))
                 : CompletableFuture.completedFuture(List.of());
 
         List<ScoredChunk> esRes = joinSafe(esF, cfg.legTimeoutMs());

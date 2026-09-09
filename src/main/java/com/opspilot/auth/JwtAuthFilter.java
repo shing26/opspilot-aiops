@@ -15,8 +15,9 @@ import com.opspilot.config.OpsPilotProperties;
 
 /**
  * 鉴权拦截器：解析 Bearer JWT，注入 UserContext。
- * /api/v1/copilot/** 与 /api/v1/admin/** 均需有效凭证；auth_level claim 必须存在且 >=1
- * （level<=0 一律 401，防签发低密级 token 绕过检索过滤提权）；
+ * /api/v1/copilot/** 与 /api/v1/admin/** 均需有效凭证；auth_level claim 必须存在且 >=1、
+ * tenant_id 必须非空非空白且 ≤64 字符（任一非法一律 401——检索双条件硬过滤、L1 key、
+ * L2 回放都以 (tenant, auth_level) 为维度，入口保证二者真实存在）。
  * admin 状态变更端点在 Controller 层另有 auth_level>=3 门禁。
  */
 @Component
@@ -56,11 +57,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                 resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid token");
                 return;
             }
+            String tenant = claims.get("tenant_id", String.class);
+            if (tenant == null || tenant.isBlank() || tenant.length() > 64) {
+                // P1 租户显式化：tenant 缺失/空/超长一律拒绝——检索双条件过滤、L1 key、
+                // L2 回放都以 tenant 为硬维度，入口必须保证它真实存在
+                resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid token");
+                return;
+            }
             UserContext ctx = new UserContext(
                     claims.getSubject(),
                     claims.get("role", String.class),
                     level,
-                    claims.get("tenant_id", String.class));
+                    tenant);
             req.setAttribute(UserContext.REQUEST_ATTR, ctx);
             chain.doFilter(req, resp);
         } catch (Exception e) {

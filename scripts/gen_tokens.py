@@ -29,14 +29,24 @@ def main() -> int:
     if not secret:
         print("ERROR: JWT_SECRET 环境变量未设置", file=sys.stderr)
         return 1
-    exp = int(time.time()) + 365 * 24 * 3600  # 一年有效（演示）
-    common = {"iss": "opspilot", "exp": exp, "tenant_id": "tenant-demo"}
+    exp = int(time.time()) + 365 * 24 * 3600  # 一年有效（演示；P2 账号体系上线后本工具退役为应急件）
+    common = {"iss": "opspilot", "exp": exp, "tenant_id": "tenant-internal"}  # 与 chunker DEFAULT_TENANT 对齐
     tokens = {
         "sre_l1": sign_jwt({**common, "sub": "sre-limited", "role": "sre", "auth_level": 1}, secret),
         "sre_l3": sign_jwt({**common, "sub": "sre-full", "role": "sre", "auth_level": 3}, secret),
         # 红队回归（P0 auth_level<=0 绕过）：非法低密级 token 必须在入口被 401 拒绝
         "sre_l0": sign_jwt({**common, "sub": "attacker-l0", "role": "sre", "auth_level": 0}, secret),
         "sre_neg": sign_jwt({**common, "sub": "attacker-neg", "role": "sre", "auth_level": -1}, secret),
+        # 红队回归（P1 租户显式化）：跨租户账号可登录但检索必须零命中；
+        # 畸形 tenant claim 必须 401（tenant_id 缺省 "" 与在线词法永不相等 → 空集，但入口即拒）
+        "sre_acme": sign_jwt({**common, "sub": "attacker-acme", "role": "sre",
+                              "auth_level": 3, "tenant_id": "tenant-acme"}, secret),
+        "tenant_none": sign_jwt({"iss": "opspilot", "exp": exp, "sub": "attacker-no-tenant",
+                                 "role": "sre", "auth_level": 1}, secret),
+        "tenant_blank": sign_jwt({**common, "sub": "attacker-blank-tenant",
+                                  "role": "sre", "auth_level": 1, "tenant_id": "   "}, secret),
+        "tenant_long": sign_jwt({**common, "sub": "attacker-long-tenant", "role": "sre",
+                                 "auth_level": 1, "tenant_id": "t" * 65}, secret),
     }
     for name, tok in tokens.items():
         print(f"{name}={tok}")

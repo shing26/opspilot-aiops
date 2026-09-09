@@ -37,7 +37,7 @@ public class EsSearchService {
         return out;
     }
 
-    public List<ScoredChunk> search(String query, int authLevel, int topK) throws Exception {
+    public List<ScoredChunk> search(String query, String tenant, int authLevel, int topK) throws Exception {
         List<String> codes = extractErrorCodes(query);
         List<Query> should = new ArrayList<>();
         if (!codes.isEmpty()) {
@@ -58,6 +58,11 @@ public class EsSearchService {
                 .size(topK)
                 .query(q -> q.bool(b -> b
                         .minimumShouldMatch("1")
+                        // P1 租户显式化：等值 term 与 auth_level range 同为 filter 硬条件（失败关闭：
+                        // tenant 为 null/空时 term 不匹配任何文档 → 空集，与 Qdrant 侧语义一致）
+                        .filter(f -> f.term(t -> t.field("metadata.tenant")
+                                .value(co.elastic.clients.elasticsearch._types.FieldValue
+                                        .of(tenant == null ? "" : tenant))))
                         .filter(f -> f.range(r -> r.field("metadata.auth_level")
                                 .lte(co.elastic.clients.json.JsonData.of(authLevel))))
                         .should(should))),

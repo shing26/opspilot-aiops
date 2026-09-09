@@ -19,6 +19,10 @@ L3 = TOKENS["sre_l3"]
 L1 = TOKENS["sre_l1"]
 L0 = TOKENS["sre_l0"]      # 红队回归：非法密级 auth_level=0
 LNEG = TOKENS["sre_neg"]   # 红队回归：负数密级 auth_level=-1
+ACME = TOKENS["sre_acme"]        # 红队回归：跨租户合法签名（语料不归属它 → 必须零命中）
+T_NONE = TOKENS["tenant_none"]   # 红队回归：缺 tenant claim
+T_BLANK = TOKENS["tenant_blank"] # 红队回归：tenant 全空白
+T_LONG = TOKENS["tenant_long"]   # 红队回归：tenant 超 64 字符
 
 results = []
 
@@ -113,6 +117,29 @@ boundary_ok = all(ok for ok, _ in boundary.values())
 check("A2-8b auth_level<=0 提权边界（4 路全部 401 拒绝）",
       boundary_ok,
       " ".join(f"{name}={code}" for name, (_, code) in boundary.items()))
+
+# ---- A2-8c P1 回归：租户隔离矩阵 ----
+# 跨租户可见性：sre_acme 是合法签名（level 3，同密钥），但语料全属 tenant-internal，
+# term 等值过滤必须令其检索零命中；且绝不允许命中其它租户预热过的 L2/L1 回放。
+s_acme = post("/api/v1/copilot/search", {"query": "50022_REDIS_CONN_REFUSED", "mode": "hybrid"}, ACME)
+r_acme = stream_chat(q_b, ACME, typewriter=False)  # q_b 在 A2-4 已被 L3 预热进 demo 租户 L2
+acme_isolated = (len(s_acme["results"]) == 0
+                 and r_acme["meta"].get("cache_hit") != "L2"
+                 and r_acme["meta"].get("cache_hit") != "L1")
+# 入口边界：tenant 缺失/全空白/超 64 字符 → 401（与 auth_level 边界同防线）
+tenant_cases = {
+    "search/tenant_none": (T_NONE, "/api/v1/copilot/search"),
+    "search/tenant_blank": (T_BLANK, "/api/v1/copilot/search"),
+    "search/tenant_long": (T_LONG, "/api/v1/copilot/search"),
+    "stream/tenant_none": (T_NONE, "/api/v1/copilot/chat/stream"),
+}
+tenant_boundary = {n: expect_http_status(p, {"query": "50022_REDIS_CONN_REFUSED",
+                                             "mode": "hybrid", "source": "manual"}, t, 401)
+                   for n, (t, p) in tenant_cases.items()}
+check("A2-8c 租户隔离（acme 零命中不回放 + 畸形 tenant 4 路 401）",
+      acme_isolated and all(ok for ok, _ in tenant_boundary.values()),
+      f"acme_hits={len(s_acme['results'])} acme_stream_hit={r_acme['meta'].get('cache_hit')} "
+      + " ".join(f"{n}={c}" for n, (_, c) in tenant_boundary.items()))
 
 passed = sum(1 for _, ok, _ in results if ok)
 print(f"\n=== A2: {passed}/{len(results)} PASS ===")

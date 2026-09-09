@@ -38,10 +38,10 @@ class SearchControllerTest {
 
     @Test
     void validLevelReachesSearchService() {
-        when(svc.search(anyString(), anyInt(), anyString()))
+        when(svc.search(anyString(), anyString(), anyInt(), anyString()))
                 .thenReturn(new SearchOutcome(List.of(), "hybrid", false, false, 1.0, 1));
         var resp = controller.search(new SearchController.SearchReq("q", "hybrid"), withUser(1));
         assertEquals("hybrid", resp.get("mode"));
-        verify(svc).search("q", 1, "hybrid");
+        verify(svc).search("q", "tenant-demo", 1, "hybrid");
     }
 }

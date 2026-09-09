@@ -5,39 +5,57 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * P0 回归：auth_level<=0 必须失败关闭（filter 恒存在且命中空集），
- * 杜绝签发 level-0 JWT 绕过 Qdrant 权限过滤的提权路径。
+ * P0+P1 回归：authFilter 恒失败关闭的双条件——
+ * ① term(metadata.tenant) 等值（跨租户零命中）；② range(metadata.auth_level).lte(user 级)。
+ * level<=0 钳到 lte(0) 命中空集（防 level-0 token 绕过），方向必须是 doc ≤ user。
  */
 class QdrantAuthFilterTest {
 
-    private static Points.FieldCondition fieldCond(Points.Filter filter) {
-        assertEquals(1, filter.getMustCount(), "必须恒有一条 auth 过滤条件");
-        Points.Condition cond = filter.getMust(0);
-        assertTrue(cond.hasField(), "过滤条件须为字段条件");
-        return cond.getField();
+    private static final String TENANT = "tenant-demo";
+
+    private static Points.Filter filter() {
+        return QdrantSearchService.authFilter(TENANT, 3);
+    }
+
+    private static Points.Condition must(Points.Filter f, int i) {
+        return f.getMust(i);
     }
 
     @Test
-    void positiveLevelFiltersByLteBoundary() {
-        Points.FieldCondition fc = fieldCond(QdrantSearchService.authFilter(3));
+    void alwaysCarriesBothConditions() {
+        Points.Filter f = filter();
+        assertEquals(2, f.getMustCount(), "必须恒有 [term tenant, range level] 两条 must");
+    }
+
+    @Test
+    void tenantIsExactTermMatchNotRange() {
+        Points.Condition c = must(filter(), 0);
+        assertTrue(c.hasField() && c.getField().hasMatch(), "第一条件必须是字段 match");
+        assertEquals("metadata.tenant", c.getField().getKey());
+        assertEquals(TENANT, c.getField().getMatch().getKeyword());
+    }
+
+    @Test
+    void levelDirectionIsDocLteUser() {
+        Points.FieldCondition fc = must(filter(), 1).getField();
         assertEquals("metadata.auth_level", fc.getKey());
         assertTrue(fc.getRange().hasLte());
-        assertEquals(3.0, fc.getRange().getLte(), 1e-9);
+        assertEquals(3.0, fc.getRange().getLte(), 1e-9); // doc.level <= user.level
     }
 
     @Test
     void zeroLevelIsFailClosedNotUnfiltered() {
-        Points.FieldCondition fc = fieldCond(QdrantSearchService.authFilter(0));
-        assertEquals("metadata.auth_level", fc.getKey());
-        // lte(0)：库内文档 auth_level>=1，命中空集 —— 安全失败而非放行全库
-        assertTrue(fc.getRange().hasLte());
-        assertEquals(0.0, fc.getRange().getLte(), 1e-9);
+        Points.Filter f = QdrantSearchService.authFilter(TENANT, 0);
+        assertEquals(2, f.getMustCount(), "level-0 也必须双条件齐（tenant 过滤不因降级密级丢失）");
+        Points.Range r = f.getMust(1).getField().getRange();
+        assertTrue(r.hasLte());
+        assertEquals(0.0, r.getLte(), 1e-9); // lte(0)：库内文档 >=1 → 空集
     }
 
     @Test
     void negativeLevelClampsToZeroBoundary() {
-        Points.FieldCondition fc = fieldCond(QdrantSearchService.authFilter(-5));
-        assertTrue(fc.getRange().hasLte());
-        assertEquals(0.0, fc.getRange().getLte(), 1e-9);
+        Points.Range r = QdrantSearchService.authFilter(TENANT, -5).getMust(1).getField().getRange();
+        assertTrue(r.hasLte());
+        assertEquals(0.0, r.getLte(), 1e-9);
     }
 }
