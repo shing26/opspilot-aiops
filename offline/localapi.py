@@ -15,7 +15,10 @@ from urllib.parse import urlparse
 
 BASE = "http://localhost:8081"
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
-_TOKENS = Path(__file__).resolve().parent.parent / "scripts" / "demo_tokens.txt"
+_TOKENS = Path(__file__).resolve().parent.parent / "scripts" / "redteam_tokens.txt"
+
+# 合法账号名 → 登录用户名（P2 起口令登录，token 不再落盘）。口令只从 DEMO_PASSWORD 环境变量读。
+ACCOUNTS = {"sre_l1": "sre-limited", "sre_l3": "sre-full", "sre_acme": "sre-acme"}
 
 
 def assert_local(url: str) -> str:
@@ -25,22 +28,39 @@ def assert_local(url: str) -> str:
     return url
 
 
-def load_tokens() -> dict:
-    """读演示凭据（sre_l1/sre_l3 + 红队 sre_l0/sre_neg）。"""
-    out = {}
-    with open(_TOKENS, encoding="utf-8") as fh:
-        for line in fh:
-            if "=" in line:
-                k, v = line.strip().split("=", 1)
-                out[k] = v
-    return out
-
-
 def get_json(path: str, token: str, timeout: int = 10) -> dict:
     req = urllib.request.Request(assert_local(BASE + path), method="GET",
                                  headers={"Authorization": "Bearer " + token})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
+
+
+def login(username: str, password: str | None = None) -> str:
+    """P2 账号体系：/api/v1/auth/login 换 24h token。口令缺省读 DEMO_PASSWORD 环境变量。
+
+    复用 post_json（localhost 白名单校验内嵌），不新增网络调用原语；
+    登录路由不在 JwtAuthFilter 守卫清单，空 Authorization 头被服务端忽略。"""
+    import os
+    pw = password or os.environ.get("DEMO_PASSWORD")
+    if not pw:
+        raise RuntimeError("DEMO_PASSWORD 环境变量未设置（demo 账号口令只从环境读取）")
+    return post_json("/api/v1/auth/login", {"username": username, "password": pw},
+                     token="")["token"]
+
+
+def load_tokens() -> dict:
+    """兼容旧调用名的统一入口：合法账号=实时 login，红队畸形 token=读 redteam_tokens.txt。
+
+    返回键与既有脚本一致：sre_l1/sre_l3/sre_acme + sre_l0/sre_neg/tenant_none/tenant_blank/tenant_long。
+    """
+    out = {name: login(user) for name, user in ACCOUNTS.items()}
+    if _TOKENS.exists():
+        with open(_TOKENS, encoding="utf-8") as fh:
+            for line in fh:
+                if "=" in line:
+                    k, v = line.strip().split("=", 1)
+                    out[k] = v
+    return out
 
 
 def post_json(path: str, body: dict, token: str, timeout: int = 60) -> dict:

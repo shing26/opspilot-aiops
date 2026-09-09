@@ -16,13 +16,15 @@ done
 h=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/actuator/health || echo 000)
 [ "$h" = "200" ] && ok "网关 UP (8081)" || bad "网关未响应（见 DEMO.md §0 启动）"
 
-# 3) 凭据文件四 token
-t=scripts/demo_tokens.txt
+# 3) 凭据就绪：口令在环境（P2 login 体系）+ 红队畸形样本文件可再生
+[ -f .env ] && { set -a; . ./.env; set +a; }
+[ -n "${DEMO_PASSWORD:-}" ] && ok "DEMO_PASSWORD 已设置" || bad "DEMO_PASSWORD 未设置（.env，seed/login 依赖）"
+t=scripts/redteam_tokens.txt
 if [ -f "$t" ]; then
-  have=0; for k in sre_l1 sre_l3 sre_l0 sre_neg; do grep -q "^$k=" "$t" && have=$((have+1)); done
-  [ "$have" = "4" ] && ok "demo_tokens 4/4" || bad "demo_tokens 缺 token（python scripts/gen_tokens.py > $t）"
+  have=0; for k in sre_l0 sre_neg tenant_none tenant_blank tenant_long; do grep -q "^$k=" "$t" && have=$((have+1)); done
+  [ "$have" = "5" ] && ok "红队畸形样本 5/5" || bad "红队样本不全（python scripts/gen_tokens.py > $t）"
 else
-  bad "缺 scripts/demo_tokens.txt（不入库，需生成，见 DEMO.md）"
+  bad "缺 scripts/redteam_tokens.txt（gen_tokens.py 生成，不入库）"
 fi
 
 # 4) 鉴权面：无 token 的 admin 必须 401（裸 URL 不泄漏指标）

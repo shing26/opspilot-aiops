@@ -30,5 +30,11 @@ Thumbs.db
 # 本地扫描状态
 .mimosa/
 
-# 生成的演示 Token（由 JWT_SECRET 签名，不入库）
+# 生成物与凭据（均不入库）：
+# - 红队畸形 token 由 JWT_SECRET 签名，可再生；合法账号走 login 换 token，不落盘
+# - data/ 是 H2 用户主库（含 bcrypt 散列），凭据类，绝不入库
+# - .zcode/ 是本地 agent 计划文件
+scripts/redteam_tokens.txt
 scripts/demo_tokens.txt
+data/
+.zcode/

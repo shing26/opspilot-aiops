@@ -1,9 +1,8 @@
-"""生成演示 JWT（HS256 预签发，无登录接口）。
+"""红队畸形 token 生成器（P2 起合法账号一律走 /api/v1/auth/login，本工具只签非法凭证）。
 
-用法: python scripts/gen_tokens.py
-读取环境变量 JWT_SECRET，输出演示 Token（auth_level=1 受限 / auth_level=3 全量）
-与红队回归 Token（auth_level=0 / -1 非法密级，用于验证入口 401 拒绝）。
-凭据只从环境变量读取，本脚本不写入任何密钥字面量。
+用法: python scripts/gen_tokens.py > scripts/redteam_tokens.txt
+读取环境变量 JWT_SECRET，输出 5 个攻击样本：auth_level 0/-1、tenant 缺失/空白/超长。
+它们必须被 JwtAuthFilter 以 401 拒绝（A2-8b/A2-8c 验收依据）。凭据只从环境变量读取。
 """
 import hmac
 import base64
@@ -29,20 +28,15 @@ def main() -> int:
     if not secret:
         print("ERROR: JWT_SECRET 环境变量未设置", file=sys.stderr)
         return 1
-    exp = int(time.time()) + 365 * 24 * 3600  # 一年有效（演示；P2 账号体系上线后本工具退役为应急件）
-    common = {"iss": "opspilot", "exp": exp, "tenant_id": "tenant-internal"}  # 与 chunker DEFAULT_TENANT 对齐
+    exp = int(time.time()) + 365 * 24 * 3600  # 红队样本用长期限：验证吊销靠 claim 校验而非过期
+    common = {"iss": "opspilot", "exp": exp, "tenant_id": "tenant-internal", "tver": 1}
     tokens = {
-        "sre_l1": sign_jwt({**common, "sub": "sre-limited", "role": "sre", "auth_level": 1}, secret),
-        "sre_l3": sign_jwt({**common, "sub": "sre-full", "role": "sre", "auth_level": 3}, secret),
-        # 红队回归（P0 auth_level<=0 绕过）：非法低密级 token 必须在入口被 401 拒绝
+        # P0 回归：auth_level<=0 提权边界（claim 卫生检查即应 401）
         "sre_l0": sign_jwt({**common, "sub": "attacker-l0", "role": "sre", "auth_level": 0}, secret),
         "sre_neg": sign_jwt({**common, "sub": "attacker-neg", "role": "sre", "auth_level": -1}, secret),
-        # 红队回归（P1 租户显式化）：跨租户账号可登录但检索必须零命中；
-        # 畸形 tenant claim 必须 401（tenant_id 缺省 "" 与在线词法永不相等 → 空集，但入口即拒）
-        "sre_acme": sign_jwt({**common, "sub": "attacker-acme", "role": "sre",
-                              "auth_level": 3, "tenant_id": "tenant-acme"}, secret),
+        # P1 回归：tenant 缺失/空白/超长（入口 401）
         "tenant_none": sign_jwt({"iss": "opspilot", "exp": exp, "sub": "attacker-no-tenant",
-                                 "role": "sre", "auth_level": 1}, secret),
+                                 "role": "sre", "auth_level": 1, "tver": 1}, secret),
         "tenant_blank": sign_jwt({**common, "sub": "attacker-blank-tenant",
                                   "role": "sre", "auth_level": 1, "tenant_id": "   "}, secret),
         "tenant_long": sign_jwt({**common, "sub": "attacker-long-tenant", "role": "sre",

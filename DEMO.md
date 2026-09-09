@@ -24,18 +24,22 @@ E:\java\jdk21\bin\java -jar target\opspilot-gateway-1.0.0.jar
 所有演示命令在**另一个终端**执行：
 
 ```bash
-cd "D:/OpsPilot — AIOps/offline" && set -a && . ../.env && set +a \
- && export $(grep -v '^#' ../scripts/demo_tokens.txt | tr -d '\r' | xargs -d '\n')
+cd "D:/OpsPilot — AIOps/offline" && set -a && . ../.env && set +a
 PY=.venv/Scripts/python.exe
+# P2 账号体系：合法 token 实时 login（口令只来自 .env 的 DEMO_PASSWORD），红队畸形 token 读文件
+L3=$($PY -c "import sys;sys.path.insert(0,'.');import localapi;print(localapi.login('sre-full'))")
+L0=$(grep -m1 '^sre_l0=' ../scripts/redteam_tokens.txt | cut -d= -f2)
 ```
 
-> token 文件不入库（凭证），新环境先 `python scripts/gen_tokens.py > scripts/demo_tokens.txt` 生成（含 2 个演示号 + 2 个红队号）。
+> 前置：新环境需先 `bash scripts/seed_demo_users.sh`（建 sre-limited/sre-full/sre-acme）
+> 并 `python scripts/gen_tokens.py > scripts/redteam_tokens.txt`（红队畸形样本）。
+> 两者都不入库、可再生；仓库内没有任何可用凭据。
 
 **开演前复位**（保证幕①是冷启动、TTFT 呈现真实秒级链路；否则上次演示的缓存会让幕①直接毫秒级、讲不出冷路径）：
 
 ```bash
 curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush \
-  -H "Authorization: Bearer $sre_l3" -H "Content-Type: application/json" -d '{}'
+  -H "Authorization: Bearer $L3" -H "Content-Type: application/json" -d '{}'
 ```
 
 ## 1. 六幕脚本
@@ -71,10 +75,10 @@ $PY console_client.py "下单接口报 50012_DB_TIMEOUT 怎么排查啊"
 `llm_calls` 是累计计数，必须取前后差值（直接读绝对值会误判）：
 
 ```bash
-BEFORE=$(curl -s http://localhost:8081/api/v1/admin/metrics -H "Authorization: Bearer $sre_l3" \
+BEFORE=$(curl -s http://localhost:8081/api/v1/admin/metrics -H "Authorization: Bearer $L3" \
   | grep -o '"llm_calls":[0-9]*' | cut -d: -f2)
 .venv/Scripts/python.exe console_client.py --storm
-AFTER=$(curl -s http://localhost:8081/api/v1/admin/metrics -H "Authorization: Bearer $sre_l3" \
+AFTER=$(curl -s http://localhost:8081/api/v1/admin/metrics -H "Authorization: Bearer $L3" \
   | grep -o '"llm_calls":[0-9]*' | cut -d: -f2)
 echo "500 并发 → LLM 增量 = $((AFTER-BEFORE))"        # 期望输出：增量 = 1
 ```
@@ -88,7 +92,7 @@ echo "500 并发 → LLM 增量 = $((AFTER-BEFORE))"        # 期望输出：增
 $PY console_client.py "50042_PAY_SIGN_INVALID 密钥配置" --token sre_l1   # 结果全部 auth_level<=1
 $PY console_client.py "50042_PAY_SIGN_INVALID 密钥配置" --token sre_l3   # L3 可见密级文档
 curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8081/api/v1/copilot/search \
-  -H "Authorization: Bearer $sre_l0" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $L0" -H "Content-Type: application/json" \
   -d '{"query":"任意","mode":"hybrid"}'                                  # 红队 level-0 → 401
 ```
 
@@ -99,16 +103,16 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8081/api/v1/co
 **必须先 flush**：链路是 L1→L2→降级判定，若目标 query 已被前面幕次缓存，会走回放而非 SOP 直出，演示失真。另注意现状行为：**SOP 直出的答案会写回 L1**，恢复 auto 后同 query 仍返回缓存 SOP——所以幕⑥结尾必须再 flush 复位：
 
 ```bash
-curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization: Bearer $sre_l3" \
+curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization: Bearer $L3" \
   -H "Content-Type: application/json" -d '{}'
-curl -s -X POST http://localhost:8081/api/v1/admin/degrade -H "Authorization: Bearer $sre_l3" \
+curl -s -X POST http://localhost:8081/api/v1/admin/degrade -H "Authorization: Bearer $L3" \
   -H "Content-Type: application/json" -d '{"level":"L2"}'
 $PY console_client.py "支付回调积压怎么止损"     # meta: degradation_level=L2，静态 SOP 直出，零 LLM
-curl -s -X POST http://localhost:8081/api/v1/admin/degrade -H "Authorization: Bearer $sre_l3" \
+curl -s -X POST http://localhost:8081/api/v1/admin/degrade -H "Authorization: Bearer $L3" \
   -H "Content-Type: application/json" -d '{"level":"auto"}'   # 恢复 auto
 $PY console_client.py "asdfgh junk 乱码"          # 置信度门控：显式拒答，跳过 LLM
 # 收场复位（清掉 SOP/拒答缓存残留，下次开演从干净状态开始）
-curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization: Bearer $sre_l3" \
+curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization: Bearer $L3" \
   -H "Content-Type: application/json" -d '{}'
 ```
 

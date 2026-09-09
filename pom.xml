@@ -40,6 +40,22 @@
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
 
+    <!-- P2 账号体系：H2 文件库（主用户数据必须落盘，Redis 只存易失计数）+ JdbcTemplate + bcrypt。
+         只引 spring-security-crypto 单工件，不拉整个 security 过滤器栈（鉴权仍由 JwtAuthFilter 承担）。 -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.security</groupId>
+      <artifactId>spring-security-crypto</artifactId>
+    </dependency>
+
     <!-- Redis / Redisson -->
     <dependency>
       <groupId>org.redisson</groupId>

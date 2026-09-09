@@ -4,6 +4,15 @@ server:
 spring:
   application:
     name: opspilot-gateway
+  # P2 账号体系主库：H2 文件模式，AUTO_SERVER 允许 CLI 与服务并存时同库读写；
+  # 口令只从环境注入（H2_DB_PASSWORD），源码/示例零凭据字面量
+  datasource:
+    url: ${H2_DB_URL:jdbc:h2:file:./data/users;AUTO_SERVER=TRUE}
+    username: ${H2_DB_USER:opspilot}
+    password: ${H2_DB_PASSWORD:}
+  sql:
+    init:
+      mode: always
   threads:
     virtual:
       enabled: true
@@ -32,6 +41,7 @@ opspilot:
     cache-collection: semantic-cache
   jwt:
     secret: ${JWT_SECRET:}
+    ttl-seconds: ${JWT_TTL_SECONDS:86400}   # P2：短时凭证 24h（吊销靠每请求查库，不靠短 TTL 兜底）
   cache:
     l1-ttl-hours: 2
     l2-threshold: 0.95

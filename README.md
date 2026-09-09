@@ -70,7 +70,7 @@ stateDiagram-v2
 
 ```bash
 # 1. 环境变量（凭据只从环境读取，.env 不入库）
-cp .env.example .env   # 填入 DASHSCOPE_API_KEY（留空则走 mock）与 JWT_SECRET
+cp .env.example .env   # DASHSCOPE_API_KEY（留空走 mock）、JWT_SECRET、DEMO_PASSWORD、H2_DB_PASSWORD
 
 # 2. 中间件
 docker compose up -d   # Redis + Qdrant + ES（总内存 ≤2GB）
@@ -80,13 +80,16 @@ cd offline && python -m venv .venv && .venv/Scripts/pip install pytest
 .venv/Scripts/python chunkers/build_chunks.py
 .venv/Scripts/python -m pytest tests/
 
-# 4. 生成演示 JWT
-python ../scripts/gen_tokens.py > ../scripts/demo_tokens.txt
+# 4. 红队畸形 token（验收用；合法账号不再预签，走 login）
+python ../scripts/gen_tokens.py > ../scripts/redteam_tokens.txt
 
-# 5. 入库 + 启动（项目根目录）
+# 5. 入库 + 启动（项目根目录；用户主库 H2 文件自动建表）
 java -jar target/opspilot-gateway-1.0.0.jar --opspilot.ingest=true
 
-# 6. 演示
+# 6. 初始化演示账号（幂等，读取 DEMO_PASSWORD）：sre-limited/sre-full/sre-acme
+bash scripts/seed_demo_users.sh
+
+# 7. 演示（客户端自动 login 换 24h token）
 .venv/Scripts/python console_client.py "下单报 50012_DB_TIMEOUT 怎么排查"
 .venv/Scripts/python console_client.py --storm --storm-n 500   # 告警风暴
 ```
@@ -103,7 +106,9 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 
 ## 安全设计
 
-- **凭据零入库**：`DASHSCOPE_API_KEY`/`JWT_SECRET` 仅从环境变量读取，`.env` 已 gitignore。
+- **凭据零入库**：`DASHSCOPE_API_KEY`/`JWT_SECRET`/`DEMO_PASSWORD`/`H2_DB_PASSWORD` 仅从环境变量读取，`.env` 已 gitignore。
+- **账号体系（P2）**：H2 文件主库 + bcrypt 口令 + 24h 短时 JWT；吊销实时——每请求校验账号存在性/disabled/token_ver，禁用或轮换版本即时全局失效旧 token（无黑名单膨胀）；登录失败 5 次/15min → 429；用户管理仅 CLI（口令只经 env/stdin，不进 argv），无 HTTP 用户端点。权限维度以 DB 为唯一真相，旧高等级 token 不残留权限。
+- **租户隔离（P1）**：`tenant` 与 `auth_level` 同为 ES/Qdrant/L2/SOP 四面的引擎硬过滤维度（term 等值 + range lte 双 must），跨租户零命中且缓存永不跨租户回放；tenant claim 缺失/空白/超长在入口 401。
 - **权限引擎层硬隔离**：`auth_level <= user_level` 注入 ES Query DSL 与 Qdrant Filter，Prompt 越狱无法跨越数据级过滤（实测 5 用例零泄漏）。检索密级恒等于 token 的 auth_level，**客户端不可通过参数覆盖**（QA 红队发现 `authLevelOverride` 提权面后已移除）。
 - **运维端点鉴权**：`/api/v1/admin/**` 需有效 JWT，状态变更（降级/清缓存）额外要求 `auth_level>=3`，杜绝匿名强制降级 DoS。
 - **缓存不成为泄漏通道**：L1 Key 掺 authLevel；L2 payload 携带 `max_auth_level` 并在检索时过滤；L2 命中回放携带完整 refs 保证溯源。

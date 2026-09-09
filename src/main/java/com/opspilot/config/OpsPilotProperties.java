@@ -29,7 +29,7 @@ public record OpsPilotProperties(
 
     public record Qdrant(String host, int grpcPort, String collection, String cacheCollection) {}
 
-    public record Jwt(String secret) {}
+    public record Jwt(String secret, long ttlSeconds) {}
 
     public record Cache(int l1TtlHours, double l2Threshold) {}
 
