@@ -1,8 +1,8 @@
 {
   "backend": {
+    "rerank": "dashscope:gte-rerank-v2",
     "llm": "dashscope:qwen-plus",
-    "embedding": "dashscope:text-embedding-v3",
-    "rerank": "dashscope:gte-rerank-v2"
+    "embedding": "dashscope:text-embedding-v3"
   },
   "embedding_backend": "dashscope:text-embedding-v3",
   "modes": {
