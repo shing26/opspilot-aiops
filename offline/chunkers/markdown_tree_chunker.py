@@ -9,10 +9,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from errorcode import ERROR_CODE_RE  # 与在线 Java 词法同源，见 errorcode.py
+
 FENCE_RE = re.compile(r"^\s*(```|~~~)")
 HEADING_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
 FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-ERROR_CODE_RE = re.compile(r"\b\d{5}_[A-Z][A-Z0-9_]*\b")
 
 
 def parse_front_matter(raw: str) -> tuple[dict, str]:

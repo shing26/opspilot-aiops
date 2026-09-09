@@ -14,13 +14,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 BASE = "http://localhost:8081"
-_ALLOWED = {"localhost", "127.0.0.1", "::1"}
+ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _TOKENS = Path(__file__).resolve().parent.parent / "scripts" / "demo_tokens.txt"
 
 
 def assert_local(url: str) -> str:
     p = urlparse(url)
-    if p.scheme != "http" or p.hostname not in _ALLOWED:
+    if p.scheme != "http" or p.hostname not in ALLOWED_HOSTS:
         raise ValueError(f"验收脚本仅允许本机 http 服务，拒绝: {url}")
     return url
 
@@ -52,8 +52,8 @@ def post_json(path: str, body: dict, token: str, timeout: int = 60) -> dict:
 
 
 def search_docs(query: str, mode: str, token: str) -> list[dict]:
-    """非流式 /search，直接返回 results 列表。"""
-    return post_json("/api/v1/copilot/search", {"query": query, "mode": mode}, token)["results"]
+    """非流式 /search，直接返回 results 列表。timeout=30 保持 a3/evaluate 原口径。"""
+    return post_json("/api/v1/copilot/search", {"query": query, "mode": mode}, token, timeout=30)["results"]
 
 
 def expect_http_status(path: str, body: dict, token: str, expected: int) -> tuple[bool, int]:

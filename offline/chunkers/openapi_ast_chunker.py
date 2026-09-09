@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 import re
 
-ERROR_CODE_RE = re.compile(r"\b\d{5}_[A-Z][A-Z0-9_]*\b")
+from errorcode import ERROR_CODE_RE  # 与在线 Java 词法同源，见 errorcode.py
+
 HTTP_METHODS = ("get", "post", "put", "delete", "patch", "head")
 
 

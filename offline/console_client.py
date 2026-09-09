@@ -17,11 +17,13 @@ import urllib.request
 import urllib.error
 from urllib.parse import urlparse
 
-_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from localapi import ALLOWED_HOSTS as _ALLOWED_HOSTS, load_tokens  # noqa: E402,F401
 
 
 def _safe_base(url: str) -> str:
-    """演示客户端仅允许访问本机 OpsPilot 服务，阻断 SSRF 到内网/元数据地址。"""
+    """演示客户端仅允许访问本机 OpsPilot 服务，阻断 SSRF 到内网/元数据地址。
+    scheme 比验收脚本（localapi，仅 http）多允许 https —— 为未来本机 TLS 演进保留。"""
     p = urlparse(url)
     if p.scheme not in ("http", "https"):
         raise ValueError(f"仅允许 http/https，拒绝: {p.scheme}")
@@ -31,9 +33,6 @@ def _safe_base(url: str) -> str:
 
 
 BASE = _safe_base(os.environ.get("OPSPILOT_BASE", "http://localhost:8081"))
-
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from localapi import load_tokens  # noqa: E402,F401  # 共享单一事实源（re-export 保持既有 import 点不变）
 
 
 def stream_chat(query: str, token: str, source: str = "manual",

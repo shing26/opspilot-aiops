@@ -101,3 +101,18 @@ def test_auth_level_distribution():
         chunks.extend(cs)
     levels = {c["metadata"]["auth_level"] for c in chunks}
     assert {1, 2, 3} <= levels, f"auth_level 分级不全: {levels}"
+
+
+def test_error_code_lexicon_matches_java():
+    """跨语言护栏：离线 chunker 的错误码词法必须与在线 EsSearchService.ERROR_CODE
+    逐字符一致——漂移会让 chunk 元数据与检索快路径静默不匹配（miss 不报错）。"""
+    import errorcode
+    java_src = (Path(__file__).parent.parent.parent
+                / "src" / "main" / "java" / "com" / "opspilot" / "retrieval"
+                / "EsSearchService.java").read_text(encoding="utf-8")
+    m = re.search(r'ERROR_CODE\s*=\s*Pattern\.compile\("([^"]+)"\)', java_src)
+    assert m, "EsSearchService.java 未找到 ERROR_CODE 字面量"
+    # Java 字符串字面量 \\b → 正则 \b；Python r"\b" 同源还原后必须逐字符相等
+    java_pattern = m.group(1).replace("\\\\", "\\")
+    assert errorcode.ERROR_CODE_RE.pattern == java_pattern, (
+        f"词法漂移: py={errorcode.ERROR_CODE_RE.pattern!r} java={java_pattern!r}")

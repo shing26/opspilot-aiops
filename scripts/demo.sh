@@ -29,10 +29,12 @@ fi
 a=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/v1/admin/metrics || echo 000)
 [ "$a" = "401" ] && ok "admin 匿名 401" || bad "admin 匿名返回 $a（期望 401）"
 
-# 5) jar 与 HEAD 一致性（防止演示旧构件）
+# 5) jar 与源码一致性（近似判据：源码/配置/pom 任一比 jar 新即提醒重建；
+#    注意 git checkout 会批量刷新 mtime，可能误报——以验收实跑为准）
 if [ -f target/opspilot-gateway-1.0.0.jar ]; then
-  src=$(find src/main -name '*.java' -newer target/opspilot-gateway-1.0.0.jar | head -1)
-  [ -z "$src" ] && ok "jar 不早于源码" || bad "jar 落后于源码（$src 更新过）：mvn package -DskipTests 后重启"
+  src=$(find src/main pom.xml -type f \( -name '*.java' -o -name '*.yml' -o -name 'pom.xml' \) \
+        -newer target/opspilot-gateway-1.0.0.jar | head -1)
+  [ -z "$src" ] && ok "jar 不早于源码/配置" || bad "jar 可能落后（$src 更新过）：mvn package -DskipTests 后重启"
 else
   bad "缺 target jar（mvn package -DskipTests）"
 fi

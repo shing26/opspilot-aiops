@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * SSE 事件原语（meta/delta/done）：从 CopilotController 抽出（ADR-0004 单链路的线格式层）。
+ * SSE 事件原语（meta/delta/done）：从 CopilotController 抽出。
  * 目的：Controller 只因编排变化，事件帧格式只因协议变化——拆开 Divergent Change 的两个轴。
  * 口径约定：done.ttft_ms 恒为 first_token 口径（调用方传入首个 delta 的时刻），
  * 由 acceptance_a3 A3-6 双源断言锁死。

@@ -1,5 +1,6 @@
 package com.opspilot.storm;
 
+import com.opspilot.retrieval.EsSearchService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -28,8 +29,7 @@ public class FingerprintService {
     // （a…z, aa, ab…），突破单字母 26 个上限；« 与 » 不与正文冲突，
     // 且整段字面匹配保证 «ECa» 不会命中 «ECan»（其后是 'n' 而非 '»'）。
     // 错误码词法单一事实源在 EsSearchService.ERROR_CODE（fast-path/指纹共用同一形状）。
-    private static final java.util.regex.Pattern ERROR_CODE =
-            com.opspilot.retrieval.EsSearchService.ERROR_CODE;
+    private static final Pattern ERROR_CODE = EsSearchService.ERROR_CODE;
 
     private static String ecToken(int index) {
         StringBuilder letters = new StringBuilder();

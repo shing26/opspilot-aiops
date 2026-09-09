@@ -31,6 +31,13 @@ PY=.venv/Scripts/python.exe
 
 > token 文件不入库（凭证），新环境先 `python scripts/gen_tokens.py > scripts/demo_tokens.txt` 生成（含 2 个演示号 + 2 个红队号）。
 
+**开演前复位**（保证幕①是冷启动、TTFT 呈现真实秒级链路；否则上次演示的缓存会让幕①直接毫秒级、讲不出冷路径）：
+
+```bash
+curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush \
+  -H "Authorization: Bearer $sre_l3" -H "Content-Type: application/json" -d '{}'
+```
+
 ## 1. 六幕脚本
 
 ### 幕① 主流式链路（讲点：SSE 三事件 + 混合检索 + 溯源）
@@ -61,9 +68,15 @@ $PY console_client.py "下单接口报 50012_DB_TIMEOUT 怎么排查啊"
 
 ### 幕④ 风暴收敛——核心幕（讲点：指纹归一化 + 进程内 Single-Flight，ADR-0003）
 
+`llm_calls` 是累计计数，必须取前后差值（直接读绝对值会误判）：
+
 ```bash
-$PY console_client.py --storm \
- && curl -s http://localhost:8081/api/v1/admin/metrics -H "Authorization: Bearer $sre_l3" | grep -o '"llm_calls":[0-9]*'
+BEFORE=$(curl -s http://localhost:8081/api/v1/admin/metrics -H "Authorization: Bearer $sre_l3" \
+  | grep -o '"llm_calls":[0-9]*' | cut -d: -f2)
+.venv/Scripts/python.exe console_client.py --storm
+AFTER=$(curl -s http://localhost:8081/api/v1/admin/metrics -H "Authorization: Bearer $sre_l3" \
+  | grep -o '"llm_calls":[0-9]*' | cut -d: -f2)
+echo "500 并发 → LLM 增量 = $((AFTER-BEFORE))"        # 期望输出：增量 = 1
 ```
 
 预期：500 并发同指纹打完，`llm_calls` 增量 =1（演示全程 5000+ 请求累计仅 ~17 次 LLM 调用）。可指 `dedup_aggregated` 同步 +500。
@@ -83,13 +96,20 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8081/api/v1/co
 
 ### 幕⑥ 降级与拒答（讲点：三级自适应降级 + 置信度空态门控）
 
+**必须先 flush**：链路是 L1→L2→降级判定，若目标 query 已被前面幕次缓存，会走回放而非 SOP 直出，演示失真。另注意现状行为：**SOP 直出的答案会写回 L1**，恢复 auto 后同 query 仍返回缓存 SOP——所以幕⑥结尾必须再 flush 复位：
+
 ```bash
+curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization: Bearer $sre_l3" \
+  -H "Content-Type: application/json" -d '{}'
 curl -s -X POST http://localhost:8081/api/v1/admin/degrade -H "Authorization: Bearer $sre_l3" \
   -H "Content-Type: application/json" -d '{"level":"L2"}'
 $PY console_client.py "支付回调积压怎么止损"     # meta: degradation_level=L2，静态 SOP 直出，零 LLM
 curl -s -X POST http://localhost:8081/api/v1/admin/degrade -H "Authorization: Bearer $sre_l3" \
-  -H "Content-Type: application/json" -d '{"level":"auto"}'   # 记得恢复
+  -H "Content-Type: application/json" -d '{"level":"auto"}'   # 恢复 auto
 $PY console_client.py "asdfgh junk 乱码"          # 置信度门控：显式拒答，跳过 LLM
+# 收场复位（清掉 SOP/拒答缓存残留，下次开演从干净状态开始）
+curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization: Bearer $sre_l3" \
+  -H "Content-Type: application/json" -d '{}'
 ```
 
 ## 2. 故障排查
