@@ -8,12 +8,17 @@ import io.qdrant.client.grpc.Points;
 import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.redisson.api.RedissonClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,14 +34,18 @@ import static io.qdrant.client.ValueFactory.value;
 import static io.qdrant.client.VectorsFactory.vectors;
 
 /**
- * 离线 JSONL → 在线双写（ADR-0001 接缝）。
- * 触发：--opspilot.ingest=true。幂等：先删后建索引/集合。
- * 顺带预热 Level 2 静态 SOP 清单进 Redis。
+ * 离线 JSONL → 在线双写（ADR-0001 接缝），P4 起为 **blue/green 原子切流**（ADR-0006）：
+ * 写 staging 物理库（&lt;base&gt;-&lt;ts&gt;）→ 计数验收 → 单请求原子换 ES alias / Qdrant alias → 删旧物理库。
+ * 查询侧只认别名（es.index / qdrant.collection 即别名），重建全程零空窗——
+ * 旧「先删后建」在 40s 窗口内 ES+Qdrant 双双为空，降级路也会空态拒答，已被评审否决。
+ * 触发：启动 --opspilot.ingest=true 或 POST /api/v1/admin/reingest（level>=3，单飞互斥）。
+ * 任何验收不通过都保留旧别名指向，失败只影响 staging。
  */
 @Component
 public class IngestionRunner implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(IngestionRunner.class);
+    private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     private final ElasticsearchClient es;
     private final QdrantClient qdrant;
@@ -46,6 +55,8 @@ public class IngestionRunner implements ApplicationRunner {
     private final ObjectMapper mapper = new ObjectMapper()
             .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
     private final String chunksPath;
+    private final AtomicBoolean busy = new AtomicBoolean(false);
+    private final AtomicReference<String> lastResult = new AtomicReference<>("never");
 
     public IngestionRunner(ElasticsearchClient es, QdrantClient qdrant, RedissonClient redisson,
                            EmbeddingClient embedding, OpsPilotProperties props,
@@ -60,18 +71,58 @@ public class IngestionRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
-        if (!args.containsOption("opspilot.ingest")) return;
+        if (args.containsOption("opspilot.ingest")) ingest("startup");
+    }
 
+    /** 异步重灌（admin 端点）：单飞互斥，busy 时拒绝。返回 false = 已有任务在跑。 */
+    public boolean reingestAsync() {
+        if (!busy.compareAndSet(false, true)) return false;
+        Thread.ofVirtual().name("reingest").start(() -> {
+            try {
+                ingest("admin-reingest");
+            } catch (Exception e) {
+                lastResult.set("failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                log.error("reingest 失败（旧别名保持服务，不影响线上检索）", e);
+            } finally {
+                busy.set(false);
+            }
+        });
+        return true;
+    }
+
+    public boolean busy() { return busy.get(); }
+
+    public String lastResult() { return lastResult.get(); }
+
+    synchronized void ingest(String trigger) throws Exception {
         long t0 = System.currentTimeMillis();
+        String ts = LocalDateTime.now().format(TS);
+        String esAlias = props.es().index();                 // 查询侧：别名（如 opspilot-chunks-read）
+        String qdrAlias = props.qdrant().collection();       // 如 opspilot-vectors-live
+        String esPhys = stripSuffix(esAlias) + "-" + ts;
+        String qdrPhys = stripSuffix(qdrAlias) + "-" + ts;
+
         List<Chunk> chunks = readChunks();
-        log.info("读取 chunks.jsonl: {} 条", chunks.size());
+        log.info("[{}] 读取 chunks.jsonl: {} 条, staging es={} qdrant={}", trigger, chunks.size(), esPhys, qdrPhys);
 
-        createEsIndex();
-        createQdrantCollections();
-        dualWrite(chunks);
+        createEsIndex(esPhys);
+        createQdrantCollection(qdrPhys);
+        ensureCacheCollection();
+        dualWrite(chunks, esPhys, qdrPhys);
+        verifyCounts(chunks.size(), esPhys, qdrPhys);
+
+        swapEsAlias(esAlias, esPhys);
+        swapQdrantAlias(qdrAlias, qdrPhys);
+
         warmSop(chunks);
+        lastResult.set("ok @ " + LocalDateTime.now() + " (trigger=" + trigger + ")");
+        log.info("[{}] 入库完成: {} chunks, 别名已原子切换, 耗时 {}ms", trigger, chunks.size(),
+                System.currentTimeMillis() - t0);
+    }
 
-        log.info("入库完成: {} chunks, 耗时 {}ms", chunks.size(), System.currentTimeMillis() - t0);
+    /** 别名 = <base>-read / <base>-live；物理库 = <base>-<ts>。 */
+    private static String stripSuffix(String alias) {
+        return alias.replaceFirst("-(read|live)$", "");
     }
 
     private List<Chunk> readChunks() throws Exception {
@@ -94,11 +145,7 @@ public class IngestionRunner implements ApplicationRunner {
         return out;
     }
 
-    private void createEsIndex() throws Exception {
-        String index = props.es().index();
-        if (Boolean.TRUE.equals(es.indices().exists(e -> e.index(index)).value())) {
-            es.indices().delete(d -> d.index(index));
-        }
+    private void createEsIndex(String index) throws Exception {
         es.indices().create(c -> c
                 .index(index)
                 .settings(s -> s.numberOfShards("1").numberOfReplicas("0"))
@@ -116,61 +163,63 @@ public class IngestionRunner implements ApplicationRunner {
                                 .properties("auth_level", pp -> pp.integer(i -> i))
                                 .properties("env", pp -> pp.keyword(k -> k))
                                 .properties("tenant", pp -> pp.keyword(k -> k))))));
-        log.info("ES 索引已建: {}", index);
+        log.info("ES staging 索引已建: {}", index);
     }
 
-    private void createQdrantCollections() throws Exception {
-        recreateCollection(props.qdrant().collection());
-        recreateCollection(props.qdrant().cacheCollection());
-        // Payload 索引：doc_id/service/tenant keyword、auth_level integer、
-        // 缓存集合 tenant keyword + max_auth_level integer（L2 双硬过滤维度）
-        qdrant.createPayloadIndexAsync(props.qdrant().collection(), "doc_id",
-                Collections.PayloadSchemaType.Keyword, null, null, null,
-                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
-        qdrant.createPayloadIndexAsync(props.qdrant().collection(), "metadata.service",
-                Collections.PayloadSchemaType.Keyword, null, null, null,
-                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
-        qdrant.createPayloadIndexAsync(props.qdrant().collection(), "metadata.auth_level",
-                Collections.PayloadSchemaType.Integer, null, null, null,
-                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
-        qdrant.createPayloadIndexAsync(props.qdrant().collection(), "metadata.tenant",
-                Collections.PayloadSchemaType.Keyword, null, null, null,
-                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
-        qdrant.createPayloadIndexAsync(props.qdrant().cacheCollection(), "tenant",
-                Collections.PayloadSchemaType.Keyword, null, null, null,
-                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
-        qdrant.createPayloadIndexAsync(props.qdrant().cacheCollection(), "max_auth_level",
-                Collections.PayloadSchemaType.Integer, null, null, null,
-                java.time.Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
-        log.info("Qdrant 集合与 Payload 索引已建");
-    }
-
-    private void recreateCollection(String name) throws Exception {
-        if (Boolean.TRUE.equals(qdrant.collectionExistsAsync(name).get(10, TimeUnit.SECONDS))) {
-            qdrant.deleteCollectionAsync(name).get(10, TimeUnit.SECONDS);
-        }
+    private void createQdrantCollection(String name) throws Exception {
         qdrant.createCollectionAsync(name, Collections.VectorParams.newBuilder()
                 .setSize(props.dashscope().embeddingDim())
                 .setDistance(Collections.Distance.Cosine)
-                .build(), java.time.Duration.ofSeconds(20)).get(20, TimeUnit.SECONDS);
+                .build(), Duration.ofSeconds(20)).get(20, TimeUnit.SECONDS);
+        createIndex(name, "doc_id", Collections.PayloadSchemaType.Keyword);
+        createIndex(name, "metadata.service", Collections.PayloadSchemaType.Keyword);
+        createIndex(name, "metadata.auth_level", Collections.PayloadSchemaType.Integer);
+        createIndex(name, "metadata.tenant", Collections.PayloadSchemaType.Keyword);
+        log.info("Qdrant staging 集合已建: {}", name);
     }
 
-    private void dualWrite(List<Chunk> chunks) throws Exception {
+    /** L2 缓存集合是运行时数据（非语料派生）：只 ensure 不清建——reingest 不得清空在线缓存。 */
+    private void ensureCacheCollection() throws Exception {
+        String cache = props.qdrant().cacheCollection();
+        if (Boolean.TRUE.equals(qdrant.collectionExistsAsync(cache).get(10, TimeUnit.SECONDS))) {
+            try {
+                qdrant.getCollectionInfoAsync(cache).get(10, TimeUnit.SECONDS);
+                return;
+            } catch (Exception ignore) { /* 落入重建分支 */ }
+        }
+        qdrant.createCollectionAsync(cache, Collections.VectorParams.newBuilder()
+                .setSize(props.dashscope().embeddingDim())
+                .setDistance(Collections.Distance.Cosine)
+                .build(), Duration.ofSeconds(20)).get(20, TimeUnit.SECONDS);
+        createIndex(cache, "tenant", Collections.PayloadSchemaType.Keyword);
+        createIndex(cache, "max_auth_level", Collections.PayloadSchemaType.Integer);
+        log.info("Qdrant 缓存集合已建: {}", cache);
+    }
+
+    private void createIndex(String collection, String field, Collections.PayloadSchemaType type)
+            throws Exception {
+        try {
+            qdrant.createPayloadIndexAsync(collection, field, type, null, null, null,
+                    Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.info("payload 索引已存在（忽略）: {}.{}", collection, field);
+        }
+    }
+
+    private void dualWrite(List<Chunk> chunks, String esIndex, String qdrCollection) throws Exception {
         List<String> texts = chunks.stream().map(Chunk::text).toList();
         List<float[]> vectors = embedding.embed(texts);
 
-        // ES bulk
-        String index = props.es().index();
         es.bulk(b -> {
             for (int i = 0; i < chunks.size(); i++) {
                 Chunk c = chunks.get(i);
                 Map<String, Object> src = toEsSource(c);
-                b.operations(op -> op.index(idx -> idx.index(index).id(c.chunkId()).document(src)));
+                b.operations(op -> op.index(idx -> idx.index(esIndex).id(c.chunkId()).document(src)));
             }
             return b;
         });
+        es.indices().refresh(r -> r.index(esIndex));
 
-        // Qdrant upsert
         List<Points.PointStruct> points = new ArrayList<>();
         for (int i = 0; i < chunks.size(); i++) {
             Chunk c = chunks.get(i);
@@ -200,8 +249,72 @@ public class IngestionRunner implements ApplicationRunner {
                     .putAllPayload(payload)
                     .build());
         }
-        qdrant.upsertAsync(props.qdrant().collection(), points).get(60, TimeUnit.SECONDS);
+        qdrant.upsertAsync(qdrCollection, points).get(60, TimeUnit.SECONDS);
         log.info("双写完成: ES {} + Qdrant {}", chunks.size(), chunks.size());
+    }
+
+    /** 切别名前的硬验收：staging 计数必须与语料一致，任何偏差都保留旧别名不动。 */
+    private void verifyCounts(int expected, String esIndex, String qdrCollection) throws Exception {
+        long esCount = es.count(c -> c.index(esIndex)).count();
+        long qdrCount = qdrant.getCollectionInfoAsync(qdrCollection).get(10, TimeUnit.SECONDS).getPointsCount();
+        if (esCount != expected || qdrCount < expected) {
+            throw new IllegalStateException("staging 验收失败（别名不切换）: es=" + esCount
+                    + " qdrant=" + qdrCount + " expected=" + expected);
+        }
+        log.info("staging 验收通过: es={} qdrant={}", esCount, qdrCount);
+    }
+
+    private void swapEsAlias(String alias, String newPhys) throws Exception {
+        String oldPhys = null;
+        try {
+            // GetAliasResponse 是 index→aliases 的字典：按别名反查后取首个 index（本服务别名恒指单索引）
+            var got = es.indices().getAlias(g -> g.name(alias));
+            oldPhys = got.result().keySet().stream().findFirst().orElse(null);
+        } catch (Exception notFound) {
+            // 首次：别名不存在
+        }
+        final String from = oldPhys;
+        es.indices().updateAliases(u -> u
+                .actions(a -> {
+                    if (from != null) a.remove(r -> r.index(from).alias(alias));
+                    a.add(ad -> ad.index(newPhys).alias(alias));
+                    return a;
+                }));
+        if (from != null) {
+            try {
+                es.indices().delete(d -> d.index(from));
+            } catch (Exception e) {
+                log.warn("旧 ES 索引删除失败（不影响服务）: {}", from);
+            }
+        }
+        log.info("ES 别名已切换: {} -> {}（旧 {}）", alias, newPhys, from == null ? "无" : from);
+    }
+
+    private void swapQdrantAlias(String alias, String newPhys) throws Exception {
+        String oldPhys = null;
+        for (Collections.AliasDescription d : qdrant.listAliasesAsync().get(10, TimeUnit.SECONDS)) {
+            if (alias.equals(d.getAliasName())) oldPhys = d.getCollectionName();
+        }
+        List<Collections.AliasOperations> ops = new ArrayList<>();
+        if (oldPhys != null) {
+            ops.add(Collections.AliasOperations.newBuilder()
+                    .setDeleteAlias(Collections.DeleteAlias.newBuilder()
+                            .setAliasName(alias).build())
+                    .build());
+        }
+        ops.add(Collections.AliasOperations.newBuilder()
+                .setCreateAlias(Collections.CreateAlias.newBuilder()
+                        .setCollectionName(newPhys).setAliasName(alias).build())
+                .build());
+        qdrant.updateAliasesAsync(ops, Duration.ofSeconds(10)).get(10, TimeUnit.SECONDS);
+        if (oldPhys != null) {
+            try {
+                qdrant.deleteCollectionAsync(oldPhys).get(10, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.warn("旧 Qdrant 集合删除失败（不影响服务）: {}", oldPhys);
+            }
+        }
+        log.info("Qdrant 别名已原子切换: {} -> {}（旧 {}）", alias, newPhys, oldPhys == null ? "无" : oldPhys);
     }
 
     private Map<String, Object> toEsSource(Chunk c) {
@@ -225,9 +338,8 @@ public class IngestionRunner implements ApplicationRunner {
 
     private static String str(String s) { return s == null ? "" : s; }
 
-    /** Level 2 兜底：止损步骤按 doc 与 error_code 双维度预热进 Redis（P1：键按租户分片，杜绝跨租户 SOP 泄漏）。 */
+    /** Level 2 兜底：止损步骤按 doc 与 error_code 双维度预热进 Redis（P1：键按租户分片）。 */
     private void warmSop(List<Chunk> chunks) {
-        // 先清后写（按租户分片）：避免重建后残留已删除文档的旧 SOP
         java.util.Set<String> tenants = chunks.stream()
                 .map(c -> c.metadata().tenant()).collect(java.util.stream.Collectors.toSet());
         for (String t : tenants) {

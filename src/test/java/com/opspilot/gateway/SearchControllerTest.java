@@ -17,7 +17,8 @@ import static org.mockito.Mockito.*;
 class SearchControllerTest {
 
     private final HybridSearchService svc = mock(HybridSearchService.class);
-    private final SearchController controller = new SearchController(svc);
+    private final com.opspilot.metrics.AuditService audit = mock(com.opspilot.metrics.AuditService.class);
+    private final SearchController controller = new SearchController(svc, audit);
 
     private static MockHttpServletRequest withUser(int level) {
         MockHttpServletRequest req = new MockHttpServletRequest();

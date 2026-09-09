@@ -68,7 +68,24 @@ _Avoid_: 熔断级别、降级档位（统一 Level 0/1/2）
 用户职能（sre/dev/manager），仅用于审计与 Prompt 个性化，不参与数据过滤。
 
 **租户（Tenant）**:
-缓存 Key 与数据归属的隔离维度，演示环境固定 `tenant-demo`。
+数据归属与隔离的第一维度，与 auth_level 同级在 ES/Qdrant/L2/SOP 四面引擎硬过滤（`metadata.tenant` term 等值 + range lte 双 must）。内部工具形态恒 `tenant-internal`；tenant claim 缺失/空白/超 64 在入口 401。_Avoid_: 工作区、命名空间（缓存前缀是另一回事）
+
+**账号（Account）**:
+H2 主库中的一行用户记录（sub + bcrypt 口令 + tenant + auth_level + disabled + token_ver），权限维度的唯一真相源；JWT 只是账号身份的短时载体（24h）。_Avoid_: 用户（user 指运行时 UserContext）
+
+**吊销版本（token_ver / tver）**:
+账号行上的整数游标，签进 JWT 的 `tver` claim；`JwtAuthFilter` 每请求比对 DB 值，不等即 401。disable/passwd/rotate 均 bump——改一行即全局失效该用户所有存量 token，无需黑名单。_Avoid_: JWT 黑名单（明确否决的方案）
+
+**审计事件（Audit Event）**:
+每 chat/search 请求落一行 JSON 到 `logs/audit.jsonl`（sub/tenant/level/query 截断/fp/cache_hit/mode/refused/max_level/took_ms），回答"谁查过什么、答案触到哪个密级"，是权限引擎层的可核查闭环。_Avoid_: 应用日志（业务日志非合规留痕）
+
+### 重建域
+
+**blue/green 重建（Staging Reingest）**:
+知识库更新的安全流程：写时间戳物理库 `<base>-<ts>` → 计数硬验收 → 单请求原子换 ES/Qdrant 别名 → 删旧库；任何失败保留旧别名指向。查询侧永远只认别名（`opspilot-chunks-read` / `opspilot-vectors-live`），零空窗。_Avoid_: 热更新、滚动重建（旧"先删后建"是被否决的反模式）
+
+**回滚（Alias Rollback）**:
+改别名指回上一版物理库（若未清理）即秒级回退，重建失败无需恢复数据。
 
 ### 评测域
 

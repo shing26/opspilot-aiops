@@ -31,14 +31,17 @@ public class AdminController {
     private final L1CacheService l1;
     private final L2SemanticCacheService l2;
     private final OpsPilotProperties props;
+    private final com.opspilot.ingest.IngestionRunner ingestion;
 
     public AdminController(OpsMetrics metrics, DegradationStateMachine degrade,
-                           L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props) {
+                           L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props,
+                           com.opspilot.ingest.IngestionRunner ingestion) {
         this.metrics = metrics;
         this.degrade = degrade;
         this.l1 = l1;
         this.l2 = l2;
         this.props = props;
+        this.ingestion = ingestion;
     }
 
     private void requireAdmin(HttpServletRequest http) {
@@ -70,6 +73,8 @@ public class AdminController {
         m.put("degradation_level", degrade.current().name());
         m.put("degradation_manual", degrade.isManual());
         m.put("inflight", degrade.inflightValue());
+        m.put("reingest_busy", ingestion.busy());
+        m.put("reingest_last", ingestion.lastResult());
         return m;
     }
 
@@ -88,5 +93,15 @@ public class AdminController {
             degrade.manualSet(DegradationStateMachine.Level.valueOf(level.toUpperCase()));
         }
         return Map.of("degradation_level", degrade.current().name(), "manual", degrade.isManual());
+    }
+
+    /** P4：异步触发 blue/green 重灌（level>=3）；已有任务在跑返回 409。 */
+    @PostMapping("/reingest")
+    public Map<String, Object> reingest(HttpServletRequest http) {
+        requireAdmin(http);
+        if (!ingestion.reingestAsync()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "已有 reingest 在执行中");
+        }
+        return Map.of("accepted", true, "hint", "完成后 /metrics 的 reingest_last 会更新");
     }
 }

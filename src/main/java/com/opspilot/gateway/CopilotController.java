@@ -63,6 +63,8 @@ public class CopilotController {
     private final ExecutorService vt;
     private final OpsPilotProperties props;
     private final SseEvents events;
+    private final com.opspilot.metrics.AuditService audit;
+    private final com.opspilot.resilience.QuotaService quota;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public CopilotController(L1CacheService l1, L2SemanticCacheService l2,
@@ -71,18 +73,21 @@ public class CopilotController {
                              EmbeddingClient embedding, LlmClient llm, PromptAssembler promptAssembler,
                              DegradationStateMachine degrade, SopFallbackService sopFallback,
                              OpsMetrics metrics, ExecutorService virtualThreadExecutor,
-                             OpsPilotProperties props, SseEvents events) {
+                             OpsPilotProperties props, SseEvents events,
+                             com.opspilot.metrics.AuditService audit,
+                             com.opspilot.resilience.QuotaService quota) {
         this.l1 = l1; this.l2 = l2; this.fingerprintService = fingerprintService;
         this.slidingWindow = slidingWindow; this.singleFlight = singleFlight;
         this.searchService = searchService; this.embedding = embedding; this.llm = llm;
         this.promptAssembler = promptAssembler; this.degrade = degrade; this.sopFallback = sopFallback;
         this.metrics = metrics; this.vt = virtualThreadExecutor; this.props = props;
-        this.events = events;
+        this.events = events; this.audit = audit; this.quota = quota;
     }
 
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter chatStream(@jakarta.validation.Valid @RequestBody ChatRequest req, HttpServletRequest http) {
         UserContext user = JwtAuthFilter.from(http);
+        quota.checkAndConsume(user.sub());   // P4 成本护栏：每用户日配额（429 前置，省下游）
         SseEmitter emitter = new SseEmitter(120_000L);
         metrics.request();
         vt.execute(() -> {
@@ -113,7 +118,7 @@ public class CopilotController {
         if (!reg.leader()) {
             String shared = reg.future().get(90, TimeUnit.SECONDS);
             metrics.dedupAggregated();
-            replay(emitter, shared, "none", true, fp, t0);
+            replay(emitter, shared, "none", true, fp, t0, user, req.query());
             return;
         }
 
@@ -126,7 +131,7 @@ public class CopilotController {
             if (cached != null) {
                 metrics.l1Hit();
                 reg.future().complete(cached);
-                replay(emitter, cached, "L1", false, fp, t0);
+                replay(emitter, cached, "L1", false, fp, t0, user, query);
                 return;
             }
             L2SemanticCacheService.CacheHit l2hit = l2.lookup(query, user.tenantId(), user.authLevel());
@@ -135,7 +140,7 @@ public class CopilotController {
                 String json = l2hit.payloadJson();   // 含 refs，回放溯源完整
                 l1.put(user.tenantId(), user.authLevel(), query, json);
                 reg.future().complete(json);
-                replay(emitter, json, "L2", false, fp, t0);
+                replay(emitter, json, "L2", false, fp, t0, user, query);
                 return;
             }
             String json = runPipeline(req, user, emitter, fp, t0);
@@ -148,24 +153,32 @@ public class CopilotController {
         }
     }
 
+    /** SOP 直出路径的 meta（零检索，retrieval_ms=0）。 */
+    private void emitMetaFallback(SseEmitter emitter, String fp, Level level) {
+        events.emitMeta(emitter, fp, "none", level, false, false, 0);
+    }
+
     /** leader 全链路：降级判定 → 检索 → LLM 流式（或 SOP 直出）→ 写缓存。返回答案 JSON。 */
     private String runPipeline(ChatRequest req, UserContext user, SseEmitter emitter,
                                String fp, long t0) throws Exception {
         Level level = degrade.current();
         String query = req.query();
 
-        // Level 2：熔断 LLM，直出静态 SOP（分片流式，保留打字机体验）
+        // Level 2：熔断 LLM，直出静态 SOP（分片流式，保留打字机体验）。
+        // P4：SOP 直出**不写 L1**——降级期答案是应急兜底，若入缓存，恢复 auto 后同 query
+        // 仍会回放 SOP（A2-6 实测坑，DEMO.md 幕⑥同源）；成本护栏因此只保真内容进缓存。
         if (level == Level.L2) {
             metrics.sopFallback();
             String sop = sopFallback.lookup(query, req.service(), user.tenantId());
             String answer = sop != null ? sop : "系统高负载，已触发熔断降级，暂无可用止损清单，请联系值班 SRE。";
             AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false, user.authLevel(), user.tenantId());
             String json = mapper.writeValueAsString(p);
-            events.emitMeta(emitter, fp, "none", level, false, false, 0);
+            emitMetaFallback(emitter, fp, level);
             long sopFirstDeltaNano = System.nanoTime();
             events.streamInChunks(emitter, answer);
             events.emitDone(emitter, t0, sopFirstDeltaNano, List.of());
-            l1.put(user.tenantId(), user.authLevel(), query, json);
+            audit.log(user, "chat", query, fp, "none", "sop_fallback", false, user.authLevel(),
+                    (System.nanoTime() - t0) / 1_000_000);
             return json;
         }
 
@@ -192,6 +205,8 @@ public class CopilotController {
             events.emitDelta(emitter, refusal);
             events.emitDone(emitter, t0, refusalNano, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
+            audit.log(user, "chat", query, fp, "none", outcome.mode(), true, 0,
+                    (System.nanoTime() - t0) / 1_000_000);
             return json;
         }
 
@@ -222,6 +237,8 @@ public class CopilotController {
             l2.store(query, qv, json, maxAuth, user.tenantId());
             long ftNano = firstTokenNano.get();
             events.emitDone(emitter, t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
+            audit.log(user, "chat", query, fp, "none", outcome.mode(), false, maxAuth,
+                    (System.nanoTime() - t0) / 1_000_000);
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();
@@ -235,11 +252,13 @@ public class CopilotController {
 
     /** 缓存回放 / Single-Flight 共享答案 → 分片打字机下发（SSE 帧格式见 SseEvents）。 */
     private void replay(SseEmitter emitter, String json, String cacheHit, boolean deduplicated,
-                        String fp, long t0) throws Exception {
+                        String fp, long t0, UserContext user, String query) throws Exception {
         AnswerPayload p = mapper.readValue(json, AnswerPayload.class);
         events.emitMeta(emitter, fp, cacheHit, degrade.current(), p.fastPath(), deduplicated, 0);
         long replayFirstDeltaNano = System.nanoTime();
         events.streamInChunks(emitter, p.answer());
         events.emitDone(emitter, t0, replayFirstDeltaNano, p.refs());
+        audit.log(user, "chat", query, fp, cacheHit + (deduplicated ? "+dedup" : ""),
+                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000);
     }
 }

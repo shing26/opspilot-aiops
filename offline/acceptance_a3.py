@@ -86,8 +86,8 @@ def main():
     root = ROOT.parent
     readme = (root / "README.md").exists()
     ctx = (root / "CONTEXT.md").exists()
-    adrs = len(list((root / "docs" / "adr").glob("*.md"))) == 4
-    check("A3-8 物料完备(README+CONTEXT+4ADR)", readme and ctx and adrs,
+    adrs = len(list((root / "docs" / "adr").glob("*.md"))) >= 6   # 随生产化增补（0005/0006），下限断言防删
+    check("A3-8 物料完备(README+CONTEXT+>=6ADR)", readme and ctx and adrs,
           f"README={readme} CONTEXT={ctx} ADR={adrs}")
 
     passed = sum(1 for _, ok, _ in results if ok)

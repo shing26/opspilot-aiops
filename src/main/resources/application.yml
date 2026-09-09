@@ -34,14 +34,14 @@ opspilot:
     llm-timeout-seconds: 60
   es:
     uri: http://${ES_HOST:localhost}:9200
-    index: opspilot-chunks
+    index: opspilot-chunks-read      # P4：查询侧只认别名（物理 opspilot-chunks-<ts>，reingest 原子换指）
     username: ${ES_USER:elastic}
     password: ${ES_PASSWORD:}        # P3：xpack security 开启后必填；空=本地无认证形态
   qdrant:
     host: ${QDRANT_HOST:localhost}
     grpc-port: 6334
-    collection: opspilot-vectors
-    cache-collection: semantic-cache
+    collection: opspilot-vectors-live   # P4：同上，别名指向 staging 换入的物理集合
+    cache-collection: semantic-cache    # 运行时 L2 缓存（物理名，reingest 不清空）
     api-key: ${QDRANT_API_KEY:}      # P3：REST/gRPC 共用；空=无认证形态
   jwt:
     secret: ${JWT_SECRET:}

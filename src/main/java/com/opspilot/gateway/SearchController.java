@@ -26,14 +26,17 @@ public class SearchController {
     public record SearchReq(String query, String mode) {}
 
     private final HybridSearchService searchService;
+    private final com.opspilot.metrics.AuditService audit;
 
-    public SearchController(HybridSearchService searchService) {
+    public SearchController(HybridSearchService searchService, com.opspilot.metrics.AuditService audit) {
         this.searchService = searchService;
+        this.audit = audit;
     }
 
     @PostMapping("/search")
     public Map<String, Object> search(@RequestBody SearchReq req, HttpServletRequest http) {
         UserContext user = JwtAuthFilter.from(http);
+        // 配额只挂 /chat/stream（LLM 成本护栏）；/search 仅 embedding+rerank，是评测/审计路径，不限流
         if (req.query() == null || req.query().isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.BAD_REQUEST, "query 不能为空");
@@ -51,6 +54,10 @@ public class SearchController {
                     "mode 仅允许 hybrid|es_only|vector_only");
         }
         SearchOutcome outcome = searchService.search(req.query(), user.tenantId(), level, mode);
+        audit.log(user, "search", req.query(), null, "none", outcome.mode(),
+                outcome.chunks().isEmpty(),
+                outcome.chunks().stream().mapToInt(c -> c.authLevel()).max().orElse(0),
+                outcome.tookMs());
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("mode", outcome.mode());
         resp.put("fast_path", outcome.fastPath());
