@@ -31,10 +31,12 @@ Thumbs.db
 .mimosa/
 
 # 生成物与凭据（均不入库）：
-# - 红队畸形 token 由 JWT_SECRET 签名，可再生；合法账号走 login 换 token，不落盘
+# - 红队畸形 token 由 JWT_SECRET 签名，可再生；合法账号走 login，不落盘
 # - data/ 是 H2 用户主库（含 bcrypt 散列），凭据类，绝不入库
+# - backup/ 是 users 备份 zip 与 audit 打包，同上
 # - .zcode/ 是本地 agent 计划文件
 scripts/redteam_tokens.txt
 scripts/demo_tokens.txt
 data/
+backup/
 .zcode/

@@ -24,7 +24,12 @@ public final class UserAdminCli {
         String dbUser = env("H2_DB_USER", "opspilot");
         String dbPass = System.getenv().getOrDefault("H2_DB_PASSWORD", "");
         String cmd = argv[0];
-        try (Connection c = DriverManager.getConnection(url, dbUser, dbPass)) {
+        // H2 2.x 移除了 RESTORE SQL：走官方 Restore 工具（纯文件操作，目标库必须不存在=天然防误覆盖）
+        if (cmd.equals("restore")) {
+            restore(require(argv, "--from"), opt(argv, "--to-db"));
+            return;
+        }
+        try (Connection c = open(url, dbUser, dbPass)) {
             ensureTable(c);
             switch (cmd) {
                 case "add" -> add(c, require(argv, "--user"), require(argv, "--tenant"),
@@ -33,10 +38,56 @@ public final class UserAdminCli {
                 case "disable" -> flag(c, "disable", require(argv, "--user"), true);
                 case "enable" -> flag(c, "enable", require(argv, "--user"), false);
                 case "rotate" -> rotate(c, require(argv, "--user"));
+                case "backup" -> backup(c, require(argv, "--to"));
                 case "list" -> list(c);
                 default -> { usage(); System.exit(2); }
             }
         }
+    }
+
+    /** 双路连接：先嵌入式独占（网关未跑时的正道，零网络依赖）；文件被占则回退 AUTO_SERVER。 */
+    private static Connection open(String url, String user, String pass) {
+        try {
+            return DriverManager.getConnection(url.replace(";AUTO_SERVER=TRUE", ""), user, pass);
+        } catch (Exception embeddedLocked) {
+            try {
+                return DriverManager.getConnection(url, user, pass);
+            } catch (Exception autoServerFailed) {
+                throw new IllegalStateException(
+                        "无法连接 H2：嵌入式被网关占用且 AUTO_SERVER 不可达。"
+                        + "请停网关后重试，或在 Windows 防火墙放行 java 的 TCP 服务器（详见 OPS.md §7）",
+                        autoServerFailed);
+            }
+        }
+    }
+
+    /** 在线热备份（H2 BACKUP 是事务一致的，取代危险的 cp 热拷）。 */
+    private static void backup(Connection c, String to) throws Exception {
+        try (var st = c.createStatement()) {
+            st.execute("BACKUP TO '" + safeZipPath(to) + "'");
+        }
+        System.out.println("backup written: " + to);
+    }
+
+    /** 从 zip 恢复（Restore 工具要求目标库不存在，防误覆盖）；--to-db 支持恢复到演练库。 */
+    private static void restore(String from, String toDb) throws Exception {
+        String path = H2BackupPath.safe(from);
+        String file = env("H2_DB_URL", "jdbc:h2:file:./data/users;AUTO_SERVER=TRUE")
+                .replaceFirst("^jdbc:h2:file:", "").split(";")[0];
+        java.io.File db = new java.io.File(file).getAbsoluteFile();
+        String dir = db.getParent();
+        String target = toDb != null ? toDb.replaceAll("[^\\w.\\-]", "") : db.getName();
+        if (new java.io.File(dir, target + ".mv.db").exists()) {
+            throw new IllegalStateException("目标库已存在: " + dir + "/" + target + ".mv.db —— "
+                    + "恢复请先停网关并移走旧库（mv users.mv.db users.broken），演练库则换 --to-db 名或删掉");
+        }
+        org.h2.tools.Restore.execute(path, dir, target);
+        System.out.println("restored " + path + " -> " + dir + "/" + target + ".mv.db");
+    }
+
+    /** SQL 字面量注入防线：委托与网关共用的白名单校验（H2BackupPath）。 */
+    private static String safeZipPath(String raw) {
+        return H2BackupPath.safe(raw);
     }
 
     private static void ensureTable(Connection c) throws Exception {
@@ -146,6 +197,8 @@ public final class UserAdminCli {
                 "  passwd  --user U [--password-env VAR]   (同时吊销旧 token)",
                 "  disable --user U | enable --user U",
                 "  rotate  --user U                        (仅吊销 token，不动口令)",
+                "  backup  --to backup/users-YYYYMMDD.zip  (在线热备份，H2 BACKUP)",
+                "  restore --from <zip> [--to-db NAME]     (目标库须不存在；恢复前停网关并移走旧库)",
                 "  list")));
     }
 }

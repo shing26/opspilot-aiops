@@ -32,16 +32,18 @@ public class AdminController {
     private final L2SemanticCacheService l2;
     private final OpsPilotProperties props;
     private final com.opspilot.ingest.IngestionRunner ingestion;
+    private final com.opspilot.auth.UserStore users;
 
     public AdminController(OpsMetrics metrics, DegradationStateMachine degrade,
                            L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props,
-                           com.opspilot.ingest.IngestionRunner ingestion) {
+                           com.opspilot.ingest.IngestionRunner ingestion, com.opspilot.auth.UserStore users) {
         this.metrics = metrics;
         this.degrade = degrade;
         this.l1 = l1;
         this.l2 = l2;
         this.props = props;
         this.ingestion = ingestion;
+        this.users = users;
     }
 
     private void requireAdmin(HttpServletRequest http) {
@@ -103,5 +105,13 @@ public class AdminController {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "已有 reingest 在执行中");
         }
         return Map.of("accepted", true, "hint", "完成后 /metrics 的 reingest_last 会更新");
+    }
+
+    /** 运维备份（level>=3）：网关是 H2 的所有者，BACKUP TO 在自己的连接上执行——
+     *  不依赖 AUTO_SERVER TCP（Windows 防火墙常拦），gateway 活着就能备，cron 友好。 */
+    @PostMapping("/backup")
+    public Map<String, Object> backup(@RequestBody Map<String, String> body, HttpServletRequest http) {
+        requireAdmin(http);
+        return Map.of("backup", users.backup(body.getOrDefault("to", null)));
     }
 }

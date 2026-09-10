@@ -6,6 +6,8 @@
 #   bash scripts/user_admin.sh disable --user alice | rotate --user alice | list
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# .env 自动装载（H2_DB_PASSWORD 等），与 run.sh 同构；显式传入的环境变量优先
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
 JAR=target/opspilot-gateway-1.0.0.jar
 [ -f "$JAR" ] || { echo "缺 $JAR（先 mvn package -DskipTests）"; exit 1; }
 export H2_DB_URL="${H2_DB_URL:-jdbc:h2:file:./data/users;AUTO_SERVER=TRUE}"

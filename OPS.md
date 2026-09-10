@@ -97,3 +97,32 @@ git log --all -S "sre_l1=" -- scripts/demo_tokens.txt
 ```
 
 > 若已有他人 clone（本文件编写时尚无）：通知全员**重新 clone**，禁止在旧历史上继续 merge。
+
+## 7. 备份与恢复（只备份不可再生的东西）
+
+| 数据 | 性质 | 策略 |
+|---|---|---|
+| H2 `./data/users.mv.db`（口令散列 + token_ver 吊销状态） | **唯一不可再生** | `scripts/backup.sh` 每日（网关活着走 `POST /admin/backup`、DB 所有者在线 `BACKUP TO` 事务一致；网关停了走 CLI 嵌入式。**禁止 cp 热拷运行中的库文件**） |
+| `logs/audit.jsonl` | 合规留痕，logback 14 天滚动会回收 | backup.sh 一并 tar（保 14 天） |
+| ES / Qdrant | **派生索引，不备份**——chunks.jsonl 在 git（ADR-0001），恢复=reingest 36s | 无需动作 |
+
+cron（Linux 部署）：
+
+```cron
+0 2 * * * cd /opt/opspilot && bash scripts/backup.sh >> logs/backup.cron.log 2>&1
+```
+
+（Windows 本机：任务计划程序调 `C:\Program Files\Git\bin\bash.exe -lc "cd /d/OpsPilot\ —\ AIOps && bash scripts/backup.sh"`，或想起来手敲一行——个人项目别把自动化做成负担。）
+
+**恢复流程（H2 2.x Restore 要求目标库不存在=天然防误覆盖）**：
+
+```bash
+powershell 'Get-Process java | Stop-Process -Force'          # 停网关
+mv data/users.mv.db data/users.broken-$(date +%F)            # 移走损坏库（留取证现场）
+bash scripts/user_admin.sh restore --from backup/users-<日期>.zip
+# 起服务后验证：/api/v1/admin/metrics 正常 + login 成功
+```
+
+**恢复完整性演练（不需要等灾难，网关可不停）**：`bash scripts/user_admin.sh restore --from backup/users-<今天>.zip --to-db restore-drill` 恢复到演练库后加 `--to-db` 同款连接串 `list`，应见全部账号与各自的 token_ver（如 sre-limited ver=7）；验证后删 `data/restore-drill.*`。本仓库已实测通过（commit 记录在案）。
+
+**网络注**：AUTO_SERVER 走 Windows 防火墙常拦（LAN IP+随机端口），CLI 已内建「嵌入式优先、AUTO_SERVER 兜底」双路；两个都不通时报错会指路本节。

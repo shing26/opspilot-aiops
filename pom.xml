@@ -49,7 +49,7 @@
     <dependency>
       <groupId>com.h2database</groupId>
       <artifactId>h2</artifactId>
-      <scope>runtime</scope>
+      <!-- compile：UserAdminCli 的 Restore 工具与网关 JDBC 都需要；fat jar 照常携带 -->
     </dependency>
     <dependency>
       <groupId>org.springframework.security</groupId>

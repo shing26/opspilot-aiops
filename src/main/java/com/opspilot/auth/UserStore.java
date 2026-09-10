@@ -77,4 +77,17 @@ public class UserStore {
     public List<String> listSubs() {
         return jdbc.queryForList("SELECT sub FROM users ORDER BY sub", String.class);
     }
+
+    /**
+     * 在线热备份（DB 所有者网关执行）。BACKUP TO 是 H2 命令语句、文件名不支持参数绑定，
+     * 故输入先经 H2BackupPath 白名单强校验（仅 backup/*.zip、拒绝引号/分号/穿越）再入字面量。
+     */
+    public String backup(String to) {
+        String path = H2BackupPath.safe(to == null || to.isBlank()
+                ? "backup/users-" + java.time.LocalDate.now() + ".zip" : to);
+        java.io.File dir = new java.io.File("backup");
+        if (!dir.isDirectory() && !dir.mkdirs()) throw new IllegalStateException("backup/ 目录不可创建");
+        jdbc.execute("BACKUP TO '" + path + "'");
+        return path;
+    }
 }
