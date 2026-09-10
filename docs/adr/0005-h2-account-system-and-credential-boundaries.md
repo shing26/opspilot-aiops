@@ -12,6 +12,6 @@
 
 备选与否决：接外部 OIDC（团队无现成 IdP，引入运维依赖）；黑名单式 JWT 吊销（膨胀且需 TTL 兜底，劣于版本号）；用户表进 Redis（易失，评审否决）；Spring Security 全家桶（与自建 filter 冲突，仅需其 bcrypt 工件）。
 
-后果：HS256 对称密钥意味着持 `JWT_SECRET` 者可伪造 token 过签名校验——但过不了 ④ 的 DB 存在性校验（伪造 sub 无账号 → 401），提权面收敛为"知道真实 sub + 拿到 secret"双条件；多实例部署需换 RS256 非对称（记欠账）。`auth_level` 单整数密级模型沿用（spec SLO 口径），企业级 ABAC 不在本画像。admin CLI 依赖与网关同机的 H2 文件 + AUTO_SERVER。
+后果：HS256 对称密钥意味着持 `JWT_SECRET` 者可伪造 token 过签名校验——但过不了 ④ 的 DB 存在性校验（伪造 sub 无账号 → 401），提权面收敛为"知道真实 sub + 拿到 secret"双条件；多实例部署需换 RS256 非对称（记欠账）。`auth_level` 单整数密级模型沿用（spec SLO 口径），企业级 ABAC 不在本画像。admin CLI 依赖与网关同机的 H2 文件 + AUTO_SERVER。单测 fixture 常量（JwtAuthFilterTest 的 32 字节测试密钥）为**刻意设计**：只存在于测试 JVM、签名只在测试内消费、真实服务配置中永不出现该值，属 Mimosa"零可用凭据"约束的显式豁免；审计问起指向本段。运维边界与推送门闩见根目录 OPS.md。
 
 相关：ADR-0003（单实例前提仍成立）、ADR-0006（重建切流）

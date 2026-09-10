@@ -146,6 +146,7 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 ## 文档
 
 - [DEMO.md](DEMO.md) — 六幕演示手册 + 预检脚本（`scripts/demo.sh`）
+- [OPS.md](OPS.md) — 管理员日常速查：账号生命周期/配额/用量 SOP/债务闹钟/推送门闩
 - [CONTEXT.md](CONTEXT.md) — 领域术语表
 - [docs/adr/](docs/adr/) — 4 项架构决策记录
 - [offline/eval/reports/](offline/eval/reports/) — 评测报告

@@ -1,5 +1,8 @@
 """红队畸形 token 生成器（P2 起合法账号一律走 /api/v1/auth/login，本工具只签非法凭证）。
 
+⚠️ 现役验收组件，勿删勿"清理"：scripts/demo.sh 预检与 A2-8b/A2-8c 提权边界矩阵依赖其输出
+   （scripts/redteam_tokens.txt）。它不是 P1 时代的"演示 token 签发器"遗留。
+
 用法: python scripts/gen_tokens.py > scripts/redteam_tokens.txt
 读取环境变量 JWT_SECRET，输出 5 个攻击样本：auth_level 0/-1、tenant 缺失/空白/超长。
 它们必须被 JwtAuthFilter 以 401 拒绝（A2-8b/A2-8c 验收依据）。凭据只从环境变量读取。
