@@ -71,7 +71,17 @@ public class IngestionRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
-        if (args.containsOption("opspilot.ingest")) ingest("startup");
+        // flag 显式触发；或首启自愈（ES 读别名不存在=从未灌过）——容器化场景重启不再
+        // 需要人工带 flag，也避免每次重启白烧一遍 embedding（live 下是真金白银）。
+        if (args.containsOption("opspilot.ingest") || firstBootMissingAlias()) ingest("startup");
+    }
+
+    private boolean firstBootMissingAlias() {
+        try {
+            return !Boolean.TRUE.equals(es.indices().exists(e -> e.index(props.es().index())).value());
+        } catch (Exception e) {
+            return false; // ES 不可达时不擅自重灌，交给健康检查/人工处置
+        }
     }
 
     /** 异步重灌（admin 端点）：单飞互斥，busy 时拒绝。返回 false = 已有任务在跑。 */

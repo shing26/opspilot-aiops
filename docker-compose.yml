@@ -10,6 +10,11 @@ services:
     ports:
       - "127.0.0.1:6379:6379"
     mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
   qdrant:
@@ -23,6 +28,35 @@ services:
     volumes:
       - qdrant-data:/qdrant/storage
     mem_limit: 512m
+    # qdrant 官方镜像无 curl/wget 可做 HTTP 探活（1.12.4 实测）；冷启动 1-2s，
+    # 远快于 gateway JVM（>10s），gateway 侧以 service_started 依赖 + ES 健康门控即可
+    restart: unless-stopped
+
+  # 网关本体（可复现部署形态）：docker compose --profile full up -d --build
+  # 默认不随基础栈启动——宿主裸进程模式与容器模式二选一，避免抢 8081
+  gateway:
+    profiles: ["full"]
+    build: .
+    container_name: opspilot-gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      elasticsearch:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      SERVER_PORT: "8081"
+      REDIS_HOST: redis
+      QDRANT_HOST: qdrant
+      ES_HOST: elasticsearch
+    ports:
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    mem_limit: 768m
     restart: unless-stopped
 
   elasticsearch:

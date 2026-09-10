@@ -23,6 +23,8 @@ bash scripts/user_admin.sh list
 ```
 
 > 前提：jar 已构建（`mvn package -DskipTests`）。首次使用先跑 `bash scripts/seed_demo_users.sh`。
+> **容器模式**（compose full profile）：宿主机 CLI 无法共享容器持有的 H2 文件锁/网络，改用
+> `docker compose exec gateway java -cp app.jar -Dloader.main=com.opspilot.auth.UserAdminCli org.springframework.boot.loader.launch.PropertiesLauncher <同参数>`；备份 zip 落在容器卷 `./data`↔`/app/data` 映射内，宿主可见。
 
 ## 2. 口令分发纪律
 

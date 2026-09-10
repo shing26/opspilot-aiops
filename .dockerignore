@@ -1,0 +1,19 @@
+.git
+.github
+.zcode
+.env
+*.local
+target/
+data/
+logs/
+backup/
+docs/
+README.md
+DEMO.md
+OPS.md
+CONTEXT.md
+# 逐层排除，只把版本化语料契约放进上下文（排除 offline/* 后 ! 救不回子文件）
+offline/*
+!offline/corpus/
+offline/corpus/*
+!offline/corpus/chunks.jsonl

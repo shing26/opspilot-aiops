@@ -90,16 +90,29 @@ cd offline && python -m venv .venv && .venv/Scripts/pip install pytest
 # 4. 红队畸形 token（验收用；合法账号不再预签，走 login）
 python ../scripts/gen_tokens.py > ../scripts/redteam_tokens.txt
 
-# 5. 入库 + 启动（项目根目录；用户主库 H2 文件自动建表）
-java -jar target/opspilot-gateway-1.0.0.jar --opspilot.ingest=true
+# 5. 入库 + 启动（项目根目录；用户主库 H2 文件自动建表；首启若读别名缺失会自动入库）
+java -jar target/opspilot-gateway-1.0.0.jar
 
 # 6. 初始化演示账号（幂等，读取 DEMO_PASSWORD）：sre-limited/sre-full/sre-acme
 bash scripts/seed_demo_users.sh
 
 # 7. 演示（客户端自动 login 换 24h token）
-.venv/Scripts/python console_client.py "下单报 50012_DB_TIMEOUT 怎么排查"
-.venv/Scripts/python console_client.py --storm --storm-n 500   # 告警风暴
+.venv/Scripts/python.exe console_client.py "下单报 50012_DB_TIMEOUT 怎么排查"
+.venv/Scripts/python.exe console_client.py --storm --storm-n 500   # 告警风暴
 ```
+
+### 一键部署（容器形态，可复现性入口）
+
+上面是宿主裸进程模式（开发/演示用）；**clone 到任何机器**的复现路径：
+
+```bash
+cp .env.example .env   # 填 JWT_SECRET / DEMO_PASSWORD / 三中间件凭据（Key 可留空走 mock）
+docker compose --profile full up -d --build   # 三件套+网关全栈，首启自动灌库（镜像内含版本化 chunks.jsonl）
+curl -s http://localhost:8081/actuator/health # {"status":"UP"} 即就绪
+bash scripts/demo.sh                          # 9 项预检全绿
+```
+
+宿主模式与容器模式二选一（都占 8081）；容器模式下账号/备份操作走 `docker compose exec`，见 OPS.md。
 
 ## 评测与压测
 
