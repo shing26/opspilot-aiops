@@ -33,10 +33,12 @@ public class AdminController {
     private final OpsPilotProperties props;
     private final com.opspilot.ingest.IngestionRunner ingestion;
     private final com.opspilot.auth.UserStore users;
+    private final com.opspilot.health.HealthProbe healthProbe;
 
     public AdminController(OpsMetrics metrics, DegradationStateMachine degrade,
                            L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props,
-                           com.opspilot.ingest.IngestionRunner ingestion, com.opspilot.auth.UserStore users) {
+                           com.opspilot.ingest.IngestionRunner ingestion, com.opspilot.auth.UserStore users,
+                           com.opspilot.health.HealthProbe healthProbe) {
         this.metrics = metrics;
         this.degrade = degrade;
         this.l1 = l1;
@@ -44,6 +46,7 @@ public class AdminController {
         this.props = props;
         this.ingestion = ingestion;
         this.users = users;
+        this.healthProbe = healthProbe;
     }
 
     private void requireAdmin(HttpServletRequest http) {
@@ -78,6 +81,13 @@ public class AdminController {
         m.put("reingest_busy", ingestion.busy());
         m.put("reingest_last", ingestion.lastResult());
         return m;
+    }
+
+    /** 部署级健康明细（需凭证）：依赖探测+live 口径+索引规模；组件聚合另见 /actuator/health。 */
+    @GetMapping("/health")
+    public Map<String, Object> health(HttpServletRequest http) {
+        requireAdmin(http);
+        return healthProbe.summary();
     }
 
     /** body: {"level":"L0|L1|L2"} 锁定；{"level":"auto"} 解除手动锁定。 */

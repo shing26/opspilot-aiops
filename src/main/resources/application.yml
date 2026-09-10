@@ -68,3 +68,11 @@ opspilot:
 logging:
   level:
     com.opspilot: INFO
+
+# 健康面：/actuator/health 只输出聚合状态（含 redis/qdrant/es 组件的 UP/DOWN 判定，
+# 明细走鉴权端点 /api/v1/admin/health——依赖异常摘要不能对未授权访客可见）
+management:
+  endpoint:
+    health:
+      show-details: never
+      show-components: never
