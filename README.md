@@ -2,6 +2,13 @@
 
 > 基于 **Java 21 虚拟线程** 的混合 RAG（Hybrid Retrieval）排障网关：ES 倒排 + Qdrant 向量双路召回、RRF 融合、多级缓存、告警风暴指纹收敛与三级自适应降级。
 
+## 它为什么存在（STAR）
+
+- **S**：微服务告警风暴瞬时数千条同质告警打垮 LLM 链路；通用向量检索丢失错误码等精确符号，Top-1 不足 60%。
+- **T**：7 天交付高并发混合检索排障网关：精确符号 Top-1 100%、热点 TP99<50ms、500 并发 LLM 降为 1 次、权限泄漏绝对 0；随后追加生产化硬化（租户隔离、账号体系、中间件加固、零空窗重建）。
+- **A**：① Python AST 切分保护代码块/表格不腰斩，面包屑入元数据；② ES keyword + Qdrant 向量双路并行（虚拟线程+超时隔离），自研 RRF k=60 无量纲融合，精确符号快路径跳过 Rerank 压 TTFT；③ Redisson 滑动窗口 + 进程内 Single-Flight 收敛风暴；④ 三级降级状态机 LLM 429 熔断直出静态 SOP；⑤ auth_level + tenant 双维引擎层硬过滤，缓存/回放全链路权限维度；⑥ 三轮 QA 红队 + 双轴 code-review 闭环（P0 提权绕过 / TDD 锁）→ v1.0.0 冻结 → DashScope live 实测 → 四 Sprint 生产化（H2 账号+实时吊销、中间件凭据+环回、blue/green 原子切流、审计/配额/CI），债务带触发线记录在案。
+- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 72% 拉到 88%）、热点 TP99 36.6ms、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测 27s 零中断。
+
 ## 核心指标（实测）
 
 | 维度 | 目标 | 实测 | 口径 |
@@ -136,18 +143,11 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 | degrade 非法枚举 500 | P2 | 白名单校验返回 400 |
 | L2 命中丢 refs / 引用标号错位 | P2 | 缓存存完整 payload + 修正切块 |
 
-## 面试 STAR 话术
-
-- **S**：微服务告警风暴瞬时数千条同质告警打垮 LLM 链路；通用向量检索丢失错误码等精确符号，Top-1 不足 60%。
-- **T**：7 天交付高并发混合检索排障网关，精确符号 Top-1 100%、热点 TP99<50ms、500 并发 LLM 降为 1 次、权限零泄漏。
-- **A**：① Python AST 切分保护代码块/表格不腰斩，面包屑入元数据；② ES keyword + Qdrant 向量双路并行（虚拟线程+超时隔离），自研 RRF k=60 无量纲融合，精确符号快路径跳过 Rerank 压 TTFT；③ Redisson 滑动窗口 + 进程内 Single-Flight 收敛风暴；④ 三级降级状态机 LLM 429 熔断直出静态 SOP；⑤ auth_level 引擎层硬过滤 + 缓存权限维度。
-- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 72% 拉到 88%）、热点 TP99 36.6ms、500 并发 LLM 仅 1 次、越狱零泄漏、场景 A 0 失败——均以 DashScope live 后端实测。
-
 ## 文档
 
-- [DEMO.md](DEMO.md) — 六幕演示手册 + 预检脚本（`scripts/demo.sh`）
+- [DEMO.md](DEMO.md) — 六幕演示手册 + 预检脚本（`scripts/demo.sh`）+ 3 分钟录屏讲解稿
 - [OPS.md](OPS.md) — 管理员日常速查：账号生命周期/配额/用量 SOP/债务闹钟/推送门闩
 - [CONTEXT.md](CONTEXT.md) — 领域术语表
-- [docs/adr/](docs/adr/) — 4 项架构决策记录
+- [docs/adr/](docs/adr/) — 6 项架构决策记录
 - [offline/eval/reports/](offline/eval/reports/) — 评测报告
 - [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML

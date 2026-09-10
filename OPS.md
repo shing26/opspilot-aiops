@@ -75,7 +75,7 @@ cron（Linux 部署版；本机手动跑同样有效）：
 
 ## 6. 公开 push 硬门闩（当前无 remote，push 前必做）
 
-**背景**：`scripts/demo_tokens.txt`（合法 demo token）曾被跟踪于 `c5902c7..395ef4e`。这些 token 在现网**已实战失效**——P2 起过滤器要求 `tver` claim 匹配 DB，旧 token 无此 claim 一律 401——但公开仓库里躺着"形似有效凭据"的字符串本身就是钓鱼素材与审计事故，物理抹除是观感与合规要求，不只是风控要求。
+**背景**：`scripts/demo_tokens.txt`（合法 demo token）自初始提交 `75d0aea` 起被跟踪、`fc8317f` 摘除。这些 token 在现网**已实战失效**——P2 起过滤器要求 `tver` claim 匹配 DB，旧 token 无此 claim 一律 401——但公开仓库里躺着"形似有效凭据"的字符串本身就是钓鱼素材与审计事故，物理抹除是观感与合规要求，不只是风控要求。
 
 ```bash
 # ① 本地 bundle 备份（此时尚无 remote；操作不可逆，先备份）
