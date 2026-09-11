@@ -40,11 +40,12 @@ public class AdminController {
     private final com.opspilot.ingest.IngestionRunner ingestion;
     private final com.opspilot.auth.UserStore users;
     private final com.opspilot.health.HealthProbe healthProbe;
+    private final com.opspilot.metrics.AuditService audit;
 
     public AdminController(OpsMetrics metrics, DegradationStateMachine degrade,
                            L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props,
                            com.opspilot.ingest.IngestionRunner ingestion, com.opspilot.auth.UserStore users,
-                           com.opspilot.health.HealthProbe healthProbe) {
+                           com.opspilot.health.HealthProbe healthProbe, com.opspilot.metrics.AuditService audit) {
         this.metrics = metrics;
         this.degrade = degrade;
         this.l1 = l1;
@@ -53,11 +54,14 @@ public class AdminController {
         this.ingestion = ingestion;
         this.users = users;
         this.healthProbe = healthProbe;
+        this.audit = audit;
     }
 
-    private void requirePlatformAdmin(HttpServletRequest http) {
+    /** 平台门禁 + 拒绝留痕（QA P1-2：破坏性端点被拒/成功都必须可回溯）。 */
+    private void requirePlatformAdmin(HttpServletRequest http, String action) {
         UserContext u = JwtAuthFilter.from(http);
         if (u == null || !("platform".equals(u.role()) && u.authLevel() >= 3)) {
+            audit.logAdmin(u, action, "refused", null);
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要平台管理员凭证（role=platform 且 auth_level>=3）");
         }
     }
@@ -65,15 +69,16 @@ public class AdminController {
     /** 清空 L1+L2 缓存（验收隔离 / 演示重置）。 */
     @PostMapping("/cache/flush")
     public Map<String, Object> flushCache(HttpServletRequest http) {
-        requirePlatformAdmin(http);
+        requirePlatformAdmin(http, "cache/flush");
         long n = l1.flush();
         l2.flush();
+        audit.logAdmin(JwtAuthFilter.from(http), "cache/flush", "ok", "l1_flushed=" + n);
         return Map.of("l1_flushed", n);
     }
 
     @GetMapping("/metrics")
     public Map<String, Object> metrics(HttpServletRequest http) {
-        requirePlatformAdmin(http);
+        requirePlatformAdmin(http, "metrics");
         Map<String, Object> m = new LinkedHashMap<>(metrics.snapshot());
         var ds = props.dashscope();
         // 后端真相由服务端自报（评测/压测报告据此标注，避免 mock/live 元数据错标——
@@ -90,17 +95,17 @@ public class AdminController {
         return m;
     }
 
-    /** 部署级健康明细（需凭证）：依赖探测+live 口径+索引规模；组件聚合另见 /actuator/health。 */
+    /** 部署级健康明细（平台管理员）：依赖探测+live 口径+索引规模；组件聚合另见 /actuator/health。 */
     @GetMapping("/health")
     public Map<String, Object> health(HttpServletRequest http) {
-        requirePlatformAdmin(http);
+        requirePlatformAdmin(http, "health");
         return healthProbe.summary();
     }
 
     /** body: {"level":"L0|L1|L2"} 锁定；{"level":"auto"} 解除手动锁定。 */
     @PostMapping("/degrade")
     public Map<String, Object> degrade(@RequestBody Map<String, String> body, HttpServletRequest http) {
-        requirePlatformAdmin(http);
+        requirePlatformAdmin(http, "degrade");
         String level = body.getOrDefault("level", "auto");
         if (!VALID_LEVELS.contains(level)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -111,24 +116,37 @@ public class AdminController {
         } else {
             degrade.manualSet(DegradationStateMachine.Level.valueOf(level.toUpperCase()));
         }
+        audit.logAdmin(JwtAuthFilter.from(http), "degrade", "ok", "level=" + level);
         return Map.of("degradation_level", degrade.current().name(), "manual", degrade.isManual());
     }
 
-    /** P4：异步触发 blue/green 重灌（level>=3）；已有任务在跑返回 409。 */
+    /** P4：异步触发 blue/green 重灌（平台管理员）；已有任务在跑返回 409。 */
     @PostMapping("/reingest")
     public Map<String, Object> reingest(HttpServletRequest http) {
-        requirePlatformAdmin(http);
+        requirePlatformAdmin(http, "reingest");
         if (!ingestion.reingestAsync()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "已有 reingest 在执行中");
         }
+        audit.logAdmin(JwtAuthFilter.from(http), "reingest", "ok", null);
         return Map.of("accepted", true, "hint", "完成后 /metrics 的 reingest_last 会更新");
     }
 
-    /** 运维备份（level>=3）：网关是 H2 的所有者，BACKUP TO 在自己的连接上执行——
-     *  不依赖 AUTO_SERVER TCP（Windows 防火墙常拦），gateway 活着就能备，cron 友好。 */
+    /** 运维备份（平台管理员）：网关是 H2 的所有者，BACKUP TO 在自己的连接上执行——
+     *  不依赖 AUTO_SERVER TCP（Windows 防火墙常拦），gateway 活着就能备，cron 友好。
+     *  路径非法是**客户端错误**（QA P2-2：曾以 500 呈现，污染 5xx SLO 且用户看不懂），
+     *  H2BackupPath 白名单拒绝翻译为 400 + 可操作文案。 */
     @PostMapping("/backup")
     public Map<String, Object> backup(@RequestBody Map<String, String> body, HttpServletRequest http) {
-        requirePlatformAdmin(http);
-        return Map.of("backup", users.backup(body.getOrDefault("to", null)));
+        requirePlatformAdmin(http, "backup");
+        String to;
+        try {
+            to = users.backup(body.getOrDefault("to", null));
+        } catch (IllegalArgumentException e) {
+            audit.logAdmin(JwtAuthFilter.from(http), "backup", "rejected", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "备份路径非法：须为 backup/ 目录下的 .zip，且不含引号/分号/反斜杠");
+        }
+        audit.logAdmin(JwtAuthFilter.from(http), "backup", "ok", to);
+        return Map.of("backup", to);
     }
 }

@@ -28,27 +28,37 @@ public class AuthService {
     private final JwtService jwt;
     private final RedissonClient redisson;
     private final OpsPilotProperties props;
+    private final com.opspilot.metrics.AuditService audit;
     private final BCryptPasswordEncoder bcrypt = new BCryptPasswordEncoder(10);
 
-    public AuthService(UserStore users, JwtService jwt, RedissonClient redisson, OpsPilotProperties props) {
+    public AuthService(UserStore users, JwtService jwt, RedissonClient redisson, OpsPilotProperties props,
+                       com.opspilot.metrics.AuditService audit) {
         this.users = users;
         this.jwt = jwt;
         this.redisson = redisson;
         this.props = props;
+        this.audit = audit;
     }
 
-    /** 校验通过返回 24h JWT（携带签发时刻的 tver）；失败抛 Bad/Locked。 */
+    /** 校验通过返回 24h JWT（携带签发时刻的 tver）；失败抛 Bad/Locked。失败必留痕（QA P1-2）。 */
     public String login(String sub, String password) {
         var fails = redisson.getAtomicLong("auth:fail:" + sub);
-        if (fails.get() >= MAX_FAILURES) throw new LoginLockedException();
+        if (fails.get() >= MAX_FAILURES) {
+            audit.logAuthDenied(sub, "/api/v1/auth/login", "login_failed", "locked");
+            throw new LoginLockedException();
+        }
 
         UserStore.Credential c = users.credential(sub);
         if (c == null || c.disabled() || password == null
                 || !bcrypt.matches(password, c.passBcrypt())) {
             long n = fails.incrementAndGet();
             if (n == 1) fails.expire(WINDOW);
-            if (n >= MAX_FAILURES) throw new LoginLockedException();
-            throw new BadCredentialsException(); // 不区分"无此人/错密码/已禁用"，防枚举
+            if (n >= MAX_FAILURES) {
+                audit.logAuthDenied(sub, "/api/v1/auth/login", "login_failed", "locked");
+                throw new LoginLockedException();
+            }
+            audit.logAuthDenied(sub, "/api/v1/auth/login", "login_failed", "bad_credentials");
+            throw new BadCredentialsException(); // 不区分"无此人/错密码/已禁用"，防枚举（对外话术统一，审计内部可辨）
         }
         fails.delete();
         return jwt.issue(c.sub(), c.role(), c.tenant(), c.authLevel(), c.tokenVer(),

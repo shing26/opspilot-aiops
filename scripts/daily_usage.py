@@ -19,7 +19,19 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-AUDIT = ROOT / "logs" / "audit.jsonl"
+LOGS = ROOT / "logs"
+
+# 业务事件口径（QA P1-2 新增 ev 后收紧）：total/refuse 只统计 chat/search；
+# auth/admin/invalid/replay 是安全面事件，计入会稀释拒答率、扭曲《拒答处置 SOP》触发线。
+BUSINESS = ("chat", "search")
+
+
+def audit_files(day: str) -> list[Path]:
+    """目标日期的审计源：当前文件 + logback 轮转文件（P1-4：此前只读 audit.jsonl，
+    跨天轮转后昨日数据静默归零，每日告警永远读空）。"""
+    rotated = sorted(LOGS.glob(f"audit.{day}.jsonl"))
+    current = LOGS / "audit.jsonl"
+    return rotated + ([current] if current.exists() else [])
 
 
 def resolve_date(arg: str) -> str:
@@ -38,25 +50,29 @@ def main() -> int:
     args = ap.parse_args()
 
     day = resolve_date(args.date)
-    if not AUDIT.exists():
-        print(f"ERROR: {AUDIT} 不存在（服务未跑过？），本日无数据", file=sys.stderr)
+    files = audit_files(day)
+    if not files:
+        print(f"ERROR: {LOGS} 无审计文件（服务未跑过？），本日无数据", file=sys.stderr)
         return 2
 
     total = refused = l3 = 0
     per_sub: dict[str, int] = {}
-    with open(AUDIT, encoding="utf-8") as fh:
-        for line in fh:
-            try:
-                ev = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # 滚动写盘偶发撕裂行，跳过不阻塞统计
-            ts = dt.datetime.fromtimestamp(ev["ts"] / 1000).date().isoformat()
-            if ts != day:
-                continue
-            total += 1
-            per_sub[ev.get("sub", "?")] = per_sub.get(ev.get("sub", "?"), 0) + 1
-            refused += 1 if ev.get("refused") else 0
-            l3 += 1 if ev.get("max_level", 0) >= 3 else 0
+    for path in files:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue  # 滚动写盘偶发撕裂行，跳过不阻塞统计
+                if ev.get("ev") not in BUSINESS:
+                    continue
+                ts = dt.datetime.fromtimestamp(ev["ts"] / 1000).date().isoformat()
+                if ts != day:
+                    continue
+                total += 1
+                per_sub[ev.get("sub", "?")] = per_sub.get(ev.get("sub", "?"), 0) + 1
+                refused += 1 if ev.get("refused") else 0
+                l3 += 1 if ev.get("max_level", 0) >= 3 else 0
 
     out = {"date": day, "total_requests": total, "unique_users": len(per_sub),
            "refuse_rate": round(refused / total, 4) if total else 0.0,

@@ -36,6 +36,8 @@ class AdminControllerTest {
             new UserContext("sre-limited", "sre", 1, "tenant-internal");
 
     private AdminController controller;
+    private com.opspilot.metrics.AuditService audit;
+    private UserStore users;
 
     @BeforeEach
     void setUp() {
@@ -51,11 +53,12 @@ class AdminControllerTest {
                 null, null, null, null, null, null, null);
         IngestionRunner ingestion = mock(IngestionRunner.class);
         when(ingestion.reingestAsync()).thenReturn(true);
-        UserStore users = mock(UserStore.class);
+        users = mock(UserStore.class);
         when(users.backup(any())).thenReturn("backup/ok.zip");
         HealthProbe probe = mock(HealthProbe.class);
         when(probe.summary()).thenReturn(Map.of("status", "UP"));
-        controller = new AdminController(metrics, degrade, l1, l2, props, ingestion, users, probe);
+        audit = mock(com.opspilot.metrics.AuditService.class);
+        controller = new AdminController(metrics, degrade, l1, l2, props, ingestion, users, probe, audit);
     }
 
     private static MockHttpServletRequest withUser(UserContext u) {
@@ -111,5 +114,26 @@ class AdminControllerTest {
         assertThrows(ResponseStatusException.class, () -> controller.reingest(acme));
         assertThrows(ResponseStatusException.class, () -> controller.flushCache(acme));
         assertThrows(ResponseStatusException.class, () -> controller.backup(Map.of("to", "backup/x.zip"), acme));
+        verifyNoInteractions(users);
+    }
+
+    /** QA P1-2：被拒与成功都要留痕（ev=admin outcome=refused/ok）。 */
+    @Test
+    void adminActionsLeaveAuditTrail() {
+        assertThrows(ResponseStatusException.class, () -> controller.reingest(withUser(CUSTOMER_L3)));
+        verify(audit).logAdmin(eq(CUSTOMER_L3), eq("reingest"), eq("refused"), isNull());
+        assertDoesNotThrow(() -> controller.reingest(withUser(PLATFORM)));
+        verify(audit).logAdmin(eq(PLATFORM), eq("reingest"), eq("ok"), isNull());
+    }
+
+    /** QA P2-2：白名单拒绝是客户端错误（400 可操作文案），不再以 500 污染错误率 SLO。 */
+    @Test
+    void illegalBackupPathIsClientErrorNotServerBug() {
+        when(users.backup(any())).thenThrow(new IllegalArgumentException("路径必须为 backup/ 目录下的合法 .zip: ../evil"));
+        var ex = assertThrows(ResponseStatusException.class,
+                () -> controller.backup(Map.of("to", "../evil.zip"), withUser(PLATFORM)));
+        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        assertTrue(ex.getReason().contains("backup/"), "文案应告知合法路径形状: " + ex.getReason());
+        verify(audit).logAdmin(eq(PLATFORM), eq("backup"), eq("rejected"), anyString());
     }
 }

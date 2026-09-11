@@ -24,7 +24,7 @@ bash scripts/user_admin.sh list
 
 > 前提：jar 已构建（`mvn package -DskipTests`）。首次使用先跑 `bash scripts/seed_demo_users.sh`。
 > **容器模式**（compose full profile）：宿主机 CLI 无法共享容器持有的 H2 文件锁/网络，改用
-> `docker compose exec gateway java -cp app.jar -Dloader.main=com.opspilot.auth.UserAdminCli org.springframework.boot.loader.launch.PropertiesLauncher <同参数>`；备份 zip 落在容器卷 `./data`↔`/app/data` 映射内，宿主可见。
+> `docker compose exec gateway java -cp app.jar -Dloader.main=com.opspilot.auth.UserAdminCli org.springframework.boot.loader.launch.PropertiesLauncher <同参数>`；备份 zip 经 `./backup`↔`/app/backup` 卷映射落宿主 `backup/`（QA P1-3 修复后可见；映射缺失时 `backup.sh` 的存在性校验会报红）。
 
 ## 2. 口令分发纪律
 
@@ -100,13 +100,14 @@ git log --all -S "sre_l1=" -- scripts/demo_tokens.txt
 
 > 若已有他人 clone（本文件编写时尚无）：通知全员**重新 clone**，禁止在旧历史上继续 merge。
 
-## 8. LobeChat 前端与 OpenAI 面（/v1）
+## 7. LobeChat 前端与 OpenAI 面（/v1）
 
 **启动**：`docker compose --profile full --profile ui up -d`（gateway 容器模式；宿主裸进程模式则只起 ui profile 的 lobe-chat，base URL 仍指 localhost:8081）。访问 `http://localhost:3210`，ACCESS_CODE 见 `.env` 的 `LOBE_ACCESS_CODE`。
 
 **连接配置（关键）**：LobeChat 浏览器端直接 fetch 上游——**Base URL 填 `http://localhost:8081/v1`**（宿主视角），不是容器服务名（服务名 URL 仅对其 server 模式有意义，浏览器解析不了）。API Key 填**用户自己 login 的 JWT**（不是共享密钥）：
 
 ```bash
+set -a && . ./.env && set +a    # DEMO_PASSWORD 只从 .env 来，缺这行必报 traceback
 cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');import localapi;print(localapi.login('sre-full'))"
 ```
 
@@ -120,7 +121,7 @@ cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');imp
 
 **UI 集成实测结论（2026-09-11）**：设置页填 JWT + 代理地址后真实提问，网关 audit 确认全链路穿透（`via:openai`、租户/密级/生成/审计全部正常）。若遇到"回答已返回但气泡不渲染"（本会话在 IAB webview 中观察到）：优先换**真实 Chrome** 打开 `localhost:3210` 验证，或在 provider 设置里关闭「客户端请求模式」改走 LobeChat 服务端代理。用户消息正常、后端日志正常时，问题在渲染层而非集成层——先用 audit 定位归属再排查。
 
-## 7. 备份与恢复（只备份不可再生的东西）
+## 8. 备份与恢复（只备份不可再生的东西）
 
 | 数据 | 性质 | 策略 |
 |---|---|---|
@@ -139,12 +140,18 @@ cron（Linux 部署）：
 **恢复流程（H2 2.x Restore 要求目标库不存在=天然防误覆盖）**：
 
 ```bash
-powershell 'Get-Process java | Stop-Process -Force'          # 停网关
+# 容器模式（compose full；./data 卷映射下宿主 CLI 与容器共用同一物理库文件，网关必须真停以让出文件锁）
+docker compose stop gateway
 mv data/users.mv.db data/users.broken-$(date +%F)            # 移走损坏库（留取证现场）
 bash scripts/user_admin.sh restore --from backup/users-<日期>.zip
-# 起服务后验证：/api/v1/admin/metrics 正常 + login 成功
+docker compose start gateway
+# 裸进程模式同理：停宿主 java 进程 → mv → restore → 重启 jar
+# 起服务后验证：/api/v1/admin/health 正常 + login 成功
 ```
+
+> QA P2-8 注：本节此前通篇裸机命令（`Get-Process java | Stop-Process`），容器化部署照抄必炸且
+> 与 §1 的容器声明自相矛盾——恢复前先确认自己跑的是哪种模式，停错对象等于没停。
 
 **恢复完整性演练（不需要等灾难，网关可不停）**：`bash scripts/user_admin.sh restore --from backup/users-<今天>.zip --to-db restore-drill` 恢复到演练库后加 `--to-db` 同款连接串 `list`，应见全部账号与各自的 token_ver（如 sre-limited ver=7）；验证后删 `data/restore-drill.*`。本仓库已实测通过（commit 记录在案）。
 
-**网络注**：AUTO_SERVER 走 Windows 防火墙常拦（LAN IP+随机端口），CLI 已内建「嵌入式优先、AUTO_SERVER 兜底」双路；两个都不通时报错会指路本节。
+**网络注**：AUTO_SERVER 走 Windows 防火墙常拦（LAN IP+随机端口），CLI 已内建「嵌入式优先、AUTO_SERVER 兜底」双路；两个都不通时报错会指路本节。Windows Git Bash 里跑 `docker compose exec gateway ls /app/backup` 这类容器内绝对路径命令需前置 `MSYS_NO_PATHCONV=1`（否则 MSYS 会把 /app/... 改写成宿主路径）。

@@ -214,4 +214,29 @@ class ChatOrchestratorTest {
                 ChatOrchestrator.singleFlightKey(ACME, "fp1"),
                 "同指纹同密级跨租户必须落到不同组（P0-1 根因）");
     }
+
+    /** QA P2-5：拒答话术不得回显相关度分数与阈值（门控 oracle）；同租户回放审计携带 src_tenant。 */
+    @Test
+    void refusalTextOmitsInternalScoresAndReplayCarriesSourceTenant() throws Exception {
+        // 低置信但有召回：走"检索置信度不足"分支
+        when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
+                .thenReturn(new SearchOutcome(
+                        List.of(outcome("rb-001::s1").chunks().get(0)), "hybrid", false, false, 0.12, 5));
+        RecordingSink sink = new RecordingSink();
+        orchestrator.submit(req(q()), INTERNAL, sink, "sse");
+        assertTrue(sink.finished.await(30, TimeUnit.SECONDS));
+        String text = sink.answer.toString();
+        assertTrue(text.contains("检索置信度不足"), "应拒答: " + text);
+        assertFalse(text.matches("(?s).*\\d\\.\\d+<\\d\\.\\d+.*"), "话术不得含分数回显: " + text);
+        assertFalse(text.contains("0.2"), "阈值不得外显: " + text);
+
+        // 同租户 dedup 回放（另一请求）：审计行携带 src_tenant=载荷租户
+        RecordingSink follower = new RecordingSink();
+        orchestrator.replay(follower,
+                new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                        new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal")),
+                "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse");
+        verify(audit).log(eq(INTERNAL), eq("chat"), anyString(), anyString(), anyString(),
+                eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"));
+    }
 }

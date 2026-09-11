@@ -183,8 +183,11 @@ public class ChatOrchestrator {
                 || (!outcome.fastPath() && outcome.topRelevance() < minRel);
         if (lowConfidence) {
             metrics.lowConfidence();
-            String reason = chunks.isEmpty() ? "未匹配到任何参考"
-                    : String.format("检索置信度不足（%.2f<%.2f）", outcome.topRelevance(), minRel);
+            // QA P2-5：分数与阈值是内部量纲，外显=门控 oracle（攻击者可精调话术卡到阈值之上）；
+            // 只进日志与 metrics，对外话术不回显。
+            log.debug("low-confidence refusal: top={} threshold={} empty={}",
+                    outcome.topRelevance(), minRel, chunks.isEmpty());
+            String reason = chunks.isEmpty() ? "未匹配到任何参考" : "检索置信度不足";
             String refusal = "当前知识库无足够相关的参考（" + reason + "），无法可靠作答。"
                     + "请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
             AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel(), user.tenantId());
@@ -263,7 +266,9 @@ public class ChatOrchestrator {
         long replayFirstDeltaNano = System.nanoTime();
         sink.streamInChunks(p.answer());
         sink.done(t0, replayFirstDeltaNano, p.refs());
+        // src_tenant 随行（QA P1-2"命中来源"）：与 tenant 相等=正常同租户回放；
+        // grep 不等即可发现任何新的跨租户共享旁路。
         audit.log(user, "chat", via, query, fp, cacheHit + (deduplicated ? "+dedup" : ""),
-                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000);
+                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant());
     }
 }

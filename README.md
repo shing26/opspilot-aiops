@@ -120,6 +120,7 @@ bash scripts/demo.sh                          # 9 项预检全绿
 
 ```bash
 # 身份即密钥：API Key = 用户自己 login 换来的 24h JWT（租户/密级/吊销/配额/审计全穿透）
+set -a && . ./.env && set +a   # 口令只从 .env 的 DEMO_PASSWORD 来
 TOKEN=$(curl -s -X POST http://localhost:8081/api/v1/auth/login \
   -H 'Content-Type: application/json' -d "{\"username\":\"sre-full\",\"password\":\"$DEMO_PASSWORD\"}" \
   | sed -E 's/.*"token":"([^"]+)".*/\1/')
@@ -130,7 +131,7 @@ curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOK
 # → role 首帧 → content 增量帧 → 「## 参考来源」溯源注入 → finish_reason=stop → data:[DONE]
 ```
 
-**LobeChat 三步接入**：`docker compose --profile full --profile ui up -d` → 浏览器 `localhost:3210`（需 ACCESS_CODE，见 OPS.md §8）→ 设置里 Provider=OpenAI、Base URL=`http://localhost:8081/v1`、API Key=上面的 TOKEN。
+**LobeChat 三步接入**：`docker compose --profile full --profile ui up -d` → 浏览器 `localhost:3210`（需 ACCESS_CODE，见 OPS.md §7）→ 设置里 Provider=OpenAI、Base URL=`http://localhost:8081/v1`、API Key=上面的 TOKEN。
 
 **协议取舍声明**（详见 ADR-0007）：无状态单轮——取最后一条 user 消息，忽略 system/历史（检索按单 query 指纹设计，多轮请由客户端并入单条消息）；自定义 meta/ttft 在 OpenAI 帧无位置，丢弃；溯源以正文尾部 markdown 保留。注意 Windows Git Bash 的 `curl -d` 发中文有 GBK locale 坑，测试请含 ASCII 或用脚本。
 

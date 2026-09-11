@@ -57,6 +57,9 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+      # P1-3（QA 2026-09-11）：H2BackupPath 锁 <cwd>/backup，此前未映射 → 备份落容器可写层，
+      # 随重建蒸发且 cron 假绿。账号库是唯一不可再生数据，必须落宿主卷。
+      - ./backup:/app/backup
     mem_limit: 768m
     restart: unless-stopped
 

@@ -20,6 +20,7 @@ class AuthServiceTest {
     private RAtomicLong counter;
     private AuthService auth;
     private String goodHash;
+    private com.opspilot.metrics.AuditService audit;
 
     @BeforeEach
     void setUp() {
@@ -30,8 +31,23 @@ class AuthServiceTest {
         redisson = mock(RedissonClient.class);
         counter = mock(RAtomicLong.class);
         when(redisson.getAtomicLong(anyString())).thenReturn(counter);
-        auth = new AuthService(store, new JwtService(props), redisson, props);
+        audit = mock(com.opspilot.metrics.AuditService.class);
+        auth = new AuthService(store, new JwtService(props), redisson, props, audit);
         goodHash = auth.hash("correct horse battery staple");
+    }
+
+    /** QA P1-2：登录失败（对外统一话术）在审计内部必须可辨 bad_credentials/locked。 */
+    @Test
+    void failedLoginLeavesAuditTrailWithDiscriminatingReason() {
+        seedUser(false);
+        when(counter.get()).thenReturn(0L);
+        when(counter.incrementAndGet()).thenReturn(1L);
+        assertThrows(AuthService.BadCredentialsException.class, () -> auth.login("alice", "wrong"));
+        verify(audit).logAuthDenied("alice", "/api/v1/auth/login", "login_failed", "bad_credentials");
+
+        when(counter.get()).thenReturn(5L);
+        assertThrows(AuthService.LoginLockedException.class, () -> auth.login("alice", "whatever"));
+        verify(audit).logAuthDenied("alice", "/api/v1/auth/login", "login_failed", "locked");
     }
 
     private void seedUser(boolean disabled) {

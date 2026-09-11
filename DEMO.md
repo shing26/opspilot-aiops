@@ -153,5 +153,5 @@ curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization
 
 ### 幕⑦（+40 秒，UI 观感加分，主线仍是上面六幕）
 
-浏览器开 `localhost:3210`（LobeChat，输入 ACCESS_CODE 进主界面，见 OPS.md §8）：设置→自定义模型服务填 Base URL `http://localhost:8081/v1` + Key=login 的 JWT。挑 `opspilot` 模型提问 "50012_DB_TIMEOUT how to fix"——口播："后端暴露标准 OpenAI 兼容面，界面上这个'API Key'其实是账号体系签的 JWT——刚才幕⑤那个 disable，在这层同样秒生效，因为两个协议面共享同一条编排链路。"
+浏览器开 `localhost:3210`（LobeChat，输入 ACCESS_CODE 进主界面，见 OPS.md §7）：设置→自定义模型服务填 Base URL `http://localhost:8081/v1` + Key=login 的 JWT。挑 `opspilot` 模型提问 "50012_DB_TIMEOUT how to fix"——口播："后端暴露标准 OpenAI 兼容面，界面上这个'API Key'其实是账号体系签的 JWT——刚才幕⑤那个 disable，在这层同样秒生效，因为两个协议面共享同一条编排链路。"
 （前置：`docker compose --profile full --profile ui up -d`，lobe 需 2g 内存——512m 会 OOM，见 OPS 环境注记。若 UI 不可用，降级预案为一条 curl 直播 OpenAI chunk 流，口播词不变。）

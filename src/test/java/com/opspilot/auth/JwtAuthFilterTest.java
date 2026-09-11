@@ -26,6 +26,7 @@ class JwtAuthFilterTest {
     private static final SecretKey KEY = Keys.hmacShaKeyFor(SECRET.getBytes(StandardCharsets.UTF_8));
 
     private UserStore store;
+    private com.opspilot.metrics.AuditService audit;
     private JwtAuthFilter filter;
 
     @BeforeEach
@@ -33,7 +34,8 @@ class JwtAuthFilterTest {
         OpsPilotProperties props = new OpsPilotProperties(
                 null, null, null, new OpsPilotProperties.Jwt(SECRET, 3600), null, null, null, null);
         store = mock(UserStore.class);
-        filter = new JwtAuthFilter(new JwtService(props), store);
+        audit = mock(com.opspilot.metrics.AuditService.class);
+        filter = new JwtAuthFilter(new JwtService(props), store, audit);
     }
 
     private static UserStore.User active(String sub, String tenant, int level) {
@@ -187,5 +189,20 @@ class JwtAuthFilterTest {
         MockHttpServletResponse resp = dispatch(null, new MockFilterChain());
         assertEquals(401, resp.getStatus());
         assertEquals("missing bearer token", resp.getErrorMessage());
+    }
+
+    /** QA P1-2：守卫拒绝必须留痕且原因可辨（sub 仅在 token 可解析时携带，不编造身份）。 */
+    @Test
+    void denialLeavesDiscriminatingAuditTrail() throws Exception {
+        when(store.find("sre-test")).thenReturn(active("sre-test", "tenant-demo", 1));
+        dispatch(token(0, "tenant-demo", 1), new MockFilterChain());
+        verify(audit).logAuthDenied("sre-test", "/api/v1/copilot/search", "denied", "level_invalid");
+
+        dispatchOn("POST", "/v1/chat/completions", null, new MockFilterChain());
+        verify(audit).logAuthDenied(null, "/v1/chat/completions", "denied", "missing_bearer");
+
+        when(store.find("sre-test")).thenReturn(null);
+        dispatch(token(1, "tenant-demo", 1), new MockFilterChain());
+        verify(audit).logAuthDenied("sre-test", "/api/v1/copilot/search", "denied", "unknown_or_revoked");
     }
 }
