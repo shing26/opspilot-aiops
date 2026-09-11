@@ -153,4 +153,39 @@ class JwtAuthFilterTest {
         assertEquals(1, ctx.authLevel(), "降级后旧高等级 token 不得残留权限（DB 为唯一真相）");
         assertEquals("tenant-internal", ctx.tenantId());
     }
+
+    /**
+     * P2-3（QA 台账 2026-09-11）：/v1 面的 401 必须是 OpenAI 标准错误形状——filter 层短路
+     * 不经过 OpenAiErrorAdvice，Spring 默认体（含 path 回显）会让标准客户端解析不了 token 过期。
+     */
+    @Test
+    void v1DeniedReturnsOpenAiErrorShape() throws Exception {
+        MockHttpServletResponse resp = dispatchOn("POST", "/v1/chat/completions", null, new MockFilterChain());
+        assertEquals(401, resp.getStatus());
+        String body = resp.getContentAsString();
+        assertTrue(body.contains("\"error\""), "OpenAI 错误形状缺失: " + body);
+        assertTrue(body.contains("\"authentication_error\""), "type 字段不符: " + body);
+        assertTrue(body.contains("\"invalid_api_key\""), "code 字段不符: " + body);
+        assertFalse(body.contains("\"path\""), "不得回显内部路径: " + body);
+        assertTrue(resp.getContentType().startsWith("application/json"),
+                "内容类型应为 JSON，实际 " + resp.getContentType());
+    }
+
+    /** 同形状对"凭证无效"分支（过期/吊销/篡改）也成立——LobeChat 用户 token 24h 过期即走此路。 */
+    @Test
+    void v1InvalidTokenAlsoOpenAiShape() throws Exception {
+        when(store.find("sre-test")).thenReturn(null);
+        MockHttpServletResponse resp = dispatchOn("GET", "/v1/models",
+                token(1, "tenant-demo", 1), new MockFilterChain());
+        assertEquals(401, resp.getStatus());
+        assertTrue(resp.getContentAsString().contains("\"invalid_api_key\""));
+    }
+
+    /** /api 面维持原样（sendError 语义），本修复只收敛 /v1 形状。 */
+    @Test
+    void apiSurfaceKeepsPlainUnauthorized() throws Exception {
+        MockHttpServletResponse resp = dispatch(null, new MockFilterChain());
+        assertEquals(401, resp.getStatus());
+        assertEquals("missing bearer token", resp.getErrorMessage());
+    }
 }

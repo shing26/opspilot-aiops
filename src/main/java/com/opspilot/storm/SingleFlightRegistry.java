@@ -5,9 +5,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Service;
 
 /**
- * 进程内 Single-Flight（ADR-0003）：key = fingerprint + authLevel。
+ * 进程内 Single-Flight（ADR-0003）：key = tenant + fingerprint + authLevel。
  * leader 内联执行全链路并 complete future；follower 等待并复用结果。
- * 掺 authLevel 防低权限等待者复用高权限答案。
+ * 掺 authLevel 防低权限等待者复用高权限答案；掺 tenant 防跨租户回放
+ * （2026-09-11 QA P0-1 修订：key 曾缺 tenant，告警风暴并发下外来租户拿到内部租户全文）。
+ * 口径由 ChatOrchestrator.singleFlightKey 单点构造，本类不感知语义。
  */
 @Service
 public class SingleFlightRegistry {

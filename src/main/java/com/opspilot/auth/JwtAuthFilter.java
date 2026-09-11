@@ -15,7 +15,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * ③ 吊销版本：token 的 tver 必须等于用户当前 token_ver（改版本=全局吊销该用户所有 token）。
  * 权限维度（tenant/auth_level/role）以 **DB 为唯一真相**，token claim 仅作定位与卫生检查——
  * 降级用户不可能凭旧 token 维持高等级。/api/v1/copilot|admin/** 受此守卫；/api/v1/auth/login 免凭证
- * （由 AuthService 限流保护）。admin 状态变更端点在 Controller 层另有 auth_level>=3 门禁。
+ * （由 AuthService 限流保护）。admin 端点在 Controller 层另有平台门禁（role=platform ∧ level≥3）。
+ * 拒绝呈现分面：/v1（OpenAI 兼容面）直写标准 error JSON（filter 短路不经 advice，
+ * Spring 默认体标准客户端解析不了——QA P2-3）；其余面维持 sendError。
  */
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
@@ -47,7 +49,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
         String header = req.getHeader("Authorization");
         if (header == null || !header.startsWith("Bearer ")) {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "missing bearer token");
+            deny(req, resp, path, "missing bearer token",
+                    "No API key provided. Use your OpsPilot JWT as the API key.");
             return;
         }
         try {
@@ -55,28 +58,41 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             Integer level = claims.get("auth_level", Integer.class);
             if (level == null || level < 1) {
                 // 下限校验：auth_level 缺失或 <1 视为非法凭证，防止 level-0 token 提权
-                resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid token");
+                deny(req, resp, path, "invalid token", "Invalid API key.");
                 return;
             }
             String tenant = claims.get("tenant_id", String.class);
             if (tenant == null || tenant.isBlank() || tenant.length() > 64) {
                 // P1 租户显式化：缺失/空白/超长一律拒绝（检索双条件过滤与缓存 key 的硬维度）
-                resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid token");
+                deny(req, resp, path, "invalid token", "Invalid API key.");
                 return;
             }
             UserStore.User u = users.find(claims.getSubject());
             Integer tver = claims.get("tver", Integer.class);
             if (u == null || u.disabled() || tver == null || u.tokenVer() != tver.intValue()) {
                 // ②③：无此账号/已禁用/版本不匹配 → 吊销生效（不信任 token 内旧权限）
-                resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid token");
+                deny(req, resp, path, "invalid token", "Invalid API key.");
                 return;
             }
             UserContext ctx = new UserContext(u.sub(), u.role(), u.authLevel(), u.tenant());
             req.setAttribute(UserContext.REQUEST_ATTR, ctx);
             chain.doFilter(req, resp);
         } catch (Exception e) {
-            resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, "invalid token");
+            deny(req, resp, path, "invalid token", "Invalid API key.");
         }
+    }
+
+    /** 401 呈现按面分叉：/v1 直写 OpenAI 标准 error JSON（不回显 path），其余维持容器 sendError。 */
+    private void deny(HttpServletRequest req, HttpServletResponse resp, String path,
+                      String legacyReason, String openAiMessage) throws IOException {
+        if (path.startsWith("/v1")) {
+            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+            resp.setContentType("application/json;charset=UTF-8");
+            resp.getWriter().write("{\"error\":{\"message\":\"" + openAiMessage
+                    + "\",\"type\":\"authentication_error\",\"code\":\"invalid_api_key\"}}");
+            return;
+        }
+        resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, legacyReason);
     }
 
     /** 供 Controller 便捷取用。 */

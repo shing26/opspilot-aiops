@@ -19,7 +19,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
-/** 运维端点：需有效 JWT；状态变更（降级/清缓存）额外要求 auth_level>=3。 */
+/**
+ * 运维端点：**全部要求平台管理员** —— DB `role=="platform"` ∧ `auth_level>=3`。
+ * 2026-09-11 QA P0-2/P1-1：旧口径"level≥3 即管理员"把密级当信任，外来租户 L3 可重建共享索引/
+ * 清全局缓存（已被实测误触发）；metrics 曾完全无门禁暴露全局计数与内部模型名。
+ * 索引/集合/缓存/H2 都是平台级共享资源，任何单一租户的用户（无论多高密级）不得持有其写权。
+ * role 与 tenant/level 同源于 DB（JwtAuthFilter 每请求注入），保持"DB 是唯一真相"（ADR-0008）。
+ */
 @RestController
 @RequestMapping("/api/v1/admin")
 public class AdminController {
@@ -49,24 +55,25 @@ public class AdminController {
         this.healthProbe = healthProbe;
     }
 
-    private void requireAdmin(HttpServletRequest http) {
+    private void requirePlatformAdmin(HttpServletRequest http) {
         UserContext u = JwtAuthFilter.from(http);
-        if (u == null || u.authLevel() < 3) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要 auth_level>=3 管理员凭证");
+        if (u == null || !("platform".equals(u.role()) && u.authLevel() >= 3)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "需要平台管理员凭证（role=platform 且 auth_level>=3）");
         }
     }
 
     /** 清空 L1+L2 缓存（验收隔离 / 演示重置）。 */
     @PostMapping("/cache/flush")
     public Map<String, Object> flushCache(HttpServletRequest http) {
-        requireAdmin(http);
+        requirePlatformAdmin(http);
         long n = l1.flush();
         l2.flush();
         return Map.of("l1_flushed", n);
     }
 
     @GetMapping("/metrics")
-    public Map<String, Object> metrics() {
+    public Map<String, Object> metrics(HttpServletRequest http) {
+        requirePlatformAdmin(http);
         Map<String, Object> m = new LinkedHashMap<>(metrics.snapshot());
         var ds = props.dashscope();
         // 后端真相由服务端自报（评测/压测报告据此标注，避免 mock/live 元数据错标——
@@ -86,14 +93,14 @@ public class AdminController {
     /** 部署级健康明细（需凭证）：依赖探测+live 口径+索引规模；组件聚合另见 /actuator/health。 */
     @GetMapping("/health")
     public Map<String, Object> health(HttpServletRequest http) {
-        requireAdmin(http);
+        requirePlatformAdmin(http);
         return healthProbe.summary();
     }
 
     /** body: {"level":"L0|L1|L2"} 锁定；{"level":"auto"} 解除手动锁定。 */
     @PostMapping("/degrade")
     public Map<String, Object> degrade(@RequestBody Map<String, String> body, HttpServletRequest http) {
-        requireAdmin(http);
+        requirePlatformAdmin(http);
         String level = body.getOrDefault("level", "auto");
         if (!VALID_LEVELS.contains(level)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -110,7 +117,7 @@ public class AdminController {
     /** P4：异步触发 blue/green 重灌（level>=3）；已有任务在跑返回 409。 */
     @PostMapping("/reingest")
     public Map<String, Object> reingest(HttpServletRequest http) {
-        requireAdmin(http);
+        requirePlatformAdmin(http);
         if (!ingestion.reingestAsync()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "已有 reingest 在执行中");
         }
@@ -121,7 +128,7 @@ public class AdminController {
      *  不依赖 AUTO_SERVER TCP（Windows 防火墙常拦），gateway 活着就能备，cron 友好。 */
     @PostMapping("/backup")
     public Map<String, Object> backup(@RequestBody Map<String, String> body, HttpServletRequest http) {
-        requireAdmin(http);
+        requirePlatformAdmin(http);
         return Map.of("backup", users.backup(body.getOrDefault("to", null)));
     }
 }

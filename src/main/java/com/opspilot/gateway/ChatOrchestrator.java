@@ -103,9 +103,12 @@ public class ChatOrchestrator {
         String fp = fingerprintService.fingerprint(req.service(), req.env(), query);
         long t0 = System.nanoTime();
 
-        // Single-Flight 为主闸门：同 (fingerprint, authLevel) 并发仅 1 个 leader 穿透，
+        // Single-Flight 为主闸门：同 (tenant, fingerprint, authLevel) 并发仅 1 个 leader 穿透，
         // 缓存检查在 leader 内部完成，杜绝「L1 检查后、flight 移除前」的竞态重复穿透。
-        String sfKey = fp + ":" + user.authLevel();
+        // 2026-09-11 QA P0-1：key 曾缺 tenant——跨租户同密级并发风暴下 follower 回放 leader
+        // 全文+引用（引擎层过滤管不到"共享在途结果"这条旁路）。权限维度必须完备：
+        // 租户×密级（ADR-0008），与 L1 key 的 cache:l1:<tenant>:<level>: 同构。
+        String sfKey = singleFlightKey(user, fp);
         SingleFlightRegistry.Registration reg = singleFlight.getOrCreate(sfKey);
         if (!reg.leader()) {
             String shared = reg.future().get(90, TimeUnit.SECONDS);
@@ -236,10 +239,26 @@ public class ChatOrchestrator {
         }
     }
 
-    /** 缓存回放 / Single-Flight 共享答案 → 分片打字机下发（帧格式由 sink 决定）。 */
-    private void replay(ChatSink sink, String json, String cacheHit, boolean deduplicated,
-                        String fp, long t0, UserContext user, String query, String via) throws Exception {
+    /** Single-Flight 组键 = 租户+指纹+密级（P0-1 修复：租户是第一字段，跨租户永不共组）。 */
+    static String singleFlightKey(UserContext user, String fp) {
+        return user.tenantId() + ":" + fp + ":" + user.authLevel();
+    }
+
+    /**
+     * 缓存回放 / Single-Flight 共享答案 → 分片打字机下发（帧格式由 sink 决定）。
+     * 入口绊线 fail-closed：载荷租户与请求者不符 → 拒绝回放、error 收尾、审计告警。
+     * sfKey 掺租户后本不应触发；触发即意味着又出现了新的无租户共享旁路——宁误伤不泄露。
+     */
+    void replay(ChatSink sink, String json, String cacheHit, boolean deduplicated,
+                String fp, long t0, UserContext user, String query, String via) throws Exception {
         AnswerPayload p = mapper.readValue(json, AnswerPayload.class);
+        if (!user.tenantId().equals(p.tenant())) {
+            log.error("shared replay tenant mismatch: payload={} requester={}", p.tenant(), user.tenantId());
+            audit.log(user, "chat", via, query, fp, "dedup_guard", p.mode(), true, 0,
+                    (System.nanoTime() - t0) / 1_000_000);
+            sink.error(new IllegalStateException("shared replay tenant mismatch"));
+            return;
+        }
         sink.meta(fp, cacheHit, degrade.current(), p.fastPath(), deduplicated, 0);
         long replayFirstDeltaNano = System.nanoTime();
         sink.streamInChunks(p.answer());

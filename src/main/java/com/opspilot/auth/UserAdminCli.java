@@ -35,6 +35,7 @@ public final class UserAdminCli {
                 case "add" -> add(c, require(argv, "--user"), require(argv, "--tenant"),
                         Integer.parseInt(require(argv, "--level")), require(argv, "--role"), readPw(argv));
                 case "passwd" -> passwd(c, require(argv, "--user"), readPw(argv));
+                case "role" -> role(c, require(argv, "--user"), require(argv, "--role"));
                 case "disable" -> flag(c, "disable", require(argv, "--user"), true);
                 case "enable" -> flag(c, "enable", require(argv, "--user"), false);
                 case "rotate" -> rotate(c, require(argv, "--user"));
@@ -127,6 +128,21 @@ public final class UserAdminCli {
         System.out.println("password rotated + tokens invalidated for " + sub);
     }
 
+    /** 变更角色（信任域维度，QA P0-2）：如 sre-full → platform。role 不进 token、每请求查 DB，
+     *  故即时生效且无需 bump token_ver（区别于 passwd/disable 的吊销语义）。 */
+    private static void role(Connection c, String sub, String role) throws Exception {
+        if (!role.matches("[A-Za-z0-9_-]{1,32}")) {
+            throw new IllegalArgumentException("role 仅允许字母数字/_/-，长度≤32");
+        }
+        try (PreparedStatement ps = c.prepareStatement(
+                "UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE sub = ?")) {
+            ps.setString(1, role);
+            ps.setString(2, sub);
+            if (ps.executeUpdate() == 0) throw new IllegalStateException("no such user: " + sub);
+        }
+        System.out.println("role=" + role + " for " + sub + "（即时生效，不吊销 token）");
+    }
+
     private static void flag(Connection c, String cmd, String sub, boolean disabled) throws Exception {
         try (PreparedStatement ps = c.prepareStatement(
                 "UPDATE users SET disabled = ?, token_ver = token_ver + 1, "
@@ -195,6 +211,7 @@ public final class UserAdminCli {
                 "用法: UserAdminCli <cmd> [opts]",
                 "  add     --user U --tenant T --level N --role R [--password-env VAR]",
                 "  passwd  --user U [--password-env VAR]   (同时吊销旧 token)",
+                "  role    --user U --role R               (信任域变更，如 platform；即时生效不吊销)",
                 "  disable --user U | enable --user U",
                 "  rotate  --user U                        (仅吊销 token，不动口令)",
                 "  backup  --to backup/users-YYYYMMDD.zip  (在线热备份，H2 BACKUP)",
