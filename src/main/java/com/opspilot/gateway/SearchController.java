@@ -54,7 +54,7 @@ public class SearchController {
                     "mode 仅允许 hybrid|es_only|vector_only");
         }
         SearchOutcome outcome = searchService.search(req.query(), user.tenantId(), level, mode);
-        audit.log(user, "search", req.query(), null, "none", outcome.mode(),
+        audit.log(user, "search", "search-api", req.query(), null, "none", outcome.mode(),
                 outcome.chunks().isEmpty(),
                 outcome.chunks().stream().mapToInt(c -> c.authLevel()).max().orElse(0),
                 outcome.tookMs());

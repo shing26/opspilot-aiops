@@ -1,6 +1,8 @@
 package com.opspilot.gateway;
 
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -12,6 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 /** 统一错误响应：屏蔽内部异常文案，返回结构化 code/message。 */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, Object>> onValidation(MethodArgumentNotValidException e) {
@@ -30,6 +34,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> onOther(Exception e) {
+        // 对外屏蔽细节，对内必须留栈——否则 500 是诊断黑洞（本仓踩过：/v1 首测 500 无线索）
+        log.warn("unhandled exception", e);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("code", "INTERNAL_ERROR", "message", "服务内部错误"));
     }

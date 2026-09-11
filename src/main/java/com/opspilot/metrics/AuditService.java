@@ -20,12 +20,17 @@ public class AuditService {
     private static final Logger AUDIT = LoggerFactory.getLogger("opspilot.audit");
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public void log(UserContext user, String kind, String query, String fingerprint,
+    /**
+     * @param via 调用面来源（"sse"/"openai"/"search-api"），合规视角区分谁经哪个协议面进来；
+     *            旧日志无此字段，消费端（daily_usage）按 dict .get 解析天然向后兼容。
+     */
+    public void log(UserContext user, String kind, String via, String query, String fingerprint,
                     String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs) {
         try {
             Map<String, Object> ev = new LinkedHashMap<>();
             ev.put("ts", System.currentTimeMillis());
             ev.put("ev", kind);
+            ev.put("via", via);
             ev.put("sub", user == null ? "" : user.sub());
             ev.put("tenant", user == null ? "" : user.tenantId());
             ev.put("level", user == null ? 0 : user.authLevel());

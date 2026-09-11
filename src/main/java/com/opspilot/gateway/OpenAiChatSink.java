@@ -1,0 +1,113 @@
+package com.opspilot.gateway;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opspilot.gateway.dto.AnswerPayload;
+import com.opspilot.resilience.DegradationStateMachine.Level;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+/**
+ * ChatSink 的 OpenAI chat.completions 流式实现（/v1 协议面）：
+ * 首帧 delta.role=assistant，逐 token content 帧，done 时把溯源 refs 注入为
+ * 答案尾部 markdown（OpenAI 纯文本协议里保住 RAG 溯源展示），再发
+ * finish_reason=stop 空帧 + data: [DONE]。meta/ttft 在 OpenAI 帧无对应位，丢弃
+ * （取舍记录于 ADR-0007）。异常不断裸 TCP：提示文本帧 + stop + [DONE] 正常收尾。
+ */
+public class OpenAiChatSink implements ChatSink {
+
+    private static final Logger log = LoggerFactory.getLogger(OpenAiChatSink.class);
+
+    /** OpenAI SSE chunk 线格式（record + Jackson 注解对齐规范字段名）。 */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record Chunk(String id, String object, long created, String model, List<Choice> choices) {
+        static Chunk delta(String id, String model, String role, String content) {
+            return new Chunk(id, "chat.completion.chunk", System.currentTimeMillis() / 1000, model,
+                    List.of(new Choice(0, new Delta(role, content), null)));
+        }
+        static Chunk stop(String id, String model) {
+            return new Chunk(id, "chat.completion.chunk", System.currentTimeMillis() / 1000, model,
+                    List.of(new Choice(0, new Delta(null, ""), "stop")));
+        }
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        record Delta(String role, String content) {}
+        record Choice(int index, Delta delta, @JsonProperty("finish_reason") String finishReason) {}
+    }
+
+    private final SseEmitter emitter;
+    private final String requestId;
+    private final String model;
+    private final ObjectMapper mapper = new ObjectMapper();
+    private final AtomicBoolean roleSent = new AtomicBoolean(false);
+    private final AtomicBoolean finished = new AtomicBoolean(false);
+
+    public OpenAiChatSink(SseEmitter emitter, String model) {
+        this.emitter = emitter;
+        this.model = model;
+        this.requestId = "chatcmpl-" + java.util.UUID.randomUUID().toString().replace("-", "");
+    }
+
+    @Override
+    public void meta(String fp, String cacheHit, Level level, boolean fastPath,
+                     boolean deduplicated, long retrievalMs) {
+        // OpenAI 帧无元信息位：有意丢弃（客户端不识别自定义事件；溯源经 refs 注入正文保展示）
+    }
+
+    @Override
+    public void delta(String token) {
+        boolean first = roleSent.compareAndSet(false, true);
+        send(Chunk.delta(requestId, model, first ? "assistant" : null, token));
+    }
+
+    @Override
+    public void streamInChunks(String answer) {
+        delta(answer);
+    }
+
+    @Override
+    public void done(long t0, long firstTokenNano, List<AnswerPayload.Ref> refs) {
+        if (refs != null && !refs.isEmpty()) {
+            StringBuilder sb = new StringBuilder("\n\n## 参考来源\n");
+            for (AnswerPayload.Ref r : refs) {
+                sb.append("- ").append(r.breadcrumb()).append("（").append(r.service()).append("）\n");
+            }
+            send(Chunk.delta(requestId, model, null, sb.toString()));
+        }
+        send(Chunk.stop(requestId, model));
+        sendDone();
+    }
+
+    @Override
+    public void error(Throwable t) {
+        send(Chunk.delta(requestId, model, null,
+                "\n\n【系统提示】本轮回答因网关内部异常中断，请稍后重试或联系值班 SRE。"));
+        send(Chunk.stop(requestId, model));
+        sendDone();
+    }
+
+    private void send(Chunk chunk) {
+        if (finished.get()) return;
+        try {
+            emitter.send(SseEmitter.event().data(mapper.writeValueAsString(chunk), MediaType.APPLICATION_JSON));
+        } catch (IOException | IllegalStateException e) {
+            log.debug("SSE send failed (client gone): {}", e.getMessage()); // 客户端断开不致命
+        }
+    }
+
+    private void sendDone() {
+        if (!finished.compareAndSet(false, true)) return;
+        try {
+            emitter.send(SseEmitter.event().data("[DONE]"));
+            emitter.complete();
+        } catch (IOException | IllegalStateException e) {
+            log.debug("SSE done failed: {}", e.getMessage());
+        }
+    }
+}

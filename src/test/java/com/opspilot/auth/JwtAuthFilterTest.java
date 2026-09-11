@@ -51,11 +51,36 @@ class JwtAuthFilterTest {
     }
 
     private MockHttpServletResponse dispatch(String bearer, MockFilterChain chain) throws Exception {
-        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/v1/copilot/search");
+        return dispatchOn("POST", "/api/v1/copilot/search", bearer, chain);
+    }
+
+    private MockHttpServletResponse dispatchOn(String method, String path, String bearer,
+                                               MockFilterChain chain) throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest(method, path);
         if (bearer != null) req.addHeader("Authorization", "Bearer " + bearer);
         MockHttpServletResponse resp = new MockHttpServletResponse();
         filter.doFilter(req, resp, chain);
         return resp;
+    }
+
+    /** OpenAI 兼容面（/v1）守卫：OPTIONS 预检放行（否则浏览器端客户端死在预检），其余同 JWT。 */
+    @Test
+    void optionsPreflightOnV1PassesWithoutCredential() throws Exception {
+        MockFilterChain chain = new MockFilterChain();
+        MockHttpServletResponse resp = dispatchOn("OPTIONS", "/v1/chat/completions", null, chain);
+        assertEquals(200, resp.getStatus());
+        assertNotNull(chain.getRequest(), "CORS 预检必须放行给 DispatcherServlet 处理");
+    }
+
+    @Test
+    void v1EndpointsRequireCredential() throws Exception {
+        MockFilterChain c1 = new MockFilterChain();
+        assertEquals(401, dispatchOn("POST", "/v1/chat/completions", null, c1).getStatus());
+        MockFilterChain c2 = new MockFilterChain();
+        assertEquals(401, dispatchOn("GET", "/v1/models", null, c2).getStatus(),
+                "模型列表同样受守卫（无 Key 不暴露模型面）");
+        assertNull(c1.getRequest());
+        assertNull(c2.getRequest());
     }
 
     @Test

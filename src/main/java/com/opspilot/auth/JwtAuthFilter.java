@@ -32,8 +32,15 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse resp, FilterChain chain)
             throws ServletException, IOException {
         String path = req.getRequestURI();
-        // 仅放行健康检查与登录；copilot 与 admin 均需有效凭证
-        boolean guarded = path.startsWith("/api/v1/copilot") || path.startsWith("/api/v1/admin");
+        // CORS 预检不带 Authorization 头，必须放行（真实请求随后仍受守卫）；否则 LobeChat 等
+        // 浏览器端客户端在 OPTIONS 预检即被 401 掐死
+        if ("OPTIONS".equalsIgnoreCase(req.getMethod())) {
+            chain.doFilter(req, resp);
+            return;
+        }
+        // 仅放行健康检查等公开路径；copilot、admin 与 /v1（OpenAI 兼容面）均需有效凭证
+        boolean guarded = path.startsWith("/api/v1/copilot") || path.startsWith("/api/v1/admin")
+                || path.startsWith("/v1");
         if (!guarded) {
             chain.doFilter(req, resp);
             return;
