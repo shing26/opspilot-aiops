@@ -100,6 +100,24 @@ git log --all -S "sre_l1=" -- scripts/demo_tokens.txt
 
 > 若已有他人 clone（本文件编写时尚无）：通知全员**重新 clone**，禁止在旧历史上继续 merge。
 
+## 8. LobeChat 前端与 OpenAI 面（/v1）
+
+**启动**：`docker compose --profile full --profile ui up -d`（gateway 容器模式；宿主裸进程模式则只起 ui profile 的 lobe-chat，base URL 仍指 localhost:8081）。访问 `http://localhost:3210`，ACCESS_CODE 见 `.env` 的 `LOBE_ACCESS_CODE`。
+
+**连接配置（关键）**：LobeChat 浏览器端直接 fetch 上游——**Base URL 填 `http://localhost:8081/v1`**（宿主视角），不是容器服务名（服务名 URL 仅对其 server 模式有意义，浏览器解析不了）。API Key 填**用户自己 login 的 JWT**（不是共享密钥）：
+
+```bash
+cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');import localapi;print(localapi.login('sre-full'))"
+```
+
+**故障排查**：401→token 过期或账号被禁用（重新 login；这正是吊销跨面生效的表现）；连接被拒→`docker compose ps gateway` 或宿主网关进程检查；无流式→看 `/api/v1/admin/metrics` 的 `reingest_busy`（重灌窗口 live 依赖慢）与 audit `via=openai` 行；CORS 报错→确认访问的是环回 origin（CorsConfig 只放行 localhost/127.0.0.1 任意端口）。
+
+**audit `via` 字段**：`sse`（原生面）/`openai`（/v1 面）/`search-api`（检索端点）；早于该版本的旧日志行无此字段，`daily_usage.py` 按字典 `.get()` 解析天然兼容。想按调用面统计时：`grep -c '"via":"openai"' logs/audit.jsonl`。
+
+**能力边界（勿对外宣传）**：文件上传/语音/多模态依赖未实现的 embeddings/audio 端点，LobeChat 里点了会报错——演示只用文本对话。
+
+**已知环境边界（2026-09-11 实测）**：`lobehub/lobe-chat` 镜像在本机 Windows Docker Desktop 崩溃循环（next-server 起监听前退出，非本项目代码问题；compose 语法/CORS 链路已单独验证通过）。备选路径按序：① Linux/WSL2 内的 Docker 起同镜像；② 官方源码本地 `pnpm dev`；③ 直接用 OpenAI SDK/curl 演示 /v1（协议面已实测合规，效果等价且零外部依赖）。UI 是锦上添花，/v1 是交付物本体。
+
 ## 7. 备份与恢复（只备份不可再生的东西）
 
 | 数据 | 性质 | 策略 |

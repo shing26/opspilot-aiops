@@ -150,3 +150,9 @@ curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization
 | 幕⑤ | "同一个敏感问题，L1 工号查不到支付密钥配置，L3 查得到——这不是 Prompt 约束，是 ES 和 Qdrant 查询里注入的硬过滤。再用畸形租户的签名 token 打接口：401。密级越权和租户越权在入口与引擎层各封死一次。" |
 | 幕⑥ | "熔断态手动打到 L2：LLM 挂了也能直出静态止损清单，零外网调用；恢复后问一个乱码——置信度门控显式拒答，宁可说不知道，不烧 token 编答案。" |
 | 收尾 | "仓库里 README 有完整证据链：A2/A3 全绿、蓝绿在线切流 27 秒零中断、每条债务都有触发线。谢谢。" |
+
+### 可选幕⑦（+40 秒，UI 观感加分，主线仍是上面六幕）
+
+浏览器开 `localhost:3210`（LobeChat，见 OPS.md §8）：挑 `opspilot` 模型提问 "50012_DB_TIMEOUT how to fix"——口播："后端暴露标准 OpenAI 兼容面，界面上这个'API Key'其实是账号体系签的 JWT——刚才幕⑤那个 disable，在这层同样秒生效，因为两个协议面共享同一条编排链路。"（先确认镜像已起；拉不动就砍掉这一幕，不影响整体。）
+
+**降级预案（本机实测 LobeChat 镜像崩溃循环，见 OPS §8 边界）**：录屏替代方案一条 curl 即可——`curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOKEN" ...`，逐字打印的 OpenAI chunk 流同样是「标准协议面」的证据，口播词不变。

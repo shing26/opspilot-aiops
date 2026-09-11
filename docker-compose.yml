@@ -59,6 +59,21 @@ services:
     mem_limit: 768m
     restart: unless-stopped
 
+  # LobeChat 前端（可选展示层，ADR-0007）：docker compose --profile full --profile ui up -d
+  # 注意浏览器端 fetch 走宿主 localhost:8081/v1（非容器服务名），Key=用户 JWT，详见 OPS.md §8
+  lobe-chat:
+    profiles: ["ui"]
+    image: lobehub/lobe-chat:latest
+    container_name: opspilot-lobe-chat
+    depends_on:
+      - gateway
+    environment:
+      - ACCESS_CODE=${LOBE_ACCESS_CODE:?LOBE_ACCESS_CODE 未设置（.env）}
+    ports:
+      - "127.0.0.1:3210:3210"
+    mem_limit: 512m
+    restart: unless-stopped
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.14.3
     container_name: opspilot-es

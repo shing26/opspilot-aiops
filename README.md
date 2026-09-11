@@ -114,6 +114,26 @@ bash scripts/demo.sh                          # 9 项预检全绿
 
 宿主模式与容器模式二选一（都占 8081）；容器模式下账号/备份操作走 `docker compose exec`，见 OPS.md。
 
+## OpenAI 兼容面（/v1）
+
+网关自带 OpenAI 规范端点，任何标准客户端（LobeChat / Dify / OpenAI SDK）可直连：
+
+```bash
+# 身份即密钥：API Key = 用户自己 login 换来的 24h JWT（租户/密级/吊销/配额/审计全穿透）
+TOKEN=$(curl -s -X POST http://localhost:8081/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d "{\"username\":\"sre-full\",\"password\":\"$DEMO_PASSWORD\"}" \
+  | sed -E 's/.*"token":"([^"]+)".*/\1/')
+
+curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"opspilot","stream":true,"messages":[{"role":"user","content":"how to fix 50012_DB_TIMEOUT"}]}'
+# → role 首帧 → content 增量帧 → 「## 参考来源」溯源注入 → finish_reason=stop → data:[DONE]
+```
+
+**LobeChat 三步接入**：`docker compose --profile full --profile ui up -d` → 浏览器 `localhost:3210`（需 ACCESS_CODE，见 OPS.md §8）→ 设置里 Provider=OpenAI、Base URL=`http://localhost:8081/v1`、API Key=上面的 TOKEN。
+
+**协议取舍声明**（详见 ADR-0007）：无状态单轮——取最后一条 user 消息，忽略 system/历史（检索按单 query 指纹设计，多轮请由客户端并入单条消息）；自定义 meta/ttft 在 OpenAI 帧无位置，丢弃；溯源以正文尾部 markdown 保留。注意 Windows Git Bash 的 `curl -d` 发中文有 GBK locale 坑，测试请含 ASCII 或用脚本。
+
 ## 评测与压测
 
 ```bash
@@ -161,6 +181,6 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 - [DEMO.md](DEMO.md) — 六幕演示手册 + 预检脚本（`scripts/demo.sh`）+ 3 分钟录屏讲解稿
 - [OPS.md](OPS.md) — 管理员日常速查：账号生命周期/配额/用量 SOP/债务闹钟/推送门闩
 - [CONTEXT.md](CONTEXT.md) — 领域术语表
-- [docs/adr/](docs/adr/) — 6 项架构决策记录
+- [docs/adr/](docs/adr/) — 7 项架构决策记录
 - [offline/eval/reports/](offline/eval/reports/) — 评测报告
 - [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML
