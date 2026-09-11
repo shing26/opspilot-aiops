@@ -118,6 +118,8 @@ cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');imp
 
 **环境注记（已修复的踩坑史）**：`lobehub/lobe-chat` 初起崩溃循环根因是 **compose `mem_limit:512m` 下 node 堆 ~256M、pdfjs 初始化 OOM**（Next.js 自身 Ready 正常）——调到 2g 后稳定（Windows Docker Desktop 实测可用，无需 Linux）。另外 Windows Git Bash 的 `curl -d` 发中文按 GBK 出局（客户端 locale 陷阱），浏览器端 fetch 无此问题。
 
+**UI 集成实测结论（2026-09-11）**：设置页填 JWT + 代理地址后真实提问，网关 audit 确认全链路穿透（`via:openai`、租户/密级/生成/审计全部正常）。若遇到"回答已返回但气泡不渲染"（本会话在 IAB webview 中观察到）：优先换**真实 Chrome** 打开 `localhost:3210` 验证，或在 provider 设置里关闭「客户端请求模式」改走 LobeChat 服务端代理。用户消息正常、后端日志正常时，问题在渲染层而非集成层——先用 audit 定位归属再排查。
+
 ## 7. 备份与恢复（只备份不可再生的东西）
 
 | 数据 | 性质 | 策略 |
