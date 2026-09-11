@@ -1,8 +1,8 @@
 # Persona 测评缺陷台账 — 2026-09-11
 
-> **公开警告**：本文件含**未修复漏洞**的复现细节（P0-1/P0-2/P1-1）。修复落地并回归前，
-> 仓库**不得转 public**；修复后建议将各条改写为 postmortem 口径（缺陷→根因→修复→回归锁），
-> 与 README「QA 红队加固记录」同叙事。
+> **状态：已修复并回归锁死（2026-09-11 晚，见 §7），公开禁令解除。**
+> 本文件保留"缺陷发现时点"的原始口径作为红队叙事证据；修复后各条状态已回填，
+> 与 README「QA 红队加固记录·第四轮」互为指针。教训升格见 ADR-0008。
 > **本文件刻意不进 `offline/corpus/`**：语料会被检索进答案，漏洞细节入语料 = 给 L1 用户
 > 提供攻击手册；且复现 query 与评测集同形，会污染 `evaluate.py` 指标（51xxx 命名空间纪律同源）。
 
@@ -30,7 +30,7 @@ blue/green 零空窗切流生效，ES 251 docs / Qdrant 251 pts / live_mode:true
 - **放大条件**：产品卖点"告警风暴 500 并发收敛"下，同错误码同密级跨租户并发是设计目标场景。
 - **修复**：sfKey 掺 `user.tenantId()`；`SingleFlightRegistry` Javadoc 的 key 口径同步改；
   并发回归测试断言 follower 收不到 leader refs 且 storm 场景 llm_calls 仍=1。
-- 状态：`待修` ｜ 修复 commit：`TBD`
+- 状态：`已修复` ｜ commit 07f2aaf ｜ 回归锁：ChatOrchestratorTest×4 + A2-9 跨租户并发用例 + live V2 原命令重跑 PASS（acme refs=[]、dedup=False、guard=0）
 
 ### P0-2 admin 门禁只认 auth_level≥3，无 role 无租户维度
 - **根因**：`AdminController.java:52-54` 仅 `u.authLevel() < 3`；`UserContext.role` 从未参与授权；
@@ -40,30 +40,30 @@ blue/green 零空窗切流生效，ES 251 docs / Qdrant 251 pts / live_mode:true
 - **修复**：破坏性端点（reingest/cache-flush/backup/degrade）走 `requirePlatformAdmin`
   （role=platform ∧ level≥3 ∧ tenant ∈ 平台租户白名单）；只读端点按租户收敛；seed 中 acme 降为
   L1 或在 OPS.md 明确"customer-admin 不得进 L3"；补"跨租户同密级→403"回归。
-- 状态：`待修` ｜ 修复 commit：`TBD`
+- 状态：`已修复` ｜ commit 07f2aaf ｜ 实现按 ADR-0008 收敛为 **role 单真相**（未加平台租户白名单配置，避免 DB/配置双源）：6 端点全 platform-only；回归锁 AdminControllerTest 18 格矩阵 + live V3 0 失败；seed 中 acme 保持 L3/sre 作矩阵靶（口径注释已写明）
 
 ## 2. P1
 
 ### P1-1 `/admin/metrics` 无鉴权（签名不接 request）
 `AdminController.java:69`。任意有效 JWT（含 L1）可读全局计数、`dashscope:` 模型全名、reingest 状态。
-修复：纳入 requireAdmin/租户内视图。**状态：`待修`**
+修复：纳入 requireAdmin/租户内视图。**状态：`已修复`（commit 07f2aaf，metrics 并入平台门禁；租户内视图按 ADR-0008 待办留后续）**
 
 ### P1-2 审计盲区：拒绝路径零留痕 + 无"命中来源"字段
 实测 401×20、403×6、登录失败×8、reingest/flush/backup 全部不落 audit.jsonl（`ev` 仅 chat/search）；
 P0-1 泄露记录中无 `src_tenant`，**这类事故事后不可发现**。README"每请求一行/含命中来源"两处失实。
 修复：JwtAuthFilter 拒绝分支落 `ev=auth,outcome=denied`；admin 拒绝/成功落 `ev=admin`；
-AuditService 增 `src_tenant`/`max_src_auth_level`（取自实际 refs）。**状态：`待修`**
+AuditService 增 `src_tenant`/`max_src_auth_level`（取自实际 refs）。**状态：`已修复`（commit 6609723；ev=auth/admin/invalid 全留痕、回放行携带 src_tenant、A2-10 计数断言 + mismatch 恒零；max_src_auth_level 以既有 max_level 字段承载）**
 
 ### P1-3 备份产物落容器可写层（"备份的谎言"）
 `H2BackupPath.java:22` 锁 `<cwd>/backup` → 容器内 /app/backup；compose gateway 仅映射
 `./data`+`./logs`（`docker-compose.yml:57-59`）→ 产物随容器重建蒸发；`backup.sh` 只 grep 响应即报
 "完成"（每日假绿）；宿主 `backup/` 停在 9/10；OPS.md §1"宿主可见"为错误陈述。
-修复：volumes 加 `- ./backup:/app/backup`；OPS §1 改口径；backup.sh 校验宿主文件存在。**状态：`待修`**
+修复：volumes 加 `- ./backup:/app/backup`；OPS §1 改口径；backup.sh 校验宿主文件存在。**状态：`已修复`（commit 6609723；容器路径实测：/admin/backup 200 且宿主 backup/ 直接落盘）**
 
 ### P1-4 daily_usage 不读轮转审计 → 用量告警静默归零
 `scripts/daily_usage.py:22` 硬编码 `logs/audit.jsonl`；轮转文件 `audit.2026-09-10.jsonl`（1908 行）
 不被读，`--date yesterday` 实测 total=0。SOP"refuse_rate>0.10 排查"整条失效。
-修复：按日期 glob 轮转文件；回归：对已轮转日期 total>0。**状态：`待修`**
+修复：按日期 glob 轮转文件；回归：对已轮转日期 total>0。**状态：`已修复`（commit 6609723；实测 --date 2026-09-10 total=1908，业务事件口径同时收紧排除 auth/admin/invalid）**
 
 ### P1-5 生成层质量（决定"实际使用"下限）
 - **t6 招牌场景失明**：2160 字符日志粘贴（含 60 次 50012_DB_TIMEOUT）→ 拒答"未匹配到任何参考"；
@@ -74,7 +74,7 @@ AuditService 增 `src_tenant`/`max_src_auth_level`（取自实际 refs）。**�
   references"；出口做引用-内容对齐校验。
 - **回指幻觉**：`刚才说的第二步再细点` 被自信锚定到线程池手册（真实故障在 DB）。修复方向：
   回指词检测→强制澄清追问，而非硬检索。
-- 状态：`待排期`（独立工作包，见 §5）
+- 状态：`待排期`（独立工作包，见 §5）。**归因修正（grill 阶段核源码）**：慢拒答非"走了生成链"——拒答分支在 llmCall 前 return，14s 是长文本检索自身耗时；query 预处理可一并解决 P1-5a/P2-6/P3-1。
 
 ## 3. P2（摘要）
 
@@ -91,6 +91,8 @@ AuditService 增 `src_tenant`/`max_src_auth_level`（取自实际 refs）。**�
 | P2-9 | OPS §8/README 取 token 命令缺 `set -a && . ./.env` 前置，照抄必 traceback | 实测 |
 | P2-10 | LobeChat UX：JWT 24h 过期后 UI 只见裸 401 无引导；缓存回放整段刷出无打字机感 | U2/U3 |
 
+**P2 处置状态（2026-09-11 晚）**：P2-1/P2-2/P2-3/P2-5 已修（commit 6609723，直写 JSON 绕内容协商 + backup 400 + /v1 OpenAI 形状 + 拒答去分数，回归锁 GlobalExceptionHandlerTest/ChatOrchestratorTest）；P2-8/P2-9 已修（OPS §7/§8 对调重写容器版 + 命令块补 .env 前置，README/DEMO 交叉引用同步）；P2-4/P2-6 归生成质量包；P2-7 **已归因**：宿主直跑 400 快败 3-11ms、health 52ms，~2.05s 死区为 Windows Docker Desktop 宿主端口代理固定开销（环境项，非应用缺陷，容器演示时以 audit took_ms 为准读性能）；P2-10 记录在案（UI 层，演示话术规避）。
+
 ## 4. P3（摘要）
 
 - 语料弱对照：tenant-acme 文档数=0 → "跨租户零泄漏"验收在串行路径上是单腿证据；给 acme 播种 ≥10 条
@@ -100,6 +102,11 @@ AuditService 增 `src_tenant`/`max_src_auth_level`（取自实际 refs）。**�
 - 5000 字符 query 无上限照常生成（建议 2-3k 软上限）；引用样式 `[参考1]`/`【参考2】` 漂移；
   OPS.md 章节 8 排在 7 前；Git Bash `docker compose exec` 路径转换需注 `MSYS_NO_PATHCONV=1`。
 - 400 校验失败不落 audit（并入 P1-2 修复面）。
+
+**P3 处置状态**：语料弱对照**已修**（S3：tenant-acme 播种 10 篇 52xxx 文档 + 同名 50012 变体，
+303 chunks 全量重灌 50s 零空窗；A2-8c 升级为"各回各家"双向判别）；L1 TTL<3min 之谜**已归因**
+（Redis 96mb allkeys-lru 风暴压力下淘汰，扩至 256mb——全部键带 TTL 且可再生，扩容量不换策略）；
+其余（CORS 注释/metrics 观测缺口/引用样式漂移等）记录在案待酌情。
 
 ## 5. 文档宣称 → 实测偏差（README/OPS 需同步修正的行）
 
@@ -127,5 +134,24 @@ L1 缓存重放逐字节一致且快 ~10 倍。
 3. **生成质量包**：P1-5 三缺陷 + P2-4/P2-5/P2-6 + P3 语料判别性（含 eval 回归用例）。
 4. P2-7 死区根因排查、P2-10/P3 酌情。
 
-> 台账维护约定：每条修复后回填 commit 号与回归证据，全绿后将 §1/§2 改写为 postmortem 叙事，
-> 本文件从"漏洞披露"转为"质量工程闭环证据"，README「QA 红队加固记录」追加第四轮指针。
+## 7. 修复落地与复验记录（2026-09-11 晚，计划"测评驱动优化·安全+卫生包"）
+
+| 验收 | 结果 |
+|---|---|
+| V1 mvn test | 61/61 全绿；红经 stash 复验（/v1 形状运行时红、编排/矩阵编译红=防护不存在） |
+| V2 台账 P0-1 原命令重跑（容器形态） | PASS：acme refs=[]、dedup=False、leader refs=3、guard=0 |
+| V3 admin 6 端点×3 身份矩阵 | 18/18 正确（platform 全 200，acme/L1 全 403）；live 复跑 0 失败 |
+| V4 backup.sh + 容器 /admin/backup | 宿主 zip 落盘（2809B / drill 文件存在性校验通过） |
+| V5 daily_usage 轮转 | 2026-09-10 total=1908（修复前恒 0） |
+| V6 错误形状 | SSE-Accept 空 query→400 文案必达；backup 毒值→400×2；/v1 401 OpenAI 形状无 path |
+| V7 审计留痕 | ev=auth(denied/login_failed 原因可辨)/admin(refused/ok)/invalid 全落；src_tenant 随行；cross_tenant_rows=0 |
+| V8 A2/A3 全量 | A2 10/10（含新 8c 双向/9 并发/10 留痕）；A3 8/8（检索质量零回退） |
+| V9 /v1 无凭证 | 401 `{"error":{...invalid_api_key}}` |
+| V10 CI | 见本 commit 推送后 gh run |
+
+口径转正：README 安全设计 5 处失实句已改写为修复后事实 + 「QA 红队加固记录」第四轮表；
+ADR-0003 修订注 + ADR-0008（权限维度必须同构存在于每一条跨请求共享路径）落档。
+**遗留（另计划）**：生成质量包（P1-5a/b/c、P2-4/6、软上限）、metrics 观测缺口、LobeChat 渲染层复核。
+
+> 台账维护约定：每条修复后回填 commit 号与回归证据（已完成）；本文件自本 commit 起定位为
+> "质量工程闭环证据"（发现→归因→修复→回归锁→复验），公开禁令解除，转 public 前置达成。
