@@ -37,4 +37,11 @@ public class QuotaService {
                     "日请求配额已用尽（" + dailyLimit + "/天），明日重置或联系管理员");
         }
     }
+
+    /** 只读水位（Ops Console）：当日已用；键不存在返回 0，绝不 INCR（读不得消耗配额）。 */
+    public long usedToday(String sub) {
+        return redisson.getAtomicLong("quota:" + sub + ":" + LocalDate.now()).get();
+    }
+
+    public long dailyLimit() { return dailyLimit; }
 }

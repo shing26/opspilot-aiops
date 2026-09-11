@@ -52,4 +52,13 @@ public class DegradationStateMachine {
     public boolean isManual() { return manualLock != null; }
 
     public int inflightValue() { return inflight.get(); }
+
+    /** 只读（Ops Console）：LLM 连续失败计数（熔断阈值进度 K/N）。 */
+    public int llmConsecutiveFailures() { return llmConsecutiveFailures.get(); }
+
+    /** 只读：熔断（含手动锁 L2 不计）剩余冷却秒数，无冷却返回 0。 */
+    public long l2CooldownRemainingSeconds() {
+        long remain = l2UntilEpochMs.get() - System.currentTimeMillis();
+        return remain > 0 ? (remain + 999) / 1000 : 0;
+    }
 }

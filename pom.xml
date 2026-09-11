@@ -130,6 +130,15 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <executions>
+          <!-- Ops Console build 指纹数据源（外审建议1，仅 Boot 自带 goal，不引第三方插件）：
+               build-info.properties 进 jar 后 BuildProperties bean 提供 version/time；
+               无文件（如 CI test 阶段）时控制器回退 "dev"/空串，面板照常渲染不报错。 -->
+          <execution>
+            <id>build-info</id>
+            <goals><goal>build-info</goal></goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

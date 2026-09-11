@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -41,11 +42,17 @@ public class AdminController {
     private final com.opspilot.auth.UserStore users;
     private final com.opspilot.health.HealthProbe healthProbe;
     private final com.opspilot.metrics.AuditService audit;
+    private final com.opspilot.storm.SingleFlightRegistry singleFlight;
+    private final com.opspilot.resilience.QuotaService quota;
+    private final org.springframework.boot.info.BuildProperties build; // 面板 build 指纹（build-info 缺省时为 null）
 
     public AdminController(OpsMetrics metrics, DegradationStateMachine degrade,
                            L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props,
                            com.opspilot.ingest.IngestionRunner ingestion, com.opspilot.auth.UserStore users,
-                           com.opspilot.health.HealthProbe healthProbe, com.opspilot.metrics.AuditService audit) {
+                           com.opspilot.health.HealthProbe healthProbe, com.opspilot.metrics.AuditService audit,
+                           com.opspilot.storm.SingleFlightRegistry singleFlight,
+                           com.opspilot.resilience.QuotaService quota,
+                           @org.springframework.lang.Nullable org.springframework.boot.info.BuildProperties build) {
         this.metrics = metrics;
         this.degrade = degrade;
         this.l1 = l1;
@@ -55,6 +62,9 @@ public class AdminController {
         this.users = users;
         this.healthProbe = healthProbe;
         this.audit = audit;
+        this.singleFlight = singleFlight;
+        this.quota = quota;
+        this.build = build;
     }
 
     /** 平台门禁 + 拒绝留痕（QA P1-2：破坏性端点被拒/成功都必须可回溯）。 */
@@ -79,20 +89,7 @@ public class AdminController {
     @GetMapping("/metrics")
     public Map<String, Object> metrics(HttpServletRequest http) {
         requirePlatformAdmin(http, "metrics");
-        Map<String, Object> m = new LinkedHashMap<>(metrics.snapshot());
-        var ds = props.dashscope();
-        // 后端真相由服务端自报（评测/压测报告据此标注，避免 mock/live 元数据错标——
-        // live 首跑曾因报告硬编码 mock 而暴露此需求）
-        m.put("backend", Map.of(
-                "embedding", ds.live() ? "dashscope:" + ds.embeddingModel() : "mock-lexical-hash",
-                "rerank", ds.live() ? "dashscope:" + ds.rerankModel() : "mock-idf-coverage",
-                "llm", ds.live() ? "dashscope:" + ds.llmModel() : "mock-template"));
-        m.put("degradation_level", degrade.current().name());
-        m.put("degradation_manual", degrade.isManual());
-        m.put("inflight", degrade.inflightValue());
-        m.put("reingest_busy", ingestion.busy());
-        m.put("reingest_last", ingestion.lastResult());
-        return m;
+        return metricsView();
     }
 
     /** 部署级健康明细（平台管理员）：依赖探测+live 口径+索引规模；组件聚合另见 /actuator/health。 */
@@ -148,5 +145,73 @@ public class AdminController {
         }
         audit.logAdmin(JwtAuthFilter.from(http), "backup", "ok", to);
         return Map.of("backup", to);
+    }
+
+    /**
+     * Ops Console 唯一状态快照（ADR-0009，只读）：build 指纹 + metrics + health + 运行态。
+     * 纪律同 metrics/health——成功不落审计（面板 2s 轮询不得污染证据流），被拒由
+     * requirePlatformAdmin 留痕；全部数字来自真实计数器，面板侧速率=相邻两次真值求差。
+     */
+    @GetMapping("/state")
+    public Map<String, Object> state(HttpServletRequest http) {
+        requirePlatformAdmin(http, "state");
+        UserContext u = JwtAuthFilter.from(http);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("ts", System.currentTimeMillis());
+
+        Map<String, Object> b = new LinkedHashMap<>();
+        var rt = java.lang.management.ManagementFactory.getRuntimeMXBean();
+        b.put("version", build == null ? "dev" : build.getVersion());
+        b.put("time", build == null ? "" : String.valueOf(build.getTime()));
+        b.put("jvm", System.getProperty("java.version"));
+        b.put("uptime_s", rt.getUptime() / 1000);
+        b.put("pid", ProcessHandle.current().pid());
+        out.put("build", b);
+
+        out.put("metrics", metricsView());
+        out.put("health", healthProbe.summary());
+
+        Map<String, Object> runtime = new LinkedHashMap<>();
+        runtime.put("inflight", degrade.inflightValue());
+        runtime.put("sf_groups", singleFlight.inFlightGroups());
+        runtime.put("sf_keys_top", singleFlight.peekKeys(8));
+        runtime.put("degradation", Map.of(
+                "level", degrade.current().name(),
+                "manual", degrade.isManual(),
+                "failures", degrade.llmConsecutiveFailures(),
+                "threshold", props.degrade() == null ? 3 : props.degrade().llmFailureThreshold(),
+                "cooldown_s", degrade.l2CooldownRemainingSeconds()));
+        runtime.put("quota", Map.of(
+                "sub", u.sub(), "used", quota.usedToday(u.sub()), "limit", quota.dailyLimit()));
+        runtime.put("reingest", Map.of("busy", ingestion.busy(),
+                "last", java.util.Objects.toString(ingestion.lastResult(), "unknown")));
+        out.put("runtime", runtime);
+        return out;
+    }
+
+    /** 审计事件增量拉取（游标=全局 seq；truncated 显式告知轮转/重启丢失，禁静默空洞）。 */
+    @GetMapping("/audit/recent")
+    public Map<String, Object> auditRecent(@RequestParam(defaultValue = "0") long since,
+                                           @RequestParam(defaultValue = "50") int limit,
+                                           HttpServletRequest http) {
+        requirePlatformAdmin(http, "audit/recent");
+        var r = audit.recentSince(since, limit);
+        return Map.of("events", r.events(), "max_seq", r.maxSeq(), "truncated", r.truncated());
+    }
+
+    /** metrics() 端点与 /state 共用的装配（单一键源，面板契约两处一致）。 */
+    private Map<String, Object> metricsView() {
+        Map<String, Object> m = new LinkedHashMap<>(metrics.snapshot());
+        var ds = props.dashscope();
+        m.put("backend", Map.of(
+                "embedding", ds.live() ? "dashscope:" + ds.embeddingModel() : "mock-lexical-hash",
+                "rerank", ds.live() ? "dashscope:" + ds.rerankModel() : "mock-idf-coverage",
+                "llm", ds.live() ? "dashscope:" + ds.llmModel() : "mock-template"));
+        m.put("degradation_level", degrade.current().name());
+        m.put("degradation_manual", degrade.isManual());
+        m.put("inflight", degrade.inflightValue());
+        m.put("reingest_busy", ingestion.busy());
+        m.put("reingest_last", ingestion.lastResult());
+        return m;
     }
 }

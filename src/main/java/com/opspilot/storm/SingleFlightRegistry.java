@@ -31,4 +31,14 @@ public class SingleFlightRegistry {
     public void finish(String key, CompletableFuture<String> future) {
         flights.remove(key, future);
     }
+
+    /** 只读视图（Ops Console）：当前在途组数。无副作用。 */
+    public int inFlightGroups() {
+        return flights.size();
+    }
+
+    /** 只读视图：在途 key 的指纹前 8 位（组键=tenant:fp:level，tenant 展示、fp 截断防广播内部内容）。 */
+    public java.util.List<String> peekKeys(int n) {
+        return flights.keySet().stream().limit(n).toList();
+    }
 }

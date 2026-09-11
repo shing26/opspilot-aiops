@@ -21,6 +21,39 @@ public class AuditService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
+     * 进程内有界事件环（Ops Console 数据流面，ADR-0009）：writeEvent 是全部审计事件的
+     * 唯一必经出口，在此挂 200 条 ring buffer ——**不改落盘行为**。有界即有轮转，
+     * 轮转必有丢失：recentSince 以 truncated 显式告知（客户端游标早于最老驻留事件，
+     * 或服务重启游标越过 maxSeq 的"回绕"），禁止静默空洞。seq 全局单调，与 ts 无关
+     * （同毫秒乱序是文件行的既实现实，面板消费必须用 seq）。
+     */
+    private static final int RING_CAP = 200;
+    private final java.util.ArrayDeque<Map<String, Object>> ring = new java.util.ArrayDeque<>();
+    private long seq;
+
+    /** 自 lastSeq 以来的增量事件；truncated=有丢失（轮转或重启）。 */
+    public synchronized RecentResult recentSince(long lastSeq, int limit) {
+        long maxSeq = seq;
+        boolean restart = lastSeq > maxSeq; // 客户端游标超前：服务重启（seq 归零）
+        if (restart) {
+            lastSeq = 0;                    // 当前驻留事件全给，游标不得卡死
+        }
+        boolean truncated = restart || (!ring.isEmpty() && lastSeq < seq - ring.size());
+        int capped = Math.max(1, Math.min(limit, RING_CAP));
+        java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (Map<String, Object> ev : ring) {
+            long s = ((Number) ev.get("seq")).longValue();
+            if (s > lastSeq) {
+                out.add(ev);
+                if (out.size() >= capped) break;
+            }
+        }
+        return new RecentResult(java.util.List.copyOf(out), maxSeq, truncated);
+    }
+
+    public record RecentResult(java.util.List<Map<String, Object>> events, long maxSeq, boolean truncated) {}
+
+    /**
      * @param via 调用面来源（"sse"/"openai"/"search-api"），合规视角区分谁经哪个协议面进来；
      *            旧日志无此字段，消费端（daily_usage）按 dict .get 解析天然向后兼容。
      */
@@ -102,6 +135,11 @@ public class AuditService {
 
     private void writeEvent(Map<String, Object> ev) {
         try {
+            synchronized (this) {
+                ev.put("seq", ++seq);
+                ring.addLast(ev);
+                while (ring.size() > RING_CAP) ring.removeFirst();
+            }
             AUDIT.info(mapper.writeValueAsString(ev));
         } catch (Exception e) {
             // 审计失败不阻断业务链路，但必须留痕可排障

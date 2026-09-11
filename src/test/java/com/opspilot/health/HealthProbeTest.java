@@ -69,4 +69,44 @@ class HealthProbeTest {
         assertEquals("DOWN", ((HealthProbe.Comp) s.get("qdrant")).status());
         assertEquals("UP", ((HealthProbe.Comp) s.get("es")).status(), "其余组件不受牵连");
     }
+
+    /** 结构化数值（Ops Console 不再解析 "251 docs" 字符串）；DOWN 时 value=null。 */
+    @Test
+    void compCarriesStructuredCount() throws Exception {
+        stubHealthy();
+        Map<String, Object> s = probe.summary();
+        assertEquals(251L, ((HealthProbe.Comp) s.get("es")).value());
+        assertEquals(251L, ((HealthProbe.Comp) s.get("qdrant")).value());
+        assertNull(((HealthProbe.Comp) s.get("redis")).value(), "redis 无计数语义=null");
+    }
+
+    /**
+     * W9（外审②惊群锁）：TTL 窗内并发 5 次 summary → 真实探测只发生 1 轮。
+     * 无锁实现下 5 个线程会各自穿透缓存发起探测（ES/Qdrant 请求被面板轮询放大）。
+     */
+    @Test
+    void ttlCacheCollapsesConcurrentProbesToSingleFlight() throws Exception {
+        stubHealthy();
+        var threads = new java.util.ArrayList<Thread>();
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var done = new java.util.concurrent.CountDownLatch(5);
+        for (int i = 0; i < 5; i++) {
+            var t = new Thread(() -> {
+                try {
+                    start.await();
+                    probe.summary();
+                    probe.summary();          // 同线程第二击必须命中缓存
+                } catch (InterruptedException ignored) {
+                } finally {
+                    done.countDown();
+                }
+            });
+            threads.add(t);
+            t.start();
+        }
+        start.countDown();
+        assertTrue(done.await(30, java.util.concurrent.TimeUnit.SECONDS));
+        verify(es, times(1)).ping();
+        verify(qdrant, times(1)).getCollectionInfoAsync(anyString());
+    }
 }

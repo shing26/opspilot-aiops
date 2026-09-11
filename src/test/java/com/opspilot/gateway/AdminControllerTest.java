@@ -9,6 +9,7 @@ import com.opspilot.health.HealthProbe;
 import com.opspilot.ingest.IngestionRunner;
 import com.opspilot.metrics.OpsMetrics;
 import com.opspilot.resilience.DegradationStateMachine;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,7 +59,11 @@ class AdminControllerTest {
         HealthProbe probe = mock(HealthProbe.class);
         when(probe.summary()).thenReturn(Map.of("status", "UP"));
         audit = mock(com.opspilot.metrics.AuditService.class);
-        controller = new AdminController(metrics, degrade, l1, l2, props, ingestion, users, probe, audit);
+        when(audit.recentSince(anyLong(), anyInt())).thenReturn(
+                new com.opspilot.metrics.AuditService.RecentResult(List.of(), 0, false));
+        controller = new AdminController(metrics, degrade, l1, l2, props, ingestion, users, probe, audit,
+                new com.opspilot.storm.SingleFlightRegistry(),
+                mock(com.opspilot.resilience.QuotaService.class), null);
     }
 
     private static MockHttpServletRequest withUser(UserContext u) {
@@ -67,12 +72,14 @@ class AdminControllerTest {
         return req;
     }
 
-    /** 端点调用表：路径 → 触发函数（request 注入身份）。 */
+    /** 端点调用表：路径 → 触发函数（request 注入身份）。Ops Console 两端点自动入矩阵。 */
     private Map<String, Function<MockHttpServletRequest, ?>> endpoints() {
         return Map.of(
                 "POST /cache/flush", r -> controller.flushCache(r),
                 "GET  /metrics",     r -> controller.metrics(r),
                 "GET  /health",      r -> controller.health(r),
+                "GET  /state",       r -> controller.state(r),
+                "GET  /audit/recent", r -> controller.auditRecent(0, 50, r),
                 "POST /degrade",     r -> controller.degrade(Map.of("level", "auto"), r),
                 "POST /reingest",    r -> controller.reingest(r),
                 "POST /backup",      r -> controller.backup(Map.of("to", "backup/x.zip"), r));
@@ -124,6 +131,39 @@ class AdminControllerTest {
         verify(audit).logAdmin(eq(CUSTOMER_L3), eq("reingest"), eq("refused"), isNull());
         assertDoesNotThrow(() -> controller.reingest(withUser(PLATFORM)));
         verify(audit).logAdmin(eq(PLATFORM), eq("reingest"), eq("ok"), isNull());
+    }
+
+    /** Ops Console /state 形状契约（面板键源；改名演练由 CI 契约脚本兜底，这里锁 Java 侧装配）。 */
+    @Test
+    @SuppressWarnings("unchecked")
+    void stateSnapshotCarriesPanelContractKeys() {
+        var s = controller.state(withUser(PLATFORM));
+        assertThatKeysPresent(s, "ts", "build", "metrics", "health", "runtime");
+        var build = (Map<String, Object>) s.get("build");
+        assertThatKeysPresent(build, "version", "time", "jvm", "uptime_s", "pid");
+        assertEquals("dev", build.get("version"), "无 build-info 时回退 dev（CI test 阶段路径）");
+        var rt = (Map<String, Object>) s.get("runtime");
+        assertThatKeysPresent(rt, "inflight", "sf_groups", "sf_keys_top", "degradation", "quota", "reingest");
+        var deg = (Map<String, Object>) rt.get("degradation");
+        assertThatKeysPresent(deg, "level", "manual", "failures", "cooldown_s");
+        // 复用 metrics 的装配源：backend 三元组必须在 metrics 子块内
+        var mx = (Map<String, Object>) s.get("metrics");
+        assertTrue(mx.containsKey("backend") && mx.containsKey("degradation_level"));
+    }
+
+    @Test
+    void auditRecentProxiesCursorAndTruncated() {
+        when(audit.recentSince(41, 50)).thenReturn(
+                new com.opspilot.metrics.AuditService.RecentResult(
+                        List.of(Map.of("seq", 42L, "ev", "chat")), 42, true));
+        var r = controller.auditRecent(41, 50, withUser(PLATFORM));
+        assertEquals(42L, r.get("max_seq"));
+        assertEquals(Boolean.TRUE, r.get("truncated"));
+        assertEquals(1, ((java.util.List<?>) r.get("events")).size());
+    }
+
+    private static void assertThatKeysPresent(Map<String, Object> m, String... keys) {
+        for (String k : keys) assertTrue(m.containsKey(k), "缺键 " + k);
     }
 
     /** QA P2-2：白名单拒绝是客户端错误（400 可操作文案），不再以 500 污染错误率 SLO。 */

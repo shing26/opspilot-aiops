@@ -13,13 +13,18 @@ import com.opspilot.config.OpsPilotProperties;
  * 依赖健康探针（部署级健康，与 /actuator/health 的聚合互补）：一次探测回答
  * "Redis 连得上吗 / Qdrant 集合在吗 / ES 活着吗 / 现在是 live 还是 mock / 索引里有多少块"。
  * 每个探测 3s 超时自吞异常返回 DOWN——健康检查本身绝不能把服务拖死。
+ * summary() 有 5s TTL 缓存（ReentrantLock 双检，防 Ops Console 2s 轮询把探测放大；
+ * 外审核账：面板量级并发用双检锁即够，不引异步协调）。detail 是人读字符串，
+ * value 给面板结构化数字（ES docs / Qdrant pts；DOWN 或无计数语义为 null——前端不再解析字符串）。
  */
 @Component
 public class HealthProbe {
 
-    public record Comp(String status, String detail) {
-        static Comp up(String detail) { return new Comp("UP", detail); }
-        static Comp down(Exception e) { return new Comp("DOWN", brief(e)); }
+    public record Comp(String status, String detail, Long value) {
+        static Comp up(String detail) { return new Comp("UP", detail, null); }
+        static Comp up(String detail, long value) { return new Comp("UP", detail, value); }
+        static Comp down(Exception e) { return new Comp("DOWN", brief(e), null); }
+        static Comp down(String detail) { return new Comp("DOWN", detail, null); }
     }
 
     private final ElasticsearchClient es;
@@ -48,7 +53,7 @@ public class HealthProbe {
         try {
             var info = qdrant.getCollectionInfoAsync(props.qdrant().collection())
                     .get(3, TimeUnit.SECONDS);   // 查询侧传的是别名，这里一并验证别名解析
-            return Comp.up(info.getPointsCount() + " pts");
+            return Comp.up(info.getPointsCount() + " pts", info.getPointsCount());
         } catch (Exception e) {
             return Comp.down(e);
         }
@@ -56,19 +61,40 @@ public class HealthProbe {
 
     public Comp es() {
         try {
-            if (!es.ping().value()) return new Comp("DOWN", "no response");
+            if (!es.ping().value()) return new Comp("DOWN", "no response", null);
             // 显式 request 重载（Consumer 版是 final 方法，不利于 mock 拦截）
             var req = co.elastic.clients.elasticsearch.core.CountRequest.of(
                     b -> b.index(props.es().index())); // 别名=读路径同款
             long n = es.count(req).count();
-            return Comp.up(n + " docs");
+            return Comp.up(n + " docs", n);
         } catch (Exception e) {
             return Comp.down(e);
         }
     }
 
-    /** 细节汇总（供 /admin/health 与预检脚本消费）。 */
+    private final java.util.concurrent.locks.ReentrantLock probeLock =
+            new java.util.concurrent.locks.ReentrantLock();
+    private volatile Map<String, Object> cachedSummary;
+    private volatile long cachedUntilMs;
+
+    /** 细节汇总（供 /admin/health、/admin/state 与预检脚本消费）；5s TTL 双检缓存。 */
     public Map<String, Object> summary() {
+        Map<String, Object> hit = cachedSummary;
+        if (hit != null && System.currentTimeMillis() < cachedUntilMs) return hit;
+        probeLock.lock();
+        try {
+            hit = cachedSummary; // 双重检查：等锁期间可能已被刷新
+            if (hit != null && System.currentTimeMillis() < cachedUntilMs) return hit;
+            Map<String, Object> fresh = buildSummary();
+            cachedSummary = fresh;
+            cachedUntilMs = System.currentTimeMillis() + 5_000L;
+            return fresh;
+        } finally {
+            probeLock.unlock();
+        }
+    }
+
+    private Map<String, Object> buildSummary() {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("redis", redis());
         out.put("qdrant", qdrant());
