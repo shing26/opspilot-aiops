@@ -1,5 +1,6 @@
 # OpsPilot 本地中间件栈
-# 内存预算：ES 768m + Qdrant 512m + Redis 128m ≈ 1.4GB ≤ 2GB 上限
+# 内存预算：ES 768m + Qdrant 512m + Redis 128m ≈ 1.4GB（基础栈）；
+# gateway 容器形态 +768m，lobe-chat UI 形态 +2g（Next.js SSR 堆需求实测），按 profile 按需加载
 # P3 生产基线：全部服务启用认证 + 端口仅绑定 127.0.0.1（防同机/局域网匿名直连绕权限）
 # 凭据只从 .env 注入（compose 自动读同目录 .env）；缺失时 compose 启动即报错，不会静默裸奔
 services:
@@ -71,7 +72,7 @@ services:
       - ACCESS_CODE=${LOBE_ACCESS_CODE:?LOBE_ACCESS_CODE 未设置（.env）}
     ports:
       - "127.0.0.1:3210:3210"
-    mem_limit: 512m
+    mem_limit: 2g   # LobeChat(Next.js SSR) 512m 下 node 堆 ~256M，pdfjs 初始化即 OOM（实测崩因）
     restart: unless-stopped
 
   elasticsearch:

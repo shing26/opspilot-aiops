@@ -116,7 +116,7 @@ cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');imp
 
 **能力边界（勿对外宣传）**：文件上传/语音/多模态依赖未实现的 embeddings/audio 端点，LobeChat 里点了会报错——演示只用文本对话。
 
-**已知环境边界（2026-09-11 实测）**：`lobehub/lobe-chat` 镜像在本机 Windows Docker Desktop 崩溃循环（next-server 起监听前退出，非本项目代码问题；compose 语法/CORS 链路已单独验证通过）。备选路径按序：① Linux/WSL2 内的 Docker 起同镜像；② 官方源码本地 `pnpm dev`；③ 直接用 OpenAI SDK/curl 演示 /v1（协议面已实测合规，效果等价且零外部依赖）。UI 是锦上添花，/v1 是交付物本体。
+**环境注记（已修复的踩坑史）**：`lobehub/lobe-chat` 初起崩溃循环根因是 **compose `mem_limit:512m` 下 node 堆 ~256M、pdfjs 初始化 OOM**（Next.js 自身 Ready 正常）——调到 2g 后稳定（Windows Docker Desktop 实测可用，无需 Linux）。另外 Windows Git Bash 的 `curl -d` 发中文按 GBK 出局（客户端 locale 陷阱），浏览器端 fetch 无此问题。
 
 ## 7. 备份与恢复（只备份不可再生的东西）
 
