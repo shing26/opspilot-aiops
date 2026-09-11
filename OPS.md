@@ -100,26 +100,28 @@ git log --all -S "sre_l1=" -- scripts/demo_tokens.txt
 
 > 若已有他人 clone（本文件编写时尚无）：通知全员**重新 clone**，禁止在旧历史上继续 merge。
 
-## 7. LobeChat 前端与 OpenAI 面（/v1）
+## 7. OpenAI 兼容面（/v1）
 
-**启动**：`docker compose --profile full --profile ui up -d`（gateway 容器模式；宿主裸进程模式则只起 ui profile 的 lobe-chat，base URL 仍指 localhost:8081）。访问 `http://localhost:3210`，ACCESS_CODE 见 `.env` 的 `LOBE_ACCESS_CODE`。
+**用途定位**：/v1 是网关的标准协议出口（ADR-0007），价值在"任何标准客户端可直连"的兼容性证明与
+"两协议面共享一条编排链路"的架构叙事——**它不依赖任何特定前端**。演示主形态是 curl 直播
+（DEMO 幕⑦）；LobeChat/Dify 等如临时起意想点验兼容性，按下面连接配置自行接入即可（本仓库不再捆绑 UI 容器，2026-09-11 评估：UI 壳仅呈现"会答对的对话框"，与"运维系统可视化"诉求零交集，撤除止损）。
 
-**连接配置（关键）**：LobeChat 浏览器端直接 fetch 上游——**Base URL 填 `http://localhost:8081/v1`**（宿主视角），不是容器服务名（服务名 URL 仅对其 server 模式有意义，浏览器解析不了）。API Key 填**用户自己 login 的 JWT**（不是共享密钥）：
+**API Key = 用户 JWT**（不是共享密钥）：
 
 ```bash
 set -a && . ./.env && set +a    # DEMO_PASSWORD 只从 .env 来，缺这行必报 traceback
 cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');import localapi;print(localapi.login('sre-full'))"
 ```
 
-**故障排查**：401→token 过期或账号被禁用（重新 login；这正是吊销跨面生效的表现）；连接被拒→`docker compose ps gateway` 或宿主网关进程检查；无流式→看 `/api/v1/admin/metrics` 的 `reingest_busy`（重灌窗口 live 依赖慢）与 audit `via=openai` 行；CORS 报错→确认访问的是环回 origin（CorsConfig 只放行 localhost/127.0.0.1 任意端口）。
+**curl 直播**：`curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"model":"opspilot","stream":true,"messages":[{"role":"user","content":"how to fix 50012_DB_TIMEOUT"}]}'` → role 首帧 → content 增量 → 「## 参考来源」→ stop → `[DONE]`。浏览器型客户端 Base URL 填 `http://localhost:8081/v1`（宿主视角，容器服务名仅对 server 模式有意义）。
 
-**audit `via` 字段**：`sse`（原生面）/`openai`（/v1 面）/`search-api`（检索端点）；早于该版本的旧日志行无此字段，`daily_usage.py` 按字典 `.get()` 解析天然兼容。想按调用面统计时：`grep -c '"via":"openai"' logs/audit.jsonl`。
+**故障排查**：401→token 过期或账号被禁用（重新 login；这正是吊销跨面生效的表现，其错误体为 OpenAI 标准 error JSON——QA P2-3 修复后不再回显 path）；连接被拒→`docker compose ps gateway`；无流式→看 `/api/v1/admin/metrics`（平台凭证）的 `reingest_busy` 与 audit `via=openai` 行；CORS→确认环回 origin（CorsConfig 仅放行 localhost/127.0.0.1 任意端口 + compose 内 `gateway:*`）。
 
-**能力边界（勿对外宣传）**：文件上传/语音/多模态依赖未实现的 embeddings/audio 端点，LobeChat 里点了会报错——演示只用文本对话。
+**audit `via` 字段**：`sse`（原生面）/`openai`（/v1 面）/`search-api`（检索端点）；旧日志行无此字段，`daily_usage.py` 按 `.get()` 解析天然兼容。按面统计：`grep -c '"via":"openai"' logs/audit.jsonl`。
 
-**环境注记（已修复的踩坑史）**：`lobehub/lobe-chat` 初起崩溃循环根因是 **compose `mem_limit:512m` 下 node 堆 ~256M、pdfjs 初始化 OOM**（Next.js 自身 Ready 正常）——调到 2g 后稳定（Windows Docker Desktop 实测可用，无需 Linux）。另外 Windows Git Bash 的 `curl -d` 发中文按 GBK 出局（客户端 locale 陷阱），浏览器端 fetch 无此问题。
+**能力边界（勿对外宣传）**：/v1 目前只有 `chat/completions`（stream=true）与 `models`；文件上传/语音/多模态对应端点未实现，任何客户端里点了即报错——协议面的演示只用文本对话。**归因纪律**：外部客户端出现"响应已返回但界面异常"时，先 `tail logs/audit.jsonl` 定位归属（有行且正常=该客户端渲染层的事），再排查——2026-09-11 在嵌入 webview 实测过此判据。
 
-**UI 集成实测结论（2026-09-11）**：设置页填 JWT + 代理地址后真实提问，网关 audit 确认全链路穿透（`via:openai`、租户/密级/生成/审计全部正常）。若遇到"回答已返回但气泡不渲染"（本会话在 IAB webview 中观察到）：优先换**真实 Chrome** 打开 `localhost:3210` 验证，或在 provider 设置里关闭「客户端请求模式」改走 LobeChat 服务端代理。用户消息正常、后端日志正常时，问题在渲染层而非集成层——先用 audit 定位归属再排查。
+**环境注记（历史踩坑，若重接 LobeChat 会用到）**：`lobehub/lobe-chat` 在 `mem_limit:512m` 下 node 堆 ~256M、pdfjs 初始化 OOM 崩溃循环，需 2g；Windows Git Bash 的 `curl -d` 发中文按 GBK 出局（客户端 locale 陷阱），脚本发中文一律走 python。
 
 ## 8. 备份与恢复（只备份不可再生的东西）
 

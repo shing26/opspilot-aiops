@@ -151,7 +151,19 @@ curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization
 | 幕⑥ | "熔断态手动打到 L2：LLM 挂了也能直出静态止损清单，零外网调用；恢复后问一个乱码——置信度门控显式拒答，宁可说不知道，不烧 token 编答案。" |
 | 收尾 | "仓库里 README 有完整证据链：A2/A3 全绿、蓝绿在线切流 27 秒零中断、每条债务都有触发线。谢谢。" |
 
-### 幕⑦（+40 秒，UI 观感加分，主线仍是上面六幕）
+### 幕⑦（+40 秒，标准协议面，主线仍是上面六幕）
 
-浏览器开 `localhost:3210`（LobeChat，输入 ACCESS_CODE 进主界面，见 OPS.md §7）：设置→自定义模型服务填 Base URL `http://localhost:8081/v1` + Key=login 的 JWT。挑 `opspilot` 模型提问 "50012_DB_TIMEOUT how to fix"——口播："后端暴露标准 OpenAI 兼容面，界面上这个'API Key'其实是账号体系签的 JWT——刚才幕⑤那个 disable，在这层同样秒生效，因为两个协议面共享同一条编排链路。"
-（前置：`docker compose --profile full --profile ui up -d`，lobe 需 2g 内存——512m 会 OOM，见 OPS 环境注记。若 UI 不可用，降级预案为一条 curl 直播 OpenAI chunk 流，口播词不变。）
+终端直播 curl（原"UI 降级预案"转正为主形态）：
+
+```bash
+set -a && . ./.env && set +a
+TOKEN=$(offline/.venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'offline');import localapi;print(localapi.login('sre-full'))")
+curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"opspilot","stream":true,"messages":[{"role":"user","content":"how to fix 50012_DB_TIMEOUT"}]}'
+```
+
+口播："后端暴露标准 OpenAI 兼容面——任何标准客户端（LobeChat/Dify/SDK）可直连，这里用 curl 直播逐帧。这个'API Key'其实是账号体系签的 JWT：刚才幕⑤那个 disable，在这层同样秒生效，因为两个协议面共享同一条编排链路（缓存/降级/审计/租户过滤一个不少）。"
+
+（历史：曾接入 LobeChat 壳验证兼容性并实测全链路穿透，2026-09-11 撤除——聊天壳只呈现"会答对的对话框"，
+本协议面的价值是兼容性证明本身，UI 不承载系统实质；见 ADR-0007 状态注与 OPS §7。）
