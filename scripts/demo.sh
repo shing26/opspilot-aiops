@@ -57,6 +57,28 @@ else
   bad "缺 target jar（mvn package -DskipTests）"
 fi
 
+# 7) Ops Console：HTML 壳就位 + live /state 键契约（面板契约改名由 CI check_panel_contract.sh
+#    兜底，这里验"跑起来的真服务"返回面板消费的全部顶层键）
+[ -f src/main/resources/static/index.html ] && ok "面板 HTML 就位（localhost:8081/）" \
+  || bad "缺 src/main/resources/static/index.html"
+if [ -n "${DEMO_PASSWORD:-}" ] && [ -x offline/.venv/Scripts/python.exe ]; then
+  S=$(offline/.venv/Scripts/python.exe -c "
+import sys, json, urllib.request
+sys.path.insert(0, 'offline')
+import localapi
+t = localapi.login('sre-full')
+req = urllib.request.Request('http://localhost:8081/api/v1/admin/state',
+    headers={'Authorization': 'Bearer ' + t})
+d = json.load(urllib.request.urlopen(req, timeout=15))
+missing = [k for k in ('build','metrics','health','runtime') if k not in d] \
+        + [k for k in ('sf_groups','degradation','quota') if k not in d.get('runtime',{})]
+print('missing:' + ','.join(missing) if missing else 'UP')" 2>/dev/null)
+  [ "$S" = "UP" ] && ok "/state 键契约齐全（面板可接入）" || bad "/state 键缺失: ${S:-获取失败}"
+else
+  echo "SKIP  /state 键契约（口令或 venv 缺失）"
+fi
+
 echo "---"
-[ "$fails" = "0" ] && echo "READY：按 DEMO.md 六幕开演" || echo "预检 $fails 项失败，先修复"
+[ "$fails" = "0" ] && echo "READY：按 DEMO.md 开演（底幕=Ops Console 面板 http://localhost:8081/）" \
+  || echo "预检 $fails 项失败，先修复"
 exit "$fails"

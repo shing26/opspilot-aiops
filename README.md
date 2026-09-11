@@ -114,6 +114,12 @@ bash scripts/demo.sh                          # 9 项预检全绿
 
 宿主模式与容器模式二选一（都占 8081）；容器模式下账号/备份操作走 `docker compose exec`，见 OPS.md。
 
+## Ops Console 运维面板（只读可观测面）
+
+浏览器开 **`http://localhost:8081/`** 即得（同源静态单页，零构建/零 CDN/离线可开；ADR-0009）。把已存在的 metrics/health/audit 真相渲染成三块——**运行状态**（build 指纹 + 三依赖灯 + live/mock + 降级交通灯与熔断倒计时）、**数据流**（真计数墙 + Single-Flight 在途组 + 审计事件游标流）、**能力边界**（每条"不做的事"带依据与最后验证日期）。接入需 role=platform 的 JWT（=login token，即密钥），取法见 OPS §9。
+
+设计口径与 LobeChat 撤壳（ADR-0007）互为注脚：**UI 壳证明兼容性，面板承载运维真相**——本页零写操作、零模拟动画（速率=前端对真实累计值求差）、成功读路径不落审计（实测轮询 60s audit 行增量 0）；事件游标用全局 seq 且轮转/重启以 `truncated` 显式告警，禁静默空洞。键名契约由 `scripts/check_panel_contract.sh` 在 CI 双向钉死（后端改名不同步面板即红）。演示用法见 DEMO 幕④⑥口播。
+
 ## OpenAI 兼容面（/v1）
 
 网关自带 OpenAI 规范端点，任何标准客户端（LobeChat / Dify / OpenAI SDK）可直连：
@@ -199,6 +205,6 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 - [DEMO.md](DEMO.md) — 六幕演示手册 + 预检脚本（`scripts/demo.sh`）+ 3 分钟录屏讲解稿
 - [OPS.md](OPS.md) — 管理员日常速查：账号生命周期/配额/用量 SOP/债务闹钟/推送门闩
 - [CONTEXT.md](CONTEXT.md) — 领域术语表
-- [docs/adr/](docs/adr/) — 8 项架构决策记录
+- [docs/adr/](docs/adr/) — 9 项架构决策记录
 - [offline/eval/reports/](offline/eval/reports/) — 评测报告
 - [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML

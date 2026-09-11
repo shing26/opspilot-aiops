@@ -157,3 +157,31 @@ docker compose start gateway
 **恢复完整性演练（不需要等灾难，网关可不停）**：`bash scripts/user_admin.sh restore --from backup/users-<今天>.zip --to-db restore-drill` 恢复到演练库后加 `--to-db` 同款连接串 `list`，应见全部账号与各自的 token_ver（如 sre-limited ver=7）；验证后删 `data/restore-drill.*`。本仓库已实测通过（commit 记录在案）。
 
 **网络注**：AUTO_SERVER 走 Windows 防火墙常拦（LAN IP+随机端口），CLI 已内建「嵌入式优先、AUTO_SERVER 兜底」双路；两个都不通时报错会指路本节。Windows Git Bash 里跑 `docker compose exec gateway ls /app/backup` 这类容器内绝对路径命令需前置 `MSYS_NO_PATHCONV=1`（否则 MSYS 会把 /app/... 改写成宿主路径）。
+
+## 9. Ops Console 运维面板（只读可观测面，ADR-0009）
+
+**它是什么**：浏览器开 `http://localhost:8081/` 即得（Boot 默认资源处理器同源 serve，**零构建、零 CDN、无外部依赖**）。把已有的 `/admin/state` 快照与 `/admin/audit/recent` 事件流渲染成「运行状态 / 数据流 / 能力边界」三块。**它是 LobeChat 撤壳的反面答案**：撤的是聊天壳（承载不了运维真相），建的是仪表盘（把 JSON 真相摆出来）——不新增状态源、不承载对话交互。
+
+**接入**：面板需 **role=platform** 的 JWT（数据端点全部受守卫；HTML 壳本身匿名可开、零信息）。取 token：
+
+```bash
+set -a && . ./.env && set +a    # DEMO_PASSWORD 只从 .env 来
+cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');import localapi;print(localapi.login('sre-full'))"
+```
+
+粘进面板凭证框→localStorage 持久（仅存本浏览器，不入库；清理=面板右上退出或 `localStorage.removeItem('opspilot.jwt')`）。
+
+**三态排障**（文案各不同，别互窜）：
+- 401 → token 过期/无效，重新 login（面板降饱和 + 提示"OPS §9"）。
+- 403 → 该 token 账号**不是 platform 角色**（密级高≠可信，见 ADR-0008）；sre-acme 是 level 3 但 role=sre，正属此态，不是 bug。换 sre-full。
+- 网关不可达 → 面板降频轮询并显"网关不可达"，先 `docker compose ps gateway`。
+
+**读它的关键位（演示底幕）**：
+- 顶栏 build 指纹（version·jvm·uptime·pid）——`build-info` goal 注入，传达"这是被部署过的服务"。
+- 「降级状态机」区：L0/L1/L2 灯 + 熔断 `K/3` + 冷却倒计时 + `MANUAL LOCK` 徽标（区分手动锁 vs 自动熔断）。幕⑥指着它讲。
+- 「数据流」区：`Single-Flight 在途组` + 计数墙（相邻两次真值求差显示 `+n`，速率是算出来的、非动画）。幕④风暴瞬间指"在途组跳 1、收敛墙爬、LLM 只 +1"。
+- 配额水位条：当日 `used/limit`（读 `quota:<sub>:<date>`，**只 GET 不 INCR**——打开面板看不消耗配额）。
+
+**契约防漂移**（改名即红，两道闸）：`scripts/check_panel_contract.sh`（CI 独立 job，零服务）比对 HTML fetch 路径↔Controller `@GetMapping`、OpsMetrics 键↔面板 tiles、`/state` 键集双向；`demo.sh` 第 7 检是 live 键集合断言。Java 侧改任一被面板消费的键而不同步 HTML，CI 点名 `面板引用了后端不存在的键`。
+
+**运维预期**：面板是进程内 ring buffer（最近 200 条审计事件，重启清零）+ 游标轮询（前台 2s / 标签页隐藏自动降 30s）——**成功读路径不落审计**（实测轮询 60s，audit.jsonl 行增量 0），所以面板自身不会污染它展示的证据流；事件缓冲轮转/服务重启导致的缺口以 `truncated=true` 显式标 ⚠️，绝不做连续假象。轮询周期是前端常量 `cadence()`，调它不改后端。

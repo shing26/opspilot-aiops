@@ -1,5 +1,6 @@
 # 一期 CI：零凭据、零中间件即可跑——mvn 单测全 mock/H2-local；Python 侧 chunkers 不变量
-# + 跨语言词法护栏。live 依赖的 A2/A3 验收不进 CI（需 compose 栈），由本地验收脚本承担。
+# + 跨语言词法护栏；bash 侧 Ops Console 契约检查（面板↔端点键名防漂移，ADR-0009）。
+# live 依赖的 A2/A3 验收不进 CI（需 compose 栈），由本地验收脚本承担。
 name: CI
 on:
   push:
@@ -18,6 +19,13 @@ jobs:
           cache: maven
       - name: Unit tests
         run: mvn -B test
+
+  panel-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ops Console ↔ backend key contract (ADR-0009 / W11)
+        run: bash scripts/check_panel_contract.sh
 
   python:
     runs-on: ubuntu-latest
