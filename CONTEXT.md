@@ -22,10 +22,10 @@ Reciprocal Rank Fusion，倒数排名融合（k=60），将双路排名无量纲
 对 RRF Top-20 调用云端 Reranker 二次过滤，裁剪至 Top-3 上下文。_Avoid_: 重排序
 
 **快路径（Fast Path）**:
-查询含强标识符且 ES keyword 精确命中 Top-1 时跳过 Rerank 的捷径。
+查询含错误码且 ES keyword 精确命中 Top-1 时跳过 Rerank 的捷径。
 
 **强标识符（Strong Identifier）**:
-错误码或全限定名（FQCN），词法单一事实源与快路径同源。快路径与防断言语态门共用此判据：query 含强标识符才允许结论式锚定具体事故，否则只能假设语态作答。_Avoid_: 关键词、特征码（词表会随语料漂移，强标识符是形状判据非查表判据）
+错误码或全限定名（FQCN）——形状判据非查表判据。词法单一事实源=EsSearchService 的 ERROR_CODE/FQCN 两个形状常量；但两个消费方的**组合判据不同**：快路径只认错误码（+keyword 精确命中 Top-1），FQCN 不参与其判定；防断言语态门认错误码∨FQCN（`hasStrongIdentifier`），query 含强标识符才允许结论式锚定具体事故，否则假设语态作答。_Avoid_: 关键词、特征码（词表会随语料漂移）
 
 ### 风暴防线域
 

@@ -164,8 +164,8 @@ ADR-0003 修订注 + ADR-0008（权限维度必须同构存在于每一条跨请
 | 验收 | 结果 |
 |---|---|
 | V1 mvn | **115/115 全绿**；红先行四次留证（VerbatimGuard/PromptAssembler/ZSET 修剪/熔断自愈用例均对旧代码先行编译/断言红） |
-| V2 verbatim 5 变体（live） | **上游阻断**：DashScope qwen-plus 账户欠费（HTTP 400 `Arrearage`，19:08 起全部 LLM 调用被拒，embedding/rerank 池不受影响）——环境项非代码缺陷。充值后重跑 `offline/qa_gen_quality_probes.py V2` 回填。阻断前硬层证据=mock 单测 10 用例（80/81 边界、跨句拼接、carry 重置、安全冲刷）+ 编排集成锁（stub LLM 逐字倒出→出口/缓存/审计/SF 全掩码） |
-| V3 /v1 面同探针 | 同 V2 阻断（设卡单一在 runPipeline，代码面两协议共享，集成测试已锁） |
+| V2 verbatim 5 变体（live） | **上游阻断**：DashScope qwen-plus 账户欠费（HTTP 400 `Arrearage`，19:08 起全部 LLM 调用被拒，embedding/rerank 池不受影响）——环境项非代码缺陷。充值后重跑 `offline/qa_gen_quality_probes.py V2` 回填。阻断前硬层证据=mock 单测 10 用例（80/81 边界、跨句拼接、carry 重置、安全冲刷）+ 编排集成锁（stub LLM 逐字倒出→出口/缓存/审计/SF 全掩码）。双轴复审后探针补齐计划通过线后半：触发时 metrics 进账+审计行交叉核对 |
+| V3 /v1 面同探针 | 同 V2 阻断（设卡单一在 runPipeline 漏斗，/v1 共享同一链路属代码面必达；编排集成锁的是 sse via，/v1 端到端复验随 V3 重跑补上） |
 | V4 防断言语态 | **PASS**（欠费发作前实测：colloquial/formal 2 变体 ×3 连跑 3/3 假设语态 ∧ 真生成≥1） |
 | V5 L1 回放卫生 | 阻断同 V2（回放源须生成成功）；缓存载荷干净由集成测试锁（写前掩码） |
 | V6 ZSET 混源计数（Redis 直读） | **PASS**：同指纹双发 → `storm:win:manual:<fp>` + `storm:win:alert:<fp>` 独立键，TTL 32/68s=30/60+10s 精确符合 |
