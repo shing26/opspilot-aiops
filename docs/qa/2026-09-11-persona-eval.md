@@ -74,7 +74,7 @@ AuditService 增 `src_tenant`/`max_src_auth_level`（取自实际 refs）。**�
   references"；出口做引用-内容对齐校验。
 - **回指幻觉**：`刚才说的第二步再细点` 被自信锚定到线程池手册（真实故障在 DB）。修复方向：
   回指词检测→强制澄清追问，而非硬检索。
-- 状态：`待排期`（独立工作包，见 §5）。**归因修正（grill 阶段核源码）**：慢拒答非"走了生成链"——拒答分支在 llmCall 前 return，14s 是长文本检索自身耗时；query 预处理可一并解决 P1-5a/P2-6/P3-1。
+- 状态：`部分修复`（生成质量包 2026-09-13 落地：t6 长日志失明**复验已自愈**（303 语料下 10069 字符正常作答，回归锁 V7 收编 `offline/qa_gen_quality_probes.py`）；逐字导出→prompt 规则 5+句级出口硬护栏（S1）；断言语态→弱问题条件注入规则 6+正则探针（S2，上限与升级触发线见 ADR-0004 修订注语境与 OPS 债务闹钟表）。**引用洗白不在本包**：第五轮未复现，待复现再立项（出口引用-内容对齐校验复杂度高一档）。**归因修正（grill 阶段核源码）**：慢拒答非"走了生成链"——拒答分支在 llmCall 前 return，14s 是长文本检索自身耗时；P2-6 拒答 TTFT 属检索耗时优化，另排期）。
 
 ## 3. P2（摘要）
 
@@ -91,7 +91,7 @@ AuditService 增 `src_tenant`/`max_src_auth_level`（取自实际 refs）。**�
 | P2-9 | OPS §8/README 取 token 命令缺 `set -a && . ./.env` 前置，照抄必 traceback | 实测 |
 | P2-10 | LobeChat UX：JWT 24h 过期后 UI 只见裸 401 无引导；缓存回放整段刷出无打字机感 | U2/U3 |
 
-**P2 处置状态（2026-09-11 晚）**：P2-1/P2-2/P2-3/P2-5 已修（commit 6609723，直写 JSON 绕内容协商 + backup 400 + /v1 OpenAI 形状 + 拒答去分数，回归锁 GlobalExceptionHandlerTest/ChatOrchestratorTest）；P2-8/P2-9 已修（OPS §7/§8 对调重写容器版 + 命令块补 .env 前置，README/DEMO 交叉引用同步）；P2-4/P2-6 归生成质量包；P2-7 **已归因**：宿主直跑 400 快败 3-11ms、health 52ms，~2.05s 死区为 Windows Docker Desktop 宿主端口代理固定开销（环境项，非应用缺陷，容器演示时以 audit took_ms 为准读性能）；P2-10 记录在案（UI 层，演示话术规避）。
+**P2 处置状态（2026-09-11 晚）**：P2-1/P2-2/P2-3/P2-5 已修（commit 6609723，直写 JSON 绕内容协商 + backup 400 + /v1 OpenAI 形状 + 拒答去分数，回归锁 GlobalExceptionHandlerTest/ChatOrchestratorTest）；P2-8/P2-9 已修（OPS §7/§8 对调重写容器版 + 命令块补 .env 前置，README/DEMO 交叉引用同步）；P2-4 **已修**（2026-09-13 生成质量包 S1，commit 4c3103a：规则 5 + VerbatimStreamFilter 句级出口硬护栏，阈值 80/carry 160，掩码版进缓存/SF→回放与 follower//v1 面同净；审计 `verbatim_masked`+面板瓦片；锁=VerbatimGuardTest 10 用例 mock 零 token + qa_gen_quality_probes.py V2 五变体 live，详见 §7 追加段）；P2-6 属检索耗时优化另排期（非生成链，见 P1-5 归因修正）；P2-7 **已归因**：宿主直跑 400 快败 3-11ms、health 52ms，~2.05s 死区为 Windows Docker Desktop 宿主端口代理固定开销（环境项，非应用缺陷，容器演示时以 audit took_ms 为准读性能）；P2-10 记录在案（UI 层，演示话术规避）。
 
 ## 4. P3（摘要）
 

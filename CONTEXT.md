@@ -22,7 +22,10 @@ Reciprocal Rank Fusion，倒数排名融合（k=60），将双路排名无量纲
 对 RRF Top-20 调用云端 Reranker 二次过滤，裁剪至 Top-3 上下文。_Avoid_: 重排序
 
 **快路径（Fast Path）**:
-查询含精确错误码/全限定名且 ES keyword 精确命中 Top-1 时跳过 Rerank 的捷径。
+查询含强标识符且 ES keyword 精确命中 Top-1 时跳过 Rerank 的捷径。
+
+**强标识符（Strong Identifier）**:
+错误码或全限定名（FQCN），词法单一事实源与快路径同源。快路径与防断言语态门共用此判据：query 含强标识符才允许结论式锚定具体事故，否则只能假设语态作答。_Avoid_: 关键词、特征码（词表会随语料漂移，强标识符是形状判据非查表判据）
 
 ### 风暴防线域
 
@@ -30,7 +33,7 @@ Reciprocal Rank Fusion，倒数排名融合（k=60），将双路排名无量纲
 `SHA256(service + env + normalized_error_msg)`，归一化剥离时间戳/数字/ID 后的错误签名。_Avoid_: 签名、哈希键
 
 **滑动窗口（Sliding Window）**:
-Redis ZSET 实现的 30s 去重窗口（alert 来源可配更长），窗口内同指纹仅首条穿透。_Avoid_: 防抖（口语可用，代码中统一 Sliding Window）
+按 `来源×指纹` 维护的 Redis ZSET 聚合计数窗口（manual 30s / alert 60s），仅服务 dedup 计数与"风暴收敛"叙事；穿透闸门的唯一归属是单飞，窗口不做排除。_Avoid_: 防抖（口语可用，代码中统一 Sliding Window）、"窗口内仅首条穿透"（旧口径与实现不符，2026-09-13 grill 裁定废止）
 
 **单飞（Single-Flight）**:
 同指纹并发请求挂起等待首条结果并复用的进程内合并机制，key 掺 authLevel 防跨权限复用。_Avoid_: 请求合并
