@@ -37,6 +37,16 @@ public class EsSearchService {
         return out;
     }
 
+    /**
+     * 强标识符 = 错误码 ∨ 全限定名（CONTEXT.md 词条；词法与快路径共用同一形状，
+     * 消费方不得复制正则——单一事实源纪律）。当前消费方：防断言语态门
+     * （生成质量包 Q3：弱问题只能假设语态，见 PromptAssembler）。
+     * 与快路径判据的区别：快路径只认错误码+keyword 精确命中，FQCN 不参与其判定。
+     */
+    public static boolean hasStrongIdentifier(String query) {
+        return query != null && (ERROR_CODE.matcher(query).find() || FQCN.matcher(query).find());
+    }
+
     public List<ScoredChunk> search(String query, String tenant, int authLevel, int topK) throws Exception {
         List<String> codes = extractErrorCodes(query);
         List<Query> should = new ArrayList<>();
