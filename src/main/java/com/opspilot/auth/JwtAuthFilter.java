@@ -5,6 +5,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -20,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * Spring 默认体标准客户端解析不了——QA P2-3）；其余面维持 sendError。
  */
 @Component
+@Order(0)   // RequestIdFilter(HIGHEST_PRECEDENCE) 之后——守卫拒绝日志同样携带 request_id
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwt;

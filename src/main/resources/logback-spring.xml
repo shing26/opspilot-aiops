@@ -3,6 +3,21 @@
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
     <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
 
+    <!-- H1（生产就绪度 2026-09-12）：应用日志此前仅 CONSOLE——容器重建即丢全部运行记录。
+         APP_FILE 按天+100MB 滚动，保 7 天、总量 500MB 封顶；pattern 带 request_id（H2）。 -->
+    <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/app.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{request_id:-}] %logger{36} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/app.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
     <!-- 合规审计面：每请求一行 JSON（谁、何租户、何密级、查了什么、命中来源、是否拒答、结果最高密级）
          logs/ 已 gitignore；14 天滚动。字段设计见 ADR-0005。 -->
     <appender name="AUDIT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
@@ -22,5 +37,6 @@
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="APP_FILE"/>
     </root>
 </configuration>

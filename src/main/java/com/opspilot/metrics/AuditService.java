@@ -135,6 +135,10 @@ public class AuditService {
 
     private void writeEvent(Map<String, Object> ev) {
         try {
+            // H2：请求级关联 id 来自 MDC（同步面=filter 注入；编排面=虚拟线程任务内重挂），
+            // 缺省（系统内部触发的审计）不落字段
+            String rid = org.slf4j.MDC.get(com.opspilot.metrics.RequestIdFilter.KEY);
+            if (rid != null) ev.put("request_id", rid);
             synchronized (this) {
                 ev.put("seq", ++seq);
                 ring.addLast(ev);

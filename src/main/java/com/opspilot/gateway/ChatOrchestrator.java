@@ -82,9 +82,15 @@ public class ChatOrchestrator {
         metrics.request();
     }
 
-    /** 异步编排：错误经 sink.error 收尾（协议各自决定呈现），degrade.enter/exit 维护在飞计数。 */
+    /** 异步编排：错误经 sink.error 收尾（协议各自决定呈现），degrade.enter/exit 维护在飞计数。
+     *  H2：MDC 是 thread-local，编排切到虚拟线程后必须显式重挂 request_id——
+     *  异步段日志与审计行才能与 servlet 线程的请求日志用同一 id 关联。 */
     public void submit(ChatRequest req, UserContext user, ChatSink sink, String via) {
+        String requestId = org.slf4j.MDC.get(com.opspilot.metrics.RequestIdFilter.KEY);
         vt.execute(() -> {
+            if (requestId != null) {
+                org.slf4j.MDC.put(com.opspilot.metrics.RequestIdFilter.KEY, requestId);
+            }
             degrade.enter();
             try {
                 handle(req, user, sink, via);
@@ -93,6 +99,7 @@ public class ChatOrchestrator {
                 sink.error(e);
             } finally {
                 degrade.exit();
+                org.slf4j.MDC.remove(com.opspilot.metrics.RequestIdFilter.KEY);
             }
         });
     }

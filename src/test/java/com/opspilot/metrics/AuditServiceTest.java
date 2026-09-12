@@ -79,4 +79,20 @@ class AuditServiceTest {
         writeN(svc, 10);
         assertEquals(1, svc.recentSince(0, 0).events().size(), "limit 下限夹到 1");
     }
+
+    /** H2：审计行携带请求级关联 id（MDC 缺席时不落字段——系统内部触发无 id 可言）。 */
+    @Test
+    void auditRowCarriesRequestIdFromMdc() {
+        AuditService svc = new AuditService();
+        org.slf4j.MDC.put("request_id", "abc12345");
+        try {
+            svc.log(U, "chat", "sse", "q", "fp", "none", "hybrid", false, 1, 1);
+        } finally {
+            org.slf4j.MDC.remove("request_id");
+        }
+        svc.log(U, "chat", "sse", "q2", "fp", "none", "hybrid", false, 1, 2);
+        var r = svc.recentSince(0, 10);
+        assertEquals("abc12345", r.events().get(0).get("request_id"), "MDC 在场→行携带 id");
+        assertFalse(r.events().get(1).containsKey("request_id"), "MDC 缺席→无该字段");
+    }
 }

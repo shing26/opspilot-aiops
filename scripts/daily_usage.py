@@ -24,6 +24,7 @@ LOGS = ROOT / "logs"
 # 业务事件口径（QA P1-2 新增 ev 后收紧）：total/refuse 只统计 chat/search；
 # auth/admin/invalid/replay 是安全面事件，计入会稀释拒答率、扭曲《拒答处置 SOP》触发线。
 BUSINESS = ("chat", "search")
+LOGS_DISK_ALERT_MB = 500   # M2 磁盘哨兵：logs/ 总量超此值告警（app+audit 双滚动已设 cap，超出=异常驻留）
 
 
 def audit_files(day: str) -> list[Path]:
@@ -74,9 +75,12 @@ def main() -> int:
                 refused += 1 if ev.get("refused") else 0
                 l3 += 1 if ev.get("max_level", 0) >= 3 else 0
 
+    # M2 磁盘哨兵：logs/ 总量（app+audit 双滚动已设 cap，超出 cap 预期=异常驻留/滚动失效）
+    disk_mb = round(sum(f.stat().st_size for f in LOGS.rglob("*") if f.is_file()) / (1024 * 1024), 1)
     out = {"date": day, "total_requests": total, "unique_users": len(per_sub),
            "refuse_rate": round(refused / total, 4) if total else 0.0,
            "l3_hits": l3,
+           "logs_disk_mb": disk_mb,
            "top_user": (max(per_sub.items(), key=lambda kv: kv[1])[0]
                         + ":" + str(max(per_sub.values())) if per_sub else "")}
     log_path = Path(args.log)
@@ -84,6 +88,11 @@ def main() -> int:
     with open(log_path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(out, ensure_ascii=False) + "\n")
     print(json.dumps(out, ensure_ascii=False))
+
+    if disk_mb > LOGS_DISK_ALERT_MB:
+        print(f"ALERT: logs/ 占用 {disk_mb}MB > {LOGS_DISK_ALERT_MB}MB —— "
+              f"检查滚动是否失效（app/audit cap 应各自封顶）或异常驻留",
+              file=sys.stderr)
 
     if out["refuse_rate"] > args.threshold_refuse:
         print(f"ALERT: {day} 拒答率 {out['refuse_rate']:.1%} > 阈值 "

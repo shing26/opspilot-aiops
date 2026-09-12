@@ -177,7 +177,8 @@ function renderState(s) {
 }
 function maskKey(k) { const p = k.split(':'); return p.length > 2 ? p[0] + ':' + p[1].slice(0, 8) + ':' + p[2] : k; }
 function renderTiles(m) {
-  const keys = [['total_requests', '请求'], ['llm_calls', 'LLM'], ['l1_cache_hits', 'L1 命中'],
+  const keys = [['total_requests', '请求'], ['llm_calls', 'LLM'], ['llm_retries', '重试'],
+    ['llm_network_errors', '网络错'], ['l1_cache_hits', 'L1 命中'],
     ['l2_cache_hits', 'L2 命中'], ['dedup_aggregated', '收敛'], ['low_confidence_refusals', '拒答'],
     ['retrieval_timeouts', '检索超时'], ['es_only_requests', 'ES-only'], ['sop_fallbacks', 'SOP 直出'],
     ['llm_rate_limited', 'LLM 429']];

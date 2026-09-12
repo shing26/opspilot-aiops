@@ -19,9 +19,15 @@ public class OpsMetrics {
     private final AtomicLong retrievalTimeouts = new AtomicLong();
     private final AtomicLong lowConfidenceRefusals = new AtomicLong();
     private final AtomicLong totalRequests = new AtomicLong();
+    // H3（生产就绪度 2026-09-12）：重试可观测性——retry=退避后二次尝试的次数；
+    // networkError=终态网络类失败（429 终态仍走 llm_rate_limited，不重复计）
+    private final AtomicLong llmRetries = new AtomicLong();
+    private final AtomicLong llmNetworkErrors = new AtomicLong();
 
     public void llmCall() { llmCalls.incrementAndGet(); }
     public void llmRateLimited() { llmRateLimited.incrementAndGet(); }
+    public void llmRetry() { llmRetries.incrementAndGet(); }
+    public void llmNetworkError() { llmNetworkErrors.incrementAndGet(); }
     public void dedupAggregated() { dedupAggregated.incrementAndGet(); }
     public void l1Hit() { l1CacheHits.incrementAndGet(); }
     public void l2Hit() { l2CacheHits.incrementAndGet(); }
@@ -38,6 +44,8 @@ public class OpsMetrics {
         m.put("total_requests", totalRequests.get());
         m.put("llm_calls", llmCalls.get());
         m.put("llm_rate_limited", llmRateLimited.get());
+        m.put("llm_retries", llmRetries.get());
+        m.put("llm_network_errors", llmNetworkErrors.get());
         m.put("dedup_aggregated", dedupAggregated.get());
         m.put("l1_cache_hits", l1CacheHits.get());
         m.put("l2_cache_hits", l2CacheHits.get());

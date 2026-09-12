@@ -2,6 +2,7 @@ package com.opspilot.llm;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.opspilot.metrics.OpsMetrics;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URI;
@@ -12,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import org.springframework.stereotype.Component;
 import com.opspilot.config.OpsPilotProperties;
@@ -19,6 +21,11 @@ import com.opspilot.config.OpsPilotProperties;
 /**
  * qwen-plus 流式对话：JDK HttpClient 手写解析 OpenAI 兼容 SSE（无 SDK，DoD 要求无重量级黑盒依赖）。
  * 429 抛 LlmRateLimitedException 供降级状态机熔断。
+ *
+ * H3（生产就绪度 2026-09-12）：**单次退避重试**——仅当失败发生在**首 token 吐出之前**
+ * （重试不会造成答案重复）且错误为瞬时类（429 / 网络层 IOException / HTTP 5xx）。
+ * 已吐 token 后失败、或非瞬时错（4xx 配置类）一律直接上抛。429 与网络错分开计数
+ * （llm_retries / llm_network_errors），终态 429 仍计 llm_rate_limited 供熔断。
  */
 @Component
 public class LlmClient {
@@ -32,9 +39,14 @@ public class LlmClient {
             .build();
     private final ObjectMapper mapper = new ObjectMapper();
     private final OpsPilotProperties props;
+    private final OpsMetrics metrics;
+    // 退避时长抽字段：测试可压到 1ms（真实 429=1s / 网络错=400ms）
+    volatile long backoff429Ms = 1_000L;
+    volatile long backoffNetworkMs = 400L;
 
-    public LlmClient(OpsPilotProperties props) {
+    public LlmClient(OpsPilotProperties props, OpsMetrics metrics) {
         this.props = props;
+        this.metrics = metrics;
     }
 
     /** 流式生成：onToken 逐 token 回调，返回完整答案文本。 */
@@ -42,6 +54,33 @@ public class LlmClient {
         if (!props.dashscope().live()) {
             return mockStream(messages, onToken);
         }
+        AtomicBoolean tokenEmitted = new AtomicBoolean(false);
+        RuntimeException last = null;
+        for (int attempt = 0; attempt < 2; attempt++) {
+            AtomicBoolean touched = new AtomicBoolean(false);
+            try {
+                return attemptOnce(messages, t -> {
+                    touched.set(true);
+                    tokenEmitted.set(true);
+                    onToken.accept(t);
+                });
+            } catch (Exception e) {
+                RuntimeException err = asRuntime(e);
+                if (touched.get() || attempt == 1 || !isTransient(e)) {
+                    // 终态网络错无论是否已吐 token 都计数（重试耗尽或不可重试的失败）
+                    if (isNetworkError(e)) metrics.llmNetworkError();
+                    throw err;
+                }
+                metrics.llmRetry();
+                sleepBackoff(e);
+            }
+        }
+        throw last == null ? new IllegalStateException("unreachable retry loop") : last;
+    }
+
+    /** 单次尝试（建立连接 → 状态判定 → 流读取）。异常分类交给调用方的重试判定。
+     *  包级可见：retry 语义单测以 Mockito spy 桩本方法（不真发 HTTP）。 */
+    String attemptOnce(List<Map<String, String>> messages, Consumer<String> onToken) {
         try {
             String body = mapper.writeValueAsString(Map.of(
                     "model", props.dashscope().llmModel(),
@@ -90,6 +129,33 @@ public class LlmClient {
         } catch (Exception e) {
             throw new RuntimeException("LLM 调用失败: " + e.getMessage(), e);
         }
+    }
+
+    /** 瞬时类：429（退避后上游可能放行）、网络层 IOException/超时、HTTP 5xx。4xx 配置错不在内。 */
+    private static boolean isTransient(Exception e) {
+        if (e instanceof LlmRateLimitedException) return true;
+        for (Throwable c = e; c != null; c = c.getCause()) {
+            if (c instanceof java.io.IOException || c instanceof java.net.http.HttpTimeoutException) return true;
+            String m = c.getMessage();
+            if (m != null && m.startsWith("LLM HTTP 5")) return true;
+        }
+        return false;
+    }
+
+    private static boolean isNetworkError(Exception e) {
+        return !(e instanceof LlmRateLimitedException) && isTransient(e);
+    }
+
+    private void sleepBackoff(Exception e) {
+        try {
+            Thread.sleep(e instanceof LlmRateLimitedException ? backoff429Ms : backoffNetworkMs);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static RuntimeException asRuntime(Exception e) {
+        return e instanceof RuntimeException re ? re : new RuntimeException("LLM 调用失败: " + e.getMessage(), e);
     }
 
     private static void closeQuietly(java.io.Closeable c) {
