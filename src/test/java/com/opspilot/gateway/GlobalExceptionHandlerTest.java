@@ -3,20 +3,27 @@ package com.opspilot.gateway;
 import com.opspilot.auth.UserContext;
 import com.opspilot.metrics.AuditService;
 import java.lang.reflect.Method;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -62,14 +69,78 @@ class GlobalExceptionHandlerTest {
     void statusAndGenericErrorsAreDirectWritten() throws Exception {
         MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/admin/reingest");
         MockHttpServletResponse r1 = new MockHttpServletResponse();
-        handler.onStatus(new ResponseStatusException(HttpStatus.FORBIDDEN, "需要平台管理员凭证"), r1);
+        handler.onStatus(new ResponseStatusException(HttpStatus.FORBIDDEN, "需要平台管理员凭证"), req, r1);
         assertEquals(403, r1.getStatus());
         assertTrue(r1.getContentAsString().contains("HTTP_403"));
 
         MockHttpServletResponse r2 = new MockHttpServletResponse();
-        handler.onOther(new RuntimeException("jdbc leaked // SELECT * FROM users"), r2);
+        handler.onOther(new RuntimeException("jdbc leaked // SELECT * FROM users"), req, r2);
         assertEquals(500, r2.getStatus());
         assertFalse(r2.getContentAsString().contains("SELECT"), "内部细节不得外泄");
         verifyNoInteractions(audit); // onOther 不产 invalid 事件（栈进日志，事件只归 400）
+    }
+
+    /** QA 第五轮 P1：/v1 合法 JSON 无 Content-Type 曾 500 server_error——现 415 + OpenAI 形状。 */
+    @Test
+    void unsupportedMediaTypeIs415AndOpenAiShapeOnV1() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/v1/chat/completions");
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        handler.onMediaTypeNotSupported(new HttpMediaTypeNotSupportedException("text/plain"), req, r);
+        assertEquals(415, r.getStatus());
+        String body = r.getContentAsString();
+        assertTrue(body.contains("\"error\"") && body.contains("invalid_request_error"), body);
+        verify(audit).logInvalid(isNull(), eq("/v1/chat/completions"), contains("Content-Type"));
+    }
+
+    /** QA 第五轮 P1：参数类型错（since=abc/1e18）曾落 500 兜底——现 400 + INVALID_REQUEST + 留痕。 */
+    @Test
+    void typeMismatchIs400WithAuditTrail() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/admin/audit/recent");
+        MethodParameter mp = new MethodParameter(
+                GlobalExceptionHandlerTest.class.getDeclaredMethod("dummyBindingTarget", String.class), 0);
+        var ex = new MethodArgumentTypeMismatchException("abc", Long.class, "since", mp,
+                new NumberFormatException("abc"));
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        handler.onTypeMismatch(ex, req, r);
+        assertEquals(400, r.getStatus());
+        String body = r.getContentAsString();
+        assertTrue(body.contains("INVALID_REQUEST") && body.contains("since"), body);
+        verify(audit).logInvalid(isNull(), eq("/api/v1/admin/audit/recent"), contains("since"));
+    }
+
+    /** QA 第五轮 P1：POST-only 端点被 GET 曾落 500——现 405 + Allow 头，不落审计。 */
+    @Test
+    void wrongMethodIs405WithAllowHeader() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/v1/admin/cache/flush");
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        handler.onMethodNotSupported(
+                new HttpRequestMethodNotSupportedException("GET", List.of("POST")), req, r);
+        assertEquals(405, r.getStatus());
+        assertEquals("POST", r.getHeader("Allow"));
+        verifyNoInteractions(audit);
+    }
+
+    /** /v1 面的错误经全局 handler 也必须保持 OpenAI 形状（方法/协商异常进不了专属 advice）。 */
+    @Test
+    void methodErrorsOnV1KeepOpenAiShape() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("PUT", "/v1/chat/completions");
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        handler.onMethodNotSupported(
+                new HttpRequestMethodNotSupportedException("PUT", List.of("POST")), req, r);
+        assertEquals(405, r.getStatus());
+        String body = r.getContentAsString();
+        assertTrue(body.contains("\"error\"") && body.contains("invalid_request_error"), body);
+        assertFalse(body.contains("INTERNAL_ERROR"), "全局形状不得漏到 /v1");
+    }
+
+    /** QA 第五轮 P2：favicon 与未知静态路径曾 500——现 404 且零审计噪音。 */
+    @Test
+    void missingStaticResourceIs404WithoutAudit() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/favicon.ico");
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        handler.onNoResource(new NoResourceFoundException(HttpMethod.GET, "favicon.ico"), req, r);
+        assertEquals(404, r.getStatus());
+        assertTrue(r.getContentAsString().contains("NOT_FOUND"));
+        verifyNoInteractions(audit);
     }
 }
