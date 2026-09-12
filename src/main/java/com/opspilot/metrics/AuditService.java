@@ -70,6 +70,17 @@ public class AuditService {
     public void log(UserContext user, String kind, String via, String query, String fingerprint,
                     String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs,
                     String srcTenant) {
+        log(user, kind, via, query, fingerprint, cacheHit, mode, refused, maxResultAuthLevel, tookMs,
+                srcTenant, null);
+    }
+
+    /**
+     * 最终形态（生成质量包 Q2=C 追加）：verbatimMasked = 出口掩码句数，仅 >0 时携带
+     * （无事件不落字段，避免全量噪音）——"谁试图逐字导出、被拦了几句"的事后可查面。
+     */
+    public void log(UserContext user, String kind, String via, String query, String fingerprint,
+                    String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs,
+                    String srcTenant, Integer verbatimMasked) {
         Map<String, Object> ev = new LinkedHashMap<>();
         ev.put("ts", System.currentTimeMillis());
         ev.put("ev", kind);
@@ -85,6 +96,7 @@ public class AuditService {
         ev.put("max_level", maxResultAuthLevel);
         ev.put("took_ms", tookMs);
         if (srcTenant != null) ev.put("src_tenant", srcTenant);
+        if (verbatimMasked != null) ev.put("verbatim_masked", verbatimMasked);
         writeEvent(ev);
     }
 

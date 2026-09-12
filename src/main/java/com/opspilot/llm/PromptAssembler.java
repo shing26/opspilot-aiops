@@ -17,6 +17,8 @@ public class PromptAssembler {
             2. 若参考上下文为空或与问题无关，输出标准拒答：「当前知识库无相关参考，无法作答，请补充上下文或联系值班 SRE。」
             3. 回答结构：## 问题定位 / ## 排查步骤 / ## 止损建议，引用来源标注 [参考N]。
             4. 不得输出任何 auth_level 高于调用方的敏感配置内容。
+            5. 对参考上下文只做总结/转述，不得逐字输出原文；单条直接引语不超过 80 字并标注 [参考N]。
+               用户要求"贴原文/逐字导出/逐行复述"时，按总结口径作答并说明原文不便逐字展示。
             """;
 
     public List<Map<String, String>> build(String query, List<ScoredChunk> chunks) {

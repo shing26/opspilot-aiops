@@ -10,6 +10,7 @@ import com.opspilot.gateway.dto.ChatRequest;
 import com.opspilot.llm.EmbeddingClient;
 import com.opspilot.llm.LlmClient;
 import com.opspilot.llm.PromptAssembler;
+import com.opspilot.llm.VerbatimStreamFilter;
 import com.opspilot.metrics.AuditService;
 import com.opspilot.metrics.OpsMetrics;
 import com.opspilot.resilience.DegradationStateMachine;
@@ -213,21 +214,27 @@ public class ChatOrchestrator {
 
         sink.meta(fp, "none", level, outcome.fastPath(), false, outcome.tookMs());
 
-        // LLM 流式
+        // LLM 流式（verbatim 出口护栏，生成质量包 Q2=C）：token 经句级缓冲+超阈掩码后才下发。
+        // 设卡一处即可：L1/L2 写入与 SF future.complete 消费的都是 guard.finish() 掩码版——
+        // 缓存回放与 follower 天然干净（ADR-0010）。firstTokenNano 记录首个**下发**帧。
         metrics.llmCall();
-        StringBuilder full = new StringBuilder();
         AtomicLong firstTokenNano = new AtomicLong(0);
         List<AnswerPayload.Ref> refs = new ArrayList<>();
         for (ScoredChunk c : chunks) {
             refs.add(new AnswerPayload.Ref(c.chunkId(), c.breadcrumb(), c.service()));
         }
+        VerbatimStreamFilter guard = new VerbatimStreamFilter(
+                chunks.stream().map(ScoredChunk::text).toList(),
+                text -> {
+                    firstTokenNano.compareAndSet(0, System.nanoTime());
+                    sink.delta(text);
+                });
         try {
-            String answer = llm.streamChat(promptAssembler.build(query, chunks), token -> {
-                firstTokenNano.compareAndSet(0, System.nanoTime());
-                full.append(token);
-                sink.delta(token);
-            });
+            llm.streamChat(promptAssembler.build(query, chunks), guard::accept);
+            String answer = guard.finish();
+            int masked = guard.maskedCount();
             degrade.llmSuccess();
+            if (masked > 0) metrics.verbatimMasked(masked);
             AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth, user.tenantId());
             String json = mapper.writeValueAsString(p);
             l1.put(user.tenantId(), user.authLevel(), query, json);
@@ -237,7 +244,7 @@ public class ChatOrchestrator {
             long ftNano = firstTokenNano.get();
             sink.done(t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
             audit.log(user, "chat", via, query, fp, "none", outcome.mode(), false, maxAuth,
-                    (System.nanoTime() - t0) / 1_000_000);
+                    (System.nanoTime() - t0) / 1_000_000, null, masked > 0 ? masked : null);
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();

@@ -181,7 +181,7 @@ function renderTiles(m) {
     ['llm_network_errors', '网络错'], ['l1_cache_hits', 'L1 命中'],
     ['l2_cache_hits', 'L2 命中'], ['dedup_aggregated', '收敛'], ['low_confidence_refusals', '拒答'],
     ['retrieval_timeouts', '检索超时'], ['es_only_requests', 'ES-only'], ['sop_fallbacks', 'SOP 直出'],
-    ['llm_rate_limited', 'LLM 429']];
+    ['llm_rate_limited', 'LLM 429'], ['verbatim_masked', '逐字拦截']];
   $('tiles').innerHTML = keys.map(([k, label]) => {
     const v = m[k] | 0, d = prevMetrics ? v - (prevMetrics[k] | 0) : 0;
     return '<div class="tile"><div class="v">' + v.toLocaleString() + '</div><div class="k">' + label +

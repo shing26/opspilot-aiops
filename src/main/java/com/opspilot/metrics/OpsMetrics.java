@@ -23,6 +23,8 @@ public class OpsMetrics {
     // networkError=终态网络类失败（429 终态仍走 llm_rate_limited，不重复计）
     private final AtomicLong llmRetries = new AtomicLong();
     private final AtomicLong llmNetworkErrors = new AtomicLong();
+    // 生成质量包 Q2=C：逐字导出被出口护栏掩码的句数（按句累计，非按请求）
+    private final AtomicLong verbatimMasked = new AtomicLong();
 
     public void llmCall() { llmCalls.incrementAndGet(); }
     public void llmRateLimited() { llmRateLimited.incrementAndGet(); }
@@ -36,6 +38,7 @@ public class OpsMetrics {
     public void retrievalTimeout() { retrievalTimeouts.incrementAndGet(); }
     public void lowConfidence() { lowConfidenceRefusals.incrementAndGet(); }
     public void request() { totalRequests.incrementAndGet(); }
+    public void verbatimMasked(int n) { verbatimMasked.addAndGet(n); }
 
     public long llmCallsValue() { return llmCalls.get(); }
 
@@ -53,6 +56,7 @@ public class OpsMetrics {
         m.put("sop_fallbacks", sopFallbacks.get());
         m.put("retrieval_timeouts", retrievalTimeouts.get());
         m.put("low_confidence_refusals", lowConfidenceRefusals.get());
+        m.put("verbatim_masked", verbatimMasked.get());
         return m;
     }
 }
