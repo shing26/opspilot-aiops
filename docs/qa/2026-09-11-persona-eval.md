@@ -177,4 +177,4 @@ ADR-0003 修订注 + ADR-0008（权限维度必须同构存在于每一条跨请
 | W4 CI | 见本 commit 推送后 gh run（CI 零 live 依赖，预期绿） |
 
 **意外收获（本包最重产出）：熔断自愈死锁修复（e966feb）**——欠费的瞬时三连 400 正确触发熔断，但旧 `current()` 冷却过期后仍恒判 L2，而 L2 分支不调 LLM → 计数无归零路径 → 熔断永不自愈。既往五轮 QA 的 L2 全是手动锁（A2-6 绕过计时路径），自动触发+恢复从未实弹。修复=半开（过期清零放行探测，成败重定档）+3 红用例。**这是 live 实测第三次推翻"已闭环"结论**（P0-1 竞态、ZSET 穿透叙事之后），"跑真环境"纪律再次自证。
-**上游状态（用户侧待办）**：DashScope qwen-plus 充值；到账后跑 `cd offline && ../offline/.venv/Scripts/python.exe qa_gen_quality_probes.py` 回填 V2/V3/V5/V7，并重跑 A2 全量与 A3。
+**上游状态（用户侧待办）**：DashScope qwen-plus 充值；09-13 04:2x 终报前最小探针复测**仍 400 Arrearage**（充值未到账即无法实弹，非代码问题）。到账后跑 `cd offline && ../offline/.venv/Scripts/python.exe qa_gen_quality_probes.py` 回填 V2/V3/V5/V7，并重跑 A2 全量与 A3。
