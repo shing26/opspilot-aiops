@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
 <title>OpsPilot · Ops Console</title>
 <!--
   只读可观测面（ADR-0009）：渲染 /admin/state 与 /admin/audit/recent 的真实计数器，
@@ -21,6 +22,8 @@
   header b { color:var(--accent); letter-spacing:.5px }
   #fingerprint { color:var(--dim); font-size:11px }
   main { display:grid; grid-template-columns:1fr 1.4fr; gap:12px; padding:12px 16px; }
+  /* min-width:0 阻断 nowrap 长行沿 grid 列传播（QA P1：一条长日志把整页撑成横向卷轴） */
+  main > div { min-width:0 }
   section { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 12px; }
   h2 { margin:0 0 8px; font-size:11px; color:var(--dim); font-weight:600; letter-spacing:1px; }
   .lights { display:flex; gap:14px; flex-wrap:wrap }
@@ -36,11 +39,11 @@
           border-radius:3px; padding:0 6px; margin:2px 3px 0 0; font-size:11px }
   .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:4px }
   .bar i { display:block; height:100%; background:var(--accent) }
-  #events { max-height:46vh; overflow-y:auto; font-size:11px }
+  #events { max-height:46vh; overflow-x:hidden; overflow-y:auto; font-size:11px }
   .ev { padding:2px 4px; border-bottom:1px dashed var(--line); white-space:nowrap;
         overflow:hidden; text-overflow:ellipsis }
   .ev .t{color:var(--dim)} .ev.chat .b{color:var(--accent)} .ev.search .b{color:#9a6bff}
-  .ev.auth{color:var(--warn)} .ev.admin{color:#4dd0e1} .ev.invalid{color:var(--warn)}
+  .ev.auth{color:var(--warn)} .ev.admin{color:#4dd0e1} .ev.invalid{color:var(--err)}
   .ev.badge-l1 .b,.ev.badge-L2 .b{color:var(--ok)}
   .ev.refused{color:var(--err)} .ev.mismatch{background:#3a1010;color:var(--err);font-weight:700}
   .ev.lost{color:var(--warn)}
@@ -97,7 +100,7 @@
 const $ = id => document.getElementById(id);
 const CAP = 200;                    // 审计游标每拉 200，DOM 保 60
 let token = localStorage.getItem('opspilot.jwt') || '';
-let cursor = 0, prevMetrics = null, pollTimer = null, alive = false;
+let cursor = 0, prevMetrics = null, pollTimer = null, pollPeriod = 0, alive = false, lastPollFailed = false;
 
 async function api(path) {
   const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
@@ -113,22 +116,32 @@ function showAuth(kind) {
                    '密级高≠可信，见 ADR-0008）。请改用 sre-full 的 token。' :
     '面板需要 role=platform 账号的 JWT（数据端点全部受守卫，HTML 壳本身零信息）';
   stopPoll();
+  const inp = $('jwt'); if (kind === 401 && inp.value) { inp.focus(); inp.select(); }
 }
 function hideAuth() { $('auth').style.display = 'none'; document.body.classList.remove('sat'); }
 function stopPoll() { if (pollTimer) clearInterval(pollTimer); pollTimer = null; }
-function startPoll() { stopPoll(); poll(); pollTimer = setInterval(poll, cadence()); }
-function cadence() { return document.visibilityState === 'visible' ? 2000 : 30000; }
-document.addEventListener('visibilitychange', () => { if (pollTimer && alive) startPoll(); });
+function startPoll() { stopPoll(); poll(); resyncInterval(); }
+function cadence() {
+  if (document.visibilityState !== 'visible') return 30000;
+  return lastPollFailed ? 30000 : 2000;   // 失败真降频（QA P3：文案与行为一致）
+}
+function resyncInterval() {                // cadence 变化（失败降频/恢复/切后台）时重排 interval
+  const c = cadence();
+  if (pollTimer && pollPeriod === c) return;
+  stopPoll(); pollPeriod = c; pollTimer = setInterval(poll, c);
+}
+document.addEventListener('visibilitychange', () => { if (pollTimer && alive) resyncInterval(); });
 
 async function poll() {
   let s, a;
   try { s = await api('/api/v1/admin/state'); }
   catch (e) { if (e.auth) { alive = false; showAuth(e.auth); return; }
-    $('pollstate').textContent = '网关不可达：' + (e.err || e) + '（降频重试中）';
-    $('pollstate').style.color = 'var(--err)'; return; }
+    lastPollFailed = true;
+    $('pollstate').textContent = '网关不可达：' + (e.err || e) + ' · 30s 重试';
+    $('pollstate').style.color = 'var(--err)'; resyncInterval(); return; }
   try { a = await api('/api/v1/admin/audit/recent?since=' + cursor + '&limit=' + CAP); }
   catch (e) { if (e.auth) { showAuth(e.auth); return; } a = null; }
-  alive = true; hideAuth();
+  lastPollFailed = false; alive = true; hideAuth(); resyncInterval();
   $('pollstate').textContent = '轮询中 · ' + (cadence() / 1000) + 's'; $('pollstate').style.color = '';
   renderState(s); if (a) renderEvents(a);
 }
@@ -154,8 +167,9 @@ function renderState(s) {
     (d.cooldown_s > 0 ? '<span class="lamp">冷却 <b>' + d.cooldown_s + 's</b></span>' : '') +
     (d.manual ? '<span class="chip">MANUAL LOCK</span>' : '');
   const q = s.runtime.quota;
-  $('quota').innerHTML = '当日配额 ' + q.sub + '：<b>' + q.used + '</b> / ' + q.limit +
-    '<div class="bar"><i style="width:' + Math.min(100, q.used / q.limit * 100) + '%"></i></div>';
+  $('quota').innerHTML = '当日配额 ' + q.sub + '：<b>' + q.used.toLocaleString() + '</b> / ' +
+    q.limit.toLocaleString() +
+    '<div class="bar"><i style="width:' + Math.min(100, q.used / q.limit * 100).toFixed(1) + '%"></i></div>';
   renderTiles(s.metrics);
   $('sfrow').innerHTML = 'Single-Flight 在途组 <b>' + s.runtime.sf_groups + '</b> · inflight ' +
     s.runtime.inflight + ' ' + (s.runtime.sf_keys_top || []).map(
@@ -187,7 +201,7 @@ function renderEvents(a) {
       [ev.via, ev.cache_hit !== 'none' ? ev.cache_hit : '', ev.mode, ev.q || ev.path || ev.msg || ''].filter(Boolean).join(' · ');
     const srcAlarm = ev.src_tenant && ev.src_tenant !== ev.tenant ? ' ⚡跨租户回放!' : '';
     prepend('<div class="ev ' + cls + '"><span class="t">' + new Date(ev.ts).toLocaleTimeString() +
-      '</span> <span class="b">' + ev.ev + '</span> [' + (ev.sub || '?') + '/' + ev.level + '] ' +
+      '</span> <span class="b">' + ev.ev + '</span> [' + (ev.sub || '?') + '/' + (ev.level ?? '-') + '] ' +
       esc(detail) + srcAlarm + '</div>');
   }
   if (a.max_seq < cursor) cursor = a.max_seq;   // 服务端重启后游标对齐
@@ -218,12 +232,19 @@ $('copy').onclick = async () => {
   if (a) { await navigator.clipboard.writeText(JSON.stringify(a.events, null, 2));
     $('copy').textContent = '已复制 ✓'; setTimeout(() => $('copy').textContent = '复制最近 50 条 JSON', 1500); }
 };
-$('go').onclick = () => {
+$('go').onclick = async () => {
   const t = $('jwt').value.trim(); if (!t) return;
+  // 先验证后持久化（QA P3）：无效 token 不落 localStorage，避免下次打开必 401
+  try {
+    const probe = await fetch('/api/v1/admin/state', { headers: { Authorization: 'Bearer ' + t } });
+    if (probe.status === 401) { token = ''; showAuth(401); return; }
+    if (probe.status === 403) { token = ''; showAuth(403); return; }
+    if (!probe.ok) { $('authmsg').textContent = '网关返回 ' + probe.status + '，稍后重试'; return; }
+  } catch (e) { $('authmsg').textContent = '网关不可达，稍后重试'; return; }
   token = t; localStorage.setItem('opspilot.jwt', t); cursor = 0; prevMetrics = null;
   $('events').innerHTML = ''; poll().then(() => { if (alive) startPoll(); });
 };
-if (token) { poll().then(() => { if (alive) startPoll(); }); } else showAuth(0);
+if (token) { poll().then(resyncInterval); } else showAuth(0);
 
 </script>
 </body>
