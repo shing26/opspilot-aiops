@@ -46,9 +46,13 @@ class OpenAiChatSinkTest {
         assertTrue(first.contains("\"role\":\"assistant\""), "首帧必须携带 role");
         assertTrue(first.contains("\"object\":\"chat.completion.chunk\""));
         assertTrue(em.frames.get(1).contains("，同学"));
+        // QA 第五轮线卫生：内容帧不得携带 finish_reason:null（Choice 层 NON_NULL）
+        assertFalse(em.frames.get(1).contains("finish_reason"), "内容帧无 finish_reason 键");
         assertTrue(em.frames.get(2).contains("## 参考来源"), "refs 必须以 markdown 注入正文尾部（溯源保留）");
         assertTrue(em.frames.get(2).contains("order-service"));
         assertTrue(em.frames.get(3).contains("\"finish_reason\":\"stop\""), "stop 帧");
+        assertFalse(em.frames.get(3).contains("\"content\""), "stop 帧 delta 规范为 {}（空串是私货）");
+        assertFalse(em.frames.get(3).contains(":null"), "stop 帧无 null 泄漏");
         assertEquals("[DONE]", em.frames.get(4));
     }
 

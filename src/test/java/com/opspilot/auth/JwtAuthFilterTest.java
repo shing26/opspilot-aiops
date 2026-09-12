@@ -191,6 +191,46 @@ class JwtAuthFilterTest {
         assertEquals("missing bearer token", resp.getErrorMessage());
     }
 
+    /** QA 第五轮 P3：RFC 7235 scheme 大小写不敏感 + 多空白容忍；裸值/Basic 仍拒。 */
+    @Test
+    void bearerSchemeCaseInsensitiveAndWhitespaceTolerant() throws Exception {
+        when(store.find("sre-test")).thenReturn(active("sre-test", "tenant-demo", 1));
+        String jwt = token(1, "tenant-demo", 1);
+        for (String h : new String[]{"bearer " + jwt, "Bearer  " + jwt}) {
+            MockFilterChain chain = new MockFilterChain();
+            MockHttpServletResponse resp = dispatchHeader("POST", "/api/v1/copilot/search", h, null, chain);
+            assertEquals(200, resp.getStatus(), "RFC7235 变体应放行: " + h.substring(0, 12) + "…");
+            assertNotNull(chain.getRequest());
+        }
+        assertEquals(401, dispatchHeader("POST", "/api/v1/copilot/search", jwt, null,
+                new MockFilterChain()).getStatus(), "裸值（无 scheme）拒绝");
+        assertEquals(401, dispatchHeader("POST", "/api/v1/copilot/search", "Basic abc", null,
+                new MockFilterChain()).getStatus(), "Basic scheme 拒绝");
+    }
+
+    /** QA 第五轮 P2：/v1 401 由 filter 短路（早于 CORS 处理器），白名单 Origin 必须回显 ACAO。 */
+    @Test
+    void v1UnauthorizedEchoesAllowlistedOrigin() throws Exception {
+        MockHttpServletResponse ok = dispatchHeader("POST", "/v1/chat/completions", null,
+                "http://localhost:3210", new MockFilterChain());
+        assertEquals(401, ok.getStatus());
+        assertEquals("http://localhost:3210", ok.getHeader("Access-Control-Allow-Origin"),
+                "浏览器端要能读到 401 错误体而非笼统 fetch 失败");
+        MockHttpServletResponse evil = dispatchHeader("POST", "/v1/chat/completions", null,
+                "http://evil.example", new MockFilterChain());
+        assertNull(evil.getHeader("Access-Control-Allow-Origin"), "白名单外不回显");
+    }
+
+    private MockHttpServletResponse dispatchHeader(String method, String path, String authHeader,
+                                                   String origin, MockFilterChain chain) throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest(method, path);
+        if (authHeader != null) req.addHeader("Authorization", authHeader);
+        if (origin != null) req.addHeader("Origin", origin);
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+        filter.doFilter(req, resp, chain);
+        return resp;
+    }
+
     /** QA P1-2：守卫拒绝必须留痕且原因可辨（sub 仅在 token 可解析时携带，不编造身份）。 */
     @Test
     void denialLeavesDiscriminatingAuditTrail() throws Exception {

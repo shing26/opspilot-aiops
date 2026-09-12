@@ -25,7 +25,9 @@ public class OpenAiChatSink implements ChatSink {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiChatSink.class);
 
-    /** OpenAI SSE chunk 线格式（record + Jackson 注解对齐规范字段名）。 */
+    /** OpenAI SSE chunk 线格式（record + Jackson 注解对齐规范字段名）。
+     *  Choice 也须 NON_NULL：缺注解时 finish_reason:null 上线（QA 第五轮 P3 线卫生）；
+     *  stop 帧 delta 规范为 {}（OpenAI 官方流式口径），空串会导致 delta:{"content":""}。 */
     @JsonInclude(JsonInclude.Include.NON_NULL)
     record Chunk(String id, String object, long created, String model, List<Choice> choices) {
         static Chunk delta(String id, String model, String role, String content) {
@@ -34,10 +36,11 @@ public class OpenAiChatSink implements ChatSink {
         }
         static Chunk stop(String id, String model) {
             return new Chunk(id, "chat.completion.chunk", System.currentTimeMillis() / 1000, model,
-                    List.of(new Choice(0, new Delta(null, ""), "stop")));
+                    List.of(new Choice(0, new Delta(null, null), "stop")));
         }
         @JsonInclude(JsonInclude.Include.NON_NULL)
         record Delta(String role, String content) {}
+        @JsonInclude(JsonInclude.Include.NON_NULL)
         record Choice(int index, Delta delta, @JsonProperty("finish_reason") String finishReason) {}
     }
 

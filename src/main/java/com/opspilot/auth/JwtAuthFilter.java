@@ -50,7 +50,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
         String header = req.getHeader("Authorization");
-        if (header == null || !header.startsWith("Bearer ")) {
+        String token = bearerToken(header);
+        if (token == null) {
             deny(req, resp, path, "missing bearer token",
                     "No API key provided. Use your OpsPilot JWT as the API key.",
                     null, "missing_bearer");
@@ -58,7 +59,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
         String sub = null;
         try {
-            var claims = jwt.parse(header.substring(7));
+            var claims = jwt.parse(token);
             sub = claims.getSubject();
             Integer level = claims.get("auth_level", Integer.class);
             if (level == null || level < 1) {
@@ -90,12 +91,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     /**
      * 401 呈现按面分叉：/v1 直写 OpenAI 标准 error JSON（不回显 path），其余维持容器 sendError。
      * 全分支留痕（QA P1-2）：守卫拒绝是攻击探测唯一可观测面，ev=auth outcome=denied。
+     * /v1 的 401 由 filter 短路（早于 CORS 处理器），Origin 命中白名单时须主动回显 ACAO，
+     * 否则浏览器端读不到错误详情（QA 第五轮 P2）。
      */
     private void deny(HttpServletRequest req, HttpServletResponse resp, String path,
                       String legacyReason, String openAiMessage, String sub, String auditReason)
             throws IOException {
         audit.logAuthDenied(sub, path, "denied", auditReason);
         if (path.startsWith("/v1")) {
+            String origin = req.getHeader("Origin");
+            if (com.opspilot.config.CorsConfig.isAllowedOrigin(origin)) {
+                resp.setHeader("Access-Control-Allow-Origin", origin);
+            }
             resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             resp.setContentType("application/json;charset=UTF-8");
             resp.getWriter().write("{\"error\":{\"message\":\"" + openAiMessage
@@ -103,6 +110,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             return;
         }
         resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, legacyReason);
+    }
+
+    /**
+     * RFC 7235：scheme 大小写不敏感、冒号后多空白容忍（"bearer  x" 合法）；
+     * 无 scheme 裸值 / Basic / 空 token 一律 null=missing。
+     */
+    private static String bearerToken(String header) {
+        if (header == null) return null;
+        String h = header.trim();
+        int sp = h.indexOf(' ');
+        if (sp <= 0 || !"bearer".equalsIgnoreCase(h.substring(0, sp))) return null;
+        String token = h.substring(sp + 1).trim();
+        return token.isEmpty() ? null : token;
     }
 
     /** 供 Controller 便捷取用。 */
