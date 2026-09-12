@@ -158,3 +158,23 @@ ADR-0003 修订注 + ADR-0008（权限维度必须同构存在于每一条跨请
 
 > 台账维护约定：每条修复后回填 commit 号与回归证据（已完成）；本文件自本 commit 起定位为
 > "质量工程闭环证据"（发现→归因→修复→回归锁→复验），公开禁令解除，转 public 前置达成。
+
+## 8. 生成质量包实测回填（2026-09-13，计划 plan-gen-quality-pack-2026-09-13，S1 4c3103a / S2 a085405 / S3 bc38e7b）
+
+| 验收 | 结果 |
+|---|---|
+| V1 mvn | **115/115 全绿**；红先行四次留证（VerbatimGuard/PromptAssembler/ZSET 修剪/熔断自愈用例均对旧代码先行编译/断言红） |
+| V2 verbatim 5 变体（live） | **上游阻断**：DashScope qwen-plus 账户欠费（HTTP 400 `Arrearage`，19:08 起全部 LLM 调用被拒，embedding/rerank 池不受影响）——环境项非代码缺陷。充值后重跑 `offline/qa_gen_quality_probes.py V2` 回填。阻断前硬层证据=mock 单测 10 用例（80/81 边界、跨句拼接、carry 重置、安全冲刷）+ 编排集成锁（stub LLM 逐字倒出→出口/缓存/审计/SF 全掩码） |
+| V3 /v1 面同探针 | 同 V2 阻断（设卡单一在 runPipeline，代码面两协议共享，集成测试已锁） |
+| V4 防断言语态 | **PASS**（欠费发作前实测：colloquial/formal 2 变体 ×3 连跑 3/3 假设语态 ∧ 真生成≥1） |
+| V5 L1 回放卫生 | 阻断同 V2（回放源须生成成功）；缓存载荷干净由集成测试锁（写前掩码） |
+| V6 ZSET 混源计数（Redis 直读） | **PASS**：同指纹双发 → `storm:win:manual:<fp>` + `storm:win:alert:<fp>` 独立键，TTL 32/68s=30/60+10s 精确符合 |
+| V7 长日志回归锁 | 阻断同 V2（本轮欠费前一次实跑走 L2 缓存命中，未验检索链路）；与 V2 同批回填 |
+| V8 文档一致性 | **PASS**："仅首条穿透"全仓 grep 零残留；CONTEXT.md 词条、ADR-0004 修订注、ADR-0010、OPS 闹钟表触发线行全部档 |
+| W1 A2/A3 | A3 实跑 **4/5**：A3-2/3/4/5 检索质量零回退，A3-1 TTFT 用例因 LLM 欠费 `ttft=None` 崩（顺带暴露 A3 对 None 不健壮，另案观察）；A2 全集阻断同 V2 |
+| W2 demo.sh + 契约 | **READY**（宿主 jar 刷新后 11/11）+ 面板契约四层绿（含新 `verbatim_masked` 瓦片双向核对） |
+| W3 探针预算 | **超支记录**：chat 实调 ~28 > 20——两处根因：探针初版把模型"鹦鹉规则 2 话术"误判为拒答致两轮全量重跑；熔断死锁修复的验证重跑。教训入记忆，配额面零风险 |
+| W4 CI | 见本 commit 推送后 gh run（CI 零 live 依赖，预期绿） |
+
+**意外收获（本包最重产出）：熔断自愈死锁修复（e966feb）**——欠费的瞬时三连 400 正确触发熔断，但旧 `current()` 冷却过期后仍恒判 L2，而 L2 分支不调 LLM → 计数无归零路径 → 熔断永不自愈。既往五轮 QA 的 L2 全是手动锁（A2-6 绕过计时路径），自动触发+恢复从未实弹。修复=半开（过期清零放行探测，成败重定档）+3 红用例。**这是 live 实测第三次推翻"已闭环"结论**（P0-1 竞态、ZSET 穿透叙事之后），"跑真环境"纪律再次自证。
+**上游状态（用户侧待办）**：DashScope qwen-plus 充值；到账后跑 `cd offline && ../offline/.venv/Scripts/python.exe qa_gen_quality_probes.py` 回填 V2/V3/V5/V7，并重跑 A2 全量与 A3。

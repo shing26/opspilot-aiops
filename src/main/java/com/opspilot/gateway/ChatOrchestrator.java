@@ -96,7 +96,10 @@ public class ChatOrchestrator {
             try {
                 handle(req, user, sink, via);
             } catch (Exception e) {
-                log.warn("stream error: {}", e.getClass().getSimpleName());
+                // 服务端日志带异常 message 供运维归因（LlmClient 的 message 自拼：状态码/网络错类，
+                // 不含凭据；对外 error 帧仍是脱敏固定话术，SLO 面零泄露）。
+                log.warn("stream error: {}: {}", e.getClass().getSimpleName(),
+                        String.valueOf(e.getMessage()).substring(0, Math.min(300, String.valueOf(e.getMessage()).length())));
                 sink.error(e);
             } finally {
                 degrade.exit();
