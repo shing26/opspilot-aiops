@@ -24,27 +24,46 @@
 >
 > **live 独有的论证价值**：评测集显示语义查询的 **Top-1 命中率 `es_only` 仅 72% → hybrid 88%**（MRR 0.853→0.940）——向量路把纯词法在首位漏掉的 16% 口语化查询捞了回来。这是 mock 词法后端无法暴露、也只有接入神经向量后才成立的混合检索核心卖点。
 
-## 架构
+## 架构（30 秒看懂数据流）
+
+三个入口共享同一条编排链路——这正是"两个协议面 + 一个面板"能保持语义一致的原因：
 
 ```mermaid
 flowchart TD
-    C[控制台客户端 / 告警源 source=alert] -->|POST /chat/stream SSE| G[Spring Boot 3.3 网关<br/>Java 21 虚拟线程]
-    G --> JWT[JwtAuthFilter<br/>auth_level 凭证]
-    JWT --> L1{L1 精确缓存<br/>Redis SHA256 Key}
-    L1 -->|miss| L2{L2 语义缓存<br/>Qdrant 余弦>0.95}
-    L2 -->|miss| SW[滑动窗口去重<br/>Redisson ZSET 30s]
-    SW --> SF[Single-Flight<br/>fingerprint+authLevel]
-    SF -->|leader| RS[双路召回]
-    RS --> ES[ES 倒排 Top-50<br/>keyword 精确符号]
-    RS --> QD[Qdrant 向量 Top-50<br/>语义泛化]
-    ES --> RRF[RRF 融合 k=60]
-    QD --> RRF
-    RRF --> RK[Rerank Top-20→3<br/>gte-rerank-v2]
-    RK --> LLM[qwen-plus 流式<br/>SSE 打字机]
-    LLM --> EM[SseEmitter meta/delta/done]
-    DG[三级降级状态机] -.-> RS
+    subgraph ENTRY[三个入口 · 同一编排]
+        SSE[Console 客户端<br/>POST /api/v1/copilot/chat/stream · SSE]
+        OAI[任意 OpenAI 客户端<br/>POST /v1/chat/completions · chunk]
+        PANEL[Ops Console 面板<br/>只读 · /admin/state + audit 流]
+    end
+    SSE -->|JWT| AUTH
+    OAI -->|JWT 即 API Key| AUTH
+    AUTH[JwtAuthFilter · DB 单真相<br/>每请求查 H2：存在性/禁用/token_ver 吊销<br/>注入 tenant × auth_level × role]
+    PANEL -->|platform 门禁 role=platform| ADM[AdminController<br/>聚合快照 + 审计事件环]
+    AUTH --> OC[ChatOrchestrator · 唯一编排]
+    OC --> QT[配额 5000/天/sub]
+    QT --> FP[指纹归一化 SHA-256<br/>掩时间戳/UUID · 保留错误码]
+    FP --> SF{Single-Flight<br/>组键 tenant+fp+authLevel<br/>ADR-0008 权限三元组}
+    SF -->|follower| RP[回放 leader 答案<br/>载荷 src_tenant 绊线 fail-closed]
+    SF -->|leader| HY[混合检索 双路并行 虚拟线程+超时隔离]
+    HY --> ES[ES keyword Top-50<br/>tenant term + level range 硬过滤]
+    HY --> QD[Qdrant 向量 Top-50<br/>must tenant + level lte]
+    ES --> RR[RRF k=60 无量纲融合]
+    QD --> RR
+    RR --> RK[Rerank gte-rerank-v2<br/>精确符号快路径跳过]
+    RK --> GT{置信度门控<br/>Top-1 < 0.2 或零召回}
+    GT -->|拒答| NO[显式拒答 · 跳过 LLM]
+    GT -->|通过| LLM[qwen-plus 流式生成]
+    LLM --> WB[写回 L1/L2 缓存<br/>key/payload 全带租户]
+    DG[三级降级状态机<br/>L0/L1/L2 见下图] -.->|L1 纯 ES / L2 熔断 SOP 直出| HY
     DG -.-> LLM
+    RP --> OUT[Sink 投递：SSE meta/delta/done<br/>或 OpenAI chunk+[DONE]]
+    NO --> OUT
+    WB --> OUT
+    OUT --> AUD[审计 logs/audit.jsonl<br/>谁/何租户/何密级/命中来源<br/>拒绝路径同样留痕]
 ```
+
+- **权限是引擎层硬过滤不是 Prompt 约束**：tenant 与 auth_level 以 term/range 注入 ES Query DSL 与 Qdrant Filter，越权话术无法跨越数据级过滤；role 只在平台管理面生效（ADR-0008：权限三元组必须同构存在于每一条共享路径）。
+- **知识库零空窗重建**：`POST /admin/reingest` 走 blue/green 别名原子切流（ADR-0006），失败保留旧库在线，实测 303 文档 50s 零中断。
 
 ### 三级自适应降级状态机
 
