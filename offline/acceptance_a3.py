@@ -76,10 +76,14 @@ def main():
     # 若回退成"流式结束后才计时"的端到端口径，live 模式下该不等式必然被击穿。
     server_ttft_ms = r["done"].get("ttft_ms")
     ttft_consistent = (isinstance(server_ttft_ms, (int, float)) and server_ttft_ms >= 0
+                       and isinstance(r["ttft_s"], (int, float))
                        and server_ttft_ms <= r["ttft_s"] * 1000 + 250)
+    # None 防护（评估文档 M13 已知脆性清偿）：上游故障时 ttft_s=None，旧写法在
+    # None*1000 / f"{None:.3f}" 处先崩——验收脚本必须报 FAIL 而非 traceback。
     check("A3-6 TTFT 可测（first_token 口径, 双源一致）",
           r["ttft_s"] is not None and ttft_consistent,
-          f"client={r['ttft_s']:.3f}s server={server_ttft_ms}ms")
+          f"client={r['ttft_s']:.3f}s server={server_ttft_ms}ms" if r["ttft_s"] is not None
+          else f"client=∅(上游未出首token) server={server_ttft_ms}ms")
     # A3-7 端到端演示含 refs
     check("A3-7 端到端演示闭环", bool(r["done"].get("refs")), f"refs={len(r['done'].get('refs', []))}")
     # A3-8 物料完备

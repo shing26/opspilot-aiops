@@ -75,4 +75,21 @@ F1/F2 修复 + 本台账为"转公开"硬前置（评估文档 §9-A 决策）�
 
 **待办指针（并入 S5 公开门闩）**：README"从 72% 拉到 88%""16% 口语化漏首""MRR 0.853→0.940""逐位一致"四处表述按本报告新版（64%→88%、24 个百分点、0.813→0.940）修正；本报告文件随本台账一并提交为当前真值。
 
+## 8. S3 干净 Linux 客串实测（公开入口验收，2026-09-13 晚）
+
+**方法**：宿主栈 `compose down`（卷/bind 数据保留）→ `debian:bookworm --network host` 访客容器 + docker socket 透传 + git bundle 本地 clone（等效干净机：无 .env、无 data/、全新 ES/Qdrant 卷、空 H2、首启自愈灌库、mock 后端）。
+
+**三条命令结果**：`quickstart.sh` 冷启动成功（随机 .env→全栈→300s 内 UP→容器内 seed 3/3→token 生成）；`demo.sh` **10 PASS / 1 SKIP（容器模式 jar 检查，设计内）/ exit 0**。
+
+**mock 下验收实测**：
+- `acceptance_a2.py`：**9/10**——唯一 FAIL 为 A2-10，且为访客 harness 极限非产品缺陷：a2 读本地 `logs/audit.jsonl`，嵌套 socket 模式下该 bind 被 VM 守护进程解析到 VM 侧目录，访客文件系统不可见。审计事实已在网关容器内核对：**auth 9 条（≥8 ✓）/ admin 4（≥3 ✓）/ src_tenant 随行 501 / 拒绝 outcome 9**——真实单机部署 bind 同盘（本机 Windows 当日 10/10 即证据）。
+- `acceptance_a3.py`：**8/8 PASS**（含 A3-1/2/3/4 检索阈值在 mock 词法后端全过——A2-4 L2 改写命中 mock 下亦过，机制项不依赖 key）。
+
+**发现并修复（S3 产物）**：① quickstart 预检 buildx/compose 插件（纯 CLI 无 buildx 时 Dockerfile 缓存挂载裸错）；② 新增 `.gitattributes`（`core.autocrlf=true` 仓库无 eol 钉死，Windows 第三方 clone 出的 `.sh` 带 CRLF 即崩——公开前必修）；③ `acceptance_a3.py` A3-6 双 None 崩溃点修复（`None*1000` 与 `f"{None:.3f}"`，评估文档 M13"另案"清偿：现在上游故障时如实报 FAIL）。
+
+**评估文档逐条核验修正**：§8.2"错误码字符串散落（<10 处）"不实——主源码+资源 grep 实测**恰好 1 处**（ChatOrchestrator 拒答提示语中的示例码，属文案非配置），**不立项**；a3 脆性属实已修。
+
+**恢复记录**：访客拆除 → 宿主栈 `compose up -d` 复活（原卷数据完好）→ demo.sh 全绿 → a3 live 复跑 8/8。
+
+
 

@@ -1,0 +1,11 @@
+# 第三方公开仓库的 checkout 卫生（2026-09-13 S3 Linux 客串实测引入）：
+# 本仓开发机 core.autocrlf=true——无此文件时 .sh 在 Windows 检出会被转成 CRLF，
+# bash 直接崩（"bad interpreter: /usr/bin/env^M"）。shell/python 一律钉死 LF。
+# 不配 *.bat（Windows 批处理本就需 CRLF，交 git 默认）。
+*.sh        text eol=lf
+*.py        text eol=lf
+Dockerfile  text eol=lf
+docker-compose.yml text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+.env.example text eol=lf
