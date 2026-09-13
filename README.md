@@ -6,7 +6,7 @@
 
 - **S**：微服务告警风暴瞬时数千条同质告警打垮 LLM 链路；通用向量检索丢失错误码等精确符号，Top-1 不足 60%。
 - **T**：7 天交付高并发混合检索排障网关：精确符号 Top-1 100%、热点 TP99<50ms、500 并发 LLM 降为 1 次、权限泄漏绝对 0；随后追加生产化硬化（租户隔离、账号体系、中间件加固、零空窗重建）。
-- **A**：① Python AST 切分保护代码块/表格不腰斩，面包屑入元数据；② ES keyword + Qdrant 向量双路并行（虚拟线程+超时隔离），自研 RRF k=60 无量纲融合，精确符号快路径跳过 Rerank 压 TTFT；③ Redisson `来源×指纹` 聚合计数窗口 + 进程内 Single-Flight 收敛风暴（窗口供计数叙事，穿透闸门归 Single-Flight）；④ 三级降级状态机 LLM 429 熔断直出静态 SOP；⑤ auth_level + tenant 双维引擎层硬过滤，缓存/回放全链路权限维度；⑥ 四轮 QA 红队 + 双轴 code-review 闭环（P0 提权绕过 / TDD 锁；第四轮三 Persona 全系统测评揪出 Single-Flight 缺租户与 admin 信任域两处 P0）→ v1.0.0 冻结 → DashScope live 实测 → 四 Sprint 生产化（H2 账号+实时吊销、中间件凭据+环回、blue/green 原子切流、审计/配额/CI），债务带触发线记录在案。
+- **A**：① Python AST 切分保护代码块/表格不腰斩，面包屑入元数据；② ES keyword + Qdrant 向量双路并行（虚拟线程+超时隔离），自研 RRF k=60 无量纲融合，精确符号快路径跳过 Rerank 压 TTFT；③ Redisson `来源×指纹` 聚合计数窗口 + 进程内 Single-Flight 收敛风暴（窗口供计数叙事，穿透闸门归 Single-Flight）；④ 三级降级状态机 LLM 429 熔断直出静态 SOP；⑤ auth_level + tenant 双维引擎层硬过滤，缓存/回放全链路权限维度；⑥ 五轮 QA 红队 + 双轴 code-review 闭环（P0 提权绕过 / TDD 锁；第四轮三 Persona 全系统测评揪出 Single-Flight 缺租户与 admin 信任域两处 P0；第五轮生成质量包立逐字导出出口硬护栏与熔断半开自愈）→ v1.0.0 冻结 → DashScope live 实测 → 四 Sprint 生产化（H2 账号+实时吊销、中间件凭据+环回、blue/green 原子切流、审计/配额/CI）→ 转公开前全模块独立+集成复验（台账 `docs/qa/2026-09-13-module-verification.md`），债务带触发线记录在案。
 - **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 64% 拉到 88%，2026-09-13 现报告版）、热点 TP99 36.6ms、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏（双向判别语料 + 跨租户并发用例锁死）、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测 27s 零中断（第四轮修复后 303 文档全量重灌 50s 零空窗）。
 
 ## 核心指标（实测）
@@ -18,7 +18,7 @@
 | 热点命中 TP99 | <50ms | **36.6ms** | 纯 L1 命中 n=500（live，回放不触外部 API） |
 | 风暴 LLM 触发次数 | 500→1 | **1** | 500 并发同指纹，llm_calls Δ=1（live） |
 | 权限泄漏率 | 0 | **0** | 5 条越狱用例，引擎层过滤（live） |
-| 场景 A 吞吐 | — | **83 req/s · 0 失败 · P50=16ms** | Locust 50 并发 30s（live，冷请求走真实 API） |
+| 场景 A 吞吐 | — | **88.4 req/s · 2492 请求 0 失败 · P50=16ms** | Locust 50 并发 30s（live，冷请求走真实 API；与随附 `locust_a_stats.csv` 一致） |
 
 > **Embedding 后端**：以上为 **DashScope live** 后端实测——`text-embedding-v3`（1024 维神经语义）+ `gte-rerank-v2`（精排）+ `qwen-plus`（流式生成）。无 `DASHSCOPE_API_KEY` 时服务自动切换本地词法 mock 后端，用于零成本机制验证与 CI 验收（同一代码路径，双模自动切换）。
 >
@@ -86,7 +86,8 @@ stateDiagram-v2
 | --- | --- |
 | 网关 | Java 21 + Spring Boot 3.3（Virtual Threads + SseEmitter） |
 | 并发 | CompletableFuture + 虚拟线程执行器（双路并行、超时隔离） |
-| 缓存/防线 | Redisson + Redis 7（滑动窗口、Single-Flight、L1） |
+| 缓存/防线 | Redisson + Redis 7（滑动窗口计数、L1 精确缓存、SOP 预热、配额 INCR） |
+| 风暴收敛 | 进程内 Single-Flight（JDK `ConcurrentHashMap`+`CompletableFuture`，无外部依赖；ADR-0003） |
 | 检索 | Elasticsearch 8（keyword 倒排）+ Qdrant（gRPC 向量） |
 | 融合 | 自研 RRF（k=60）+ DashScope gte-rerank-v2 |
 | 推理 | DashScope qwen-plus（OpenAI 兼容 SSE，JDK HttpClient 手写解析） |
@@ -168,11 +169,14 @@ curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOK
 
 ```bash
 cd offline
-.venv/Scripts/python eval/build_golden.py     # 50 样本
-.venv/Scripts/python eval/evaluate.py         # 3 模式对比 + 越狱 → eval/reports/
-.venv/Scripts/locust -f load/locustfile.py --headless -u 50 -t 30s --html load/reports/locust_a.html
-SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 15s --html load/reports/locust_b.html
+PY=.venv/bin/python          # Windows venv 为 .venv/Scripts/python.exe；或直接 bash ../scripts/py.sh 探测
+$PY eval/build_golden.py     # 50 样本
+$PY eval/evaluate.py         # 3 模式对比 + 越狱 → eval/reports/（报告自报服务端 live/mock 后端真相）
+.venv/bin/locust -f load/locustfile.py --headless -u 50 -t 30s --html load/reports/locust_a.html
+SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 15s --html load/reports/locust_b.html
 ```
+
+> 需活体栈 + `pip install locust`；`evaluate` 依赖的 `/copilot/search` 不受配额限制。数字底稿与指标出处即 `offline/eval/reports/eval_report.md`。
 
 ## 安全设计
 
@@ -184,7 +188,7 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 - **缓存不成为泄漏通道**：L1 Key 掺 authLevel；L2 payload 携带 `max_auth_level` 并在检索时过滤；L2 命中回放携带完整 refs 保证溯源。
 - **Single-Flight 按权限分组**：key=**tenant**+fingerprint+authLevel，防低权限等待者复用高权限答案、更防跨租户共享（第四轮 QA 修复：key 曾缺 tenant，告警风暴并发下外来租户可回放内部租户全文——恰好是最引以为傲的场景；回放入口另有 fail-closed 租户绊线）。
 - **指纹归一化抗噪**：掩码时间戳/UUID/traceId/msgId/引号串/数字（保留错误码身份），使真实告警变体（每条带唯一 ID）收敛到同一指纹——实测 10 条变体并发 → LLM 仅 1 次。
-- **输入校验与错误卫生**：空/null query 在流开始前返回 400 **且错误文案必达客户端**（SSE 端点的 produces 会吞掉常规 advice 响应体——第四轮 QA 修复为直写 JSON）；备份路径白名单拒绝呈现 400 可操作文案而非 500；`/v1` 面 401 输出 OpenAI 标准 error 形状（filter 短路不经 advice，已直写）；全局异常处理器屏蔽 JVM 内部文案。
+- **输入校验与错误卫生**：空/null query 在流开始前返回 400 **且错误文案必达客户端**（SSE 端点的 produces 会吞掉常规 advice 响应体——第四轮 QA 修复为直写 JSON）；客户端错误全面分层不落 500——参数类型/方法/媒体类型/未知路径（第五轮）与**请求体反序列化、Accept 协商**（转公开前复验补口，OpenAI SDK 非流式默认头即触发过 500）各有专属分支，400 类同步留 `ev=invalid` 审计，活体攻击参数面矩阵 13 用例 0×5xx；备份路径白名单拒绝呈现 400 可操作文案而非 500；`/v1` 面错误恒保持 OpenAI 标准 error 形状（filter 短路经直写、mapping 期异常由全局处理器按 URI 分流）；全局异常处理器屏蔽 JVM 内部文案。
 - **置信度空态门控**：检索 Top-1 相关度（Rerank 分数）低于 `min-relevance`（默认 0.2）或零召回时，显式拒答并**跳过 LLM 调用**（省算力、不误导）；精确符号快路径天然高置信，豁免门控。mock 后端用 IDF 词元覆盖率作相关度信号，live 模式自动切换为 `gte-rerank-v2` 校准分数。
 - **SSRF 防护**：离线客户端/脚本仅允许 localhost 白名单（`localapi.py` 单一事实源）。
 - **知识库零空窗重建（P4）**：blue/green 别名原子切流——staging 灌库 + 计数硬验收 + 单请求换 ES/Qdrant 别名，失败保留旧库在线（`POST /api/v1/admin/reingest`，ADR-0006）；实测在线把 mock 向量集零中断切到 live。
@@ -196,7 +200,7 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 
 ## QA 红队加固记录
 
-首轮验收全绿后，经 Persona-QA-Simulator 黑盒红队发现并修复：
+首轮验收全绿后经黑盒红队持续加固，逐轮回填台账与回归锁。早期轮次（6 项，P0×2 / P1×2 / P2×2）：
 | 缺陷 | 等级 | 修复 |
 | --- | --- | --- |
 | search `authLevelOverride` 客户端提权 | P0 | 移除该参数，密级恒取 token |
@@ -221,13 +225,25 @@ SCENARIO=storm .venv/Scripts/locust -f load/locustfile.py --headless -u 500 -t 1
 | OPS §7 恢复流程裸机命令与容器部署互斥、取 token 命令缺 .env 前置 | P2 | 容器版重写 + 命令块补全（照抄可执行） |
 | acme 零语料致"跨租户零泄漏"验收单腿证据 | P3 | 播种 tenant-acme 私有语料（52xxx 段+同名 50012 变体），矩阵升级为"各回各家"双向判别 |
 
+第五轮（2026-09-12–13，生成层复现 → **生成质量包**，详见 [ADR-0010](docs/adr/0010-generation-layer-enforcement-split.md)）：
+- **逐字导出**：L1 权限用户一句话即可让助手倒出其**有权看到**的原文（实测 304 字重合——不是越权，是"排障助手退化为文档导出器"的产品叙事破防）→ Prompt 规则 5 + 出口句级 LCS 硬护栏（重叠 >80 字整句替换，carry=160 堵"逐行不超阈、拼接超阈"的表格式漏检）；设卡一处即覆盖缓存回放/Single-Flight 分发/双协议面。
+- **断言语态**：无强标识符的泛化症状被自信锚定具体事故编号 → 条件注入假设语态规则；探针正则定性为软约束层上限，升级触发线入 OPS 债务闹钟表。
+- **live 第三次推翻纸面闭环**：熔断冷却到期恒判 L2、而 L2 分支零 LLM → 失败计数无归零路径，熔断**永不自愈** → 改半开放行（`e966feb`），并加 `until>0` 守卫防"清零过宽→熔断永不触发"的反向陷阱。
+- 回归锁：`offline/qa_gen_quality_probes.py`（V1–V8 探针 + 内置 chat 预算闸）+ 出口护栏 10 用例 + 自愈 3 用例。
+
+转公开前模块复验（2026-09-13–14，全链路台账 [docs/qa/2026-09-13-module-verification.md](docs/qa/2026-09-13-module-verification.md)）：
+- 逐包独立单测 115→118 全绿、五依赖面逐个探活、集成套件全绿（探针 11/11 / A2 10/10 / A3 8/8 / 蓝绿重建 27 在线探针零空窗）、干净 Linux 容器三条命令冷启动实测通过。
+- **F1/F2**：错误分层第五轮按异常种类建专属分支，body 反序列化（`HttpMessageNotReadableException`）与 mapping 期 Accept 协商（`HttpMediaTypeNotAcceptableException`，OpenAI SDK 非流式默认头即触发）两族内变体漏网仍落 500 → 补 400/406 分支 + 留痕，活体攻击参数面矩阵 13 用例 **0×5xx** 复验。
+- **E1 数字陈旧取证**：评测报告系语料扩充（+52 篇 acme）前版本，`es_only` 语义 Top-1 实测 72%→64%（hybrid 逐位不变）→ 重生成报告并对齐本页口径。教训入台账：文档数字与随附产物必须同代。
+
 正向确认（红队打穿失败，保留为卖点）：串行越权读写零泄露、20/20 畸形 token 全拒、alg=none/篡改/空签名全拒、**持 JWT_SECRET 重签 auth_level=9 提权仍被 DB 真相压回**、CORS 外部 Origin 零放行、存在性 oracle 话术一致、错拼/中英混杂检索免疫。
 
 ## 文档
 
-- [DEMO.md](DEMO.md) — 六幕演示手册 + 预检脚本（`scripts/demo.sh`）+ 3 分钟录屏讲解稿
+- [DEMO.md](DEMO.md) — 六幕演示手册（+OpenAI 兼容彩蛋幕）+ 预检脚本（`scripts/demo.sh`）+ 3 分钟录屏讲解稿
 - [OPS.md](OPS.md) — 管理员日常速查：账号生命周期/配额/用量 SOP/债务闹钟/推送门闩
 - [CONTEXT.md](CONTEXT.md) — 领域术语表
-- [docs/adr/](docs/adr/) — 9 项架构决策记录
+- [docs/adr/](docs/adr/) — 10 项架构决策记录（每份含否决项与后果）
+- [docs/qa/](docs/qa/) — 红队缺陷台账（三 Persona 测评 / 模块独立+集成验证）
 - [offline/eval/reports/](offline/eval/reports/) — 评测报告
 - [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML
