@@ -104,6 +104,8 @@ bash scripts/demo.sh         # 预检全 PASS = 机制全链路就绪；打开 h
 
 > **口径必读**：`DASHSCOPE_API_KEY` 留空时服务自动切换 **mock 词法后端**（同一代码路径，零外部调用、零 Token 成本）——三条命令复现的是**机制正确性**；本页「核心指标」表为 **DashScope live 实测**口径，需自备 key 填入 `.env` 后重跑 `quickstart.sh` 复现，mock 环境不承诺该表数字。
 
+前置：Docker（含 compose v2 + buildx 插件，quickstart 会预检并给出安装指引；即 `docker compose`/`docker buildx` 两条命令可用）、Linux/macOS 或 Windows+Git Bash；python3 可选（红队 token 生成与可选验收脚本用，缺失时 quickstart 会提示跳过）。内存预算：全栈 ≤2.4GB。
+
 <details>
 <summary><b>开发者路径</b>（宿主裸进程跑网关，需 JDK21 + Maven；与容器模式二选一，都占 8081）</summary>
 

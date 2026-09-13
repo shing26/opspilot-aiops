@@ -10,6 +10,10 @@ say() { echo "==> $*"; }
 die() { echo "FAIL: $*" >&2; exit 1; }
 
 docker info >/dev/null 2>&1 || die "Docker 不可用（先装 Docker Engine/ Desktop 并启动）"
+# S3 实测教训：Dockerfile 用 BuildKit 缓存挂载（RUN --mount=type=cache），apt 装的 docker.io
+# 不带 buildx 插件会在构建期报裸错——预检并给出可执行指引（compose v2 插件缺失同理）
+docker buildx version >/dev/null 2>&1 || die "缺 docker buildx（Dockerfile 需 BuildKit）。装官方 docker 全家桶（https://docs.docker.com/engine/install/），或补插件：https://github.com/docker/buildx/releases"
+docker compose version >/dev/null 2>&1 || die "缺 docker compose v2 插件（https://github.com/docker/compose/releases）"
 
 # 1) .env：缺失才生成（强随机凭据；key 置空走 mock）。compose 的 :? 强校验缺凭据即拒启，不静默裸奔
 if [ ! -f .env ]; then
