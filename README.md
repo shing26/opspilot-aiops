@@ -92,7 +92,20 @@ stateDiagram-v2
 | 推理 | DashScope qwen-plus（OpenAI 兼容 SSE，JDK HttpClient 手写解析） |
 | 离线 ETL | Python 3.11（OpenAPI AST 切分 + Markdown 标题树切分） |
 
-## 快速开始
+## 快速开始（三条命令，零 key 零成本）
+
+```bash
+git clone https://github.com/shing26/opspilot-aiops && cd opspilot-aiops
+bash scripts/quickstart.sh   # 生成随机凭据 .env（key 留空=mock）→ Docker 全栈（含网关镜像）→ seed 演示账号
+bash scripts/demo.sh         # 预检全 PASS = 机制全链路就绪；打开 http://localhost:8081/ 即 Ops Console 面板
+```
+
+可选·机制级验收（对活体栈实跑，非单测）：`(set -a && . ./.env && set +a && cd offline && python3 acceptance_a2.py)`（10 项：L1/L2 缓存、500 并发风暴收敛、跨租户矩阵、拒绝留痕）与 `acceptance_a3.py`（8 项综合）。
+
+> **口径必读**：`DASHSCOPE_API_KEY` 留空时服务自动切换 **mock 词法后端**（同一代码路径，零外部调用、零 Token 成本）——三条命令复现的是**机制正确性**；本页「核心指标」表为 **DashScope live 实测**口径，需自备 key 填入 `.env` 后重跑 `quickstart.sh` 复现，mock 环境不承诺该表数字。
+
+<details>
+<summary><b>开发者路径</b>（宿主裸进程跑网关，需 JDK21 + Maven；与容器模式二选一，都占 8081）</summary>
 
 ```bash
 # 1. 环境变量（凭据只从环境读取，.env 不入库）
@@ -101,37 +114,26 @@ cp .env.example .env   # DASHSCOPE_API_KEY（留空走 mock）、JWT_SECRET、DE
 # 2. 中间件
 docker compose up -d   # Redis + Qdrant + ES（总内存 ≤2GB）
 
-# 3. 离线切分 → chunks.jsonl
-cd offline && python -m venv .venv && .venv/Scripts/pip install pytest
-.venv/Scripts/python chunkers/build_chunks.py
-.venv/Scripts/python -m pytest tests/
+# 3. 离线切分 → chunks.jsonl（Windows venv 为 Scripts/，Linux/macOS 为 bin/）
+cd offline && python3 -m venv .venv && .venv/bin/pip install pytest
+.venv/bin/python chunkers/build_chunks.py
+.venv/bin/python -m pytest tests/
 
-# 4. 红队畸形 token（验收用；合法账号不再预签，走 login）
+# 4. 红队畸形 token（验收用；合法账号不预签 token，走 login）
 python ../scripts/gen_tokens.py > ../scripts/redteam_tokens.txt
 
-# 5. 入库 + 启动（项目根目录；用户主库 H2 文件自动建表；首启若读别名缺失会自动入库）
-java -jar target/opspilot-gateway-1.0.0.jar
+# 5. 构建 + 启动（首启若读别名缺失会自动入库）
+mvn package -DskipTests && java -jar target/opspilot-gateway-1.0.0.jar
 
 # 6. 初始化演示账号（幂等，读取 DEMO_PASSWORD）：sre-limited/sre-full/sre-acme
 bash scripts/seed_demo_users.sh
 
 # 7. 演示（客户端自动 login 换 24h token）
-.venv/Scripts/python.exe console_client.py "下单报 50012_DB_TIMEOUT 怎么排查"
-.venv/Scripts/python.exe console_client.py --storm --storm-n 500   # 告警风暴
+.venv/bin/python console_client.py "下单报 50012_DB_TIMEOUT 怎么排查"
+.venv/bin/python console_client.py --storm --storm-n 500   # 告警风暴
 ```
 
-### 一键部署（容器形态，可复现性入口）
-
-上面是宿主裸进程模式（开发/演示用）；**clone 到任何机器**的复现路径：
-
-```bash
-cp .env.example .env   # 填 JWT_SECRET / DEMO_PASSWORD / 三中间件凭据（Key 可留空走 mock）
-docker compose --profile full up -d --build   # 三件套+网关全栈，首启自动灌库（镜像内含版本化 chunks.jsonl）
-curl -s http://localhost:8081/actuator/health # {"status":"UP"} 即就绪
-bash scripts/demo.sh                          # 9 项预检全绿
-```
-
-宿主模式与容器模式二选一（都占 8081）；容器模式下账号/备份操作走 `docker compose exec`，见 OPS.md。
+</details>
 
 ## Ops Console 运维面板（只读可观测面）
 

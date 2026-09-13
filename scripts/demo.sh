@@ -18,6 +18,7 @@ h=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/actuator/health
 
 # 3) 凭据就绪：口令在环境（P2 login 体系）+ 红队畸形样本文件可再生
 [ -f .env ] && { set -a; . ./.env; set +a; }
+PY=$(bash scripts/py.sh 2>/dev/null || true)   # 跨平台 Python 探测单点（py.sh）
 [ -n "${DEMO_PASSWORD:-}" ] && ok "DEMO_PASSWORD 已设置" || bad "DEMO_PASSWORD 未设置（.env，seed/login 依赖）"
 t=scripts/redteam_tokens.txt
 if [ -f "$t" ]; then
@@ -32,8 +33,8 @@ a=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/v1/admin/me
 [ "$a" = "401" ] && ok "admin 匿名 401" || bad "admin 匿名返回 $a（期望 401）"
 
 # 5) 依赖健康（探针聚合：redis/qdrant/es 全 UP 且别名可解析）
-if [ -n "${DEMO_PASSWORD:-}" ] && [ -x offline/.venv/Scripts/python.exe ]; then
-  H=$(offline/.venv/Scripts/python.exe -c "
+if [ -n "${DEMO_PASSWORD:-}" ] && [ -n "$PY" ]; then
+  H=$("$PY" -c "
 import sys, json, urllib.request
 sys.path.insert(0, 'offline')
 import localapi
@@ -44,12 +45,15 @@ d = json.load(urllib.request.urlopen(req, timeout=15))
 print(d['status'])" 2>/dev/null)
   [ "$H" = "UP" ] && ok "依赖健康 UP (redis/qdrant/es)" || bad "依赖健康状态: ${H:-获取失败}"
 else
-  echo "SKIP  依赖健康（DEMO_PASSWORD 或 venv 缺失）"
+  echo "SKIP  依赖健康（DEMO_PASSWORD 或 Python 缺失，py.sh 三档探测）"
 fi
 
-# 6) jar 与源码一致性（近似判据：源码/配置/pom 任一比 jar 新即提醒重建；
-#    注意 git checkout 会批量刷新 mtime，可能误报——以验收实跑为准）
-if [ -f target/opspilot-gateway-1.0.0.jar ]; then
+# 6) 构建一致性（近似判据；git checkout 会批量刷新 mtime 可能误报——以验收实跑为准）
+#    宿主模式：源码任一比 jar 新即提醒重建；容器模式：镜像构建于 build 上下文（源码即真相），
+#    宿主无 target jar 属预期，SKIP 改由 quickstart/CI 的 --build 保证（S3 Linux 客串实测暴露此分支缺失）
+if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx opspilot-gateway; then
+  echo "SKIP  jar 一致性（容器模式：改源码后 docker compose --profile full up -d --build gateway 重建）"
+elif [ -f target/opspilot-gateway-1.0.0.jar ]; then
   src=$(find src/main pom.xml -type f \( -name '*.java' -o -name '*.yml' -o -name 'pom.xml' \) \
         -newer target/opspilot-gateway-1.0.0.jar | head -1)
   [ -z "$src" ] && ok "jar 不早于源码/配置" || bad "jar 可能落后（$src 更新过）：mvn package -DskipTests 后重启"
@@ -61,8 +65,8 @@ fi
 #    兜底，这里验"跑起来的真服务"返回面板消费的全部顶层键）
 [ -f src/main/resources/static/index.html ] && ok "面板 HTML 就位（localhost:8081/）" \
   || bad "缺 src/main/resources/static/index.html"
-if [ -n "${DEMO_PASSWORD:-}" ] && [ -x offline/.venv/Scripts/python.exe ]; then
-  S=$(offline/.venv/Scripts/python.exe -c "
+if [ -n "${DEMO_PASSWORD:-}" ] && [ -n "$PY" ]; then
+  S=$("$PY" -c "
 import sys, json, urllib.request
 sys.path.insert(0, 'offline')
 import localapi
@@ -75,7 +79,7 @@ missing = [k for k in ('build','metrics','health','runtime') if k not in d] \
 print('missing:' + ','.join(missing) if missing else 'UP')" 2>/dev/null)
   [ "$S" = "UP" ] && ok "/state 键契约齐全（面板可接入）" || bad "/state 键缺失: ${S:-获取失败}"
 else
-  echo "SKIP  /state 键契约（口令或 venv 缺失）"
+  echo "SKIP  /state 键契约（口令或 Python 缺失）"
 fi
 
 echo "---"

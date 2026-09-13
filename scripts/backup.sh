@@ -11,7 +11,10 @@ DAY=$(date +%F)
 mkdir -p backup
 if curl -s -o /dev/null --max-time 3 http://localhost:8081/actuator/health; then
   set -a; [ -f .env ] && . ./.env; set +a
-  L3=$(cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');import localapi;print(localapi.login('sre-full'))")
+  PY=$(bash scripts/py.sh 2>/dev/null || true)
+  [ -n "$PY" ] || { echo "无可用 Python（py.sh 三档探测失败）"; exit 1; }
+  # 仓库根执行（py.sh 输出为根相对路径；cd 进 offline 会使 venv 路径失效）
+  L3=$("$PY" -c "import sys;sys.path.insert(0,'offline');import localapi;print(localapi.login('sre-full'))")
   curl -sf -X POST http://localhost:8081/api/v1/admin/backup -H "Authorization: Bearer $L3" \
     -H "Content-Type: application/json" \
     -d "{\"to\":\"backup/users-${DAY}.zip\"}" | grep -o '"backup":"[^"]*"' || { echo "HTTP 备份失败"; exit 1; }
