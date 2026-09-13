@@ -11,6 +11,8 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -62,6 +64,30 @@ public class GlobalExceptionHandler {
                 + "' must be of type " + need + "）";
         audit.logInvalid(JwtAuthFilter.from(req), req.getRequestURI(), msg);
         write(req, resp, 400, "INVALID_REQUEST", msg);
+    }
+
+    /** 请求体反序列化失败（字段类型错/截断 JSON）：第五轮 P1 治了 URL 参数的 TypeMismatch，
+     *  body 侧同型变体当轮漏网落 500（2026-09-13 模块验证 F1）。/v1 面此分支实际到不了
+     *  （OpenAiErrorAdvice assignableTypes+Order(0) 抢先，形状已锁）——本分支覆盖其余全部面；
+     *  解析 cause 细节只进日志，响应固定话术。 */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public void onUnreadable(HttpMessageNotReadableException e, HttpServletRequest req,
+                             HttpServletResponse resp) throws IOException {
+        log.warn("body parse failed: {} {}", req.getMethod(), req.getRequestURI()); // 不带 cause 文案，防凭据回显
+        UserContext u = JwtAuthFilter.from(req);
+        audit.logInvalid(u, req.getRequestURI(), "请求体解析失败");
+        write(req, resp, 400, "INVALID_REQUEST", "请求体不合法（malformed request body / 字段类型或 JSON 结构错误）");
+    }
+
+    /** F2（2026-09-13 公开前攻击面复验）：Accept 与 produces 协商失败发生在 handler mapping 阶段
+     *  （进不了方法级 advice——/v1 专属 advice 形同虚设），曾落 500 兜底。OpenAI SDK 非流式默认
+     *  带 Accept: application/json，正是本场景。直写 406 + 指向 stream=true；405/404 先例=协议噪音不落审计。 */
+    @ExceptionHandler(HttpMediaTypeNotAcceptableException.class)
+    public void onNotAcceptable(HttpMediaTypeNotAcceptableException e, HttpServletRequest req,
+                                HttpServletResponse resp) throws IOException {
+        write(req, resp, 406, "HTTP_406",
+                "不可接受的响应类型（本端点仅提供 text/event-stream / only text/event-stream is served；"
+                        + "OpenAI 客户端请 stream=true 并按流读取）");
     }
 
     /** POST-only 端点被打 GET 等：曾落 500 且无 Allow 头。 */

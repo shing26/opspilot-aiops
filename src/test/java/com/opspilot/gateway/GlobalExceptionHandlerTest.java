@@ -8,10 +8,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotAcceptableException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -142,5 +144,48 @@ class GlobalExceptionHandlerTest {
         assertEquals(404, r.getStatus());
         assertTrue(r.getContentAsString().contains("NOT_FOUND"));
         verifyNoInteractions(audit);
+    }
+
+    /** F1（2026-09-13 模块验证）：copilot 面请求体字段类型错曾落 500——现 400 + INVALID_REQUEST + 留痕。 */
+    @Test
+    void unreadableBodyOnCopilotFaceIs400WithAudit() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/api/v1/copilot/search");
+        req.setAttribute(UserContext.REQUEST_ATTR,
+                new UserContext("sre-x", "sre", 3, "tenant-internal"));
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        var ex = new HttpMessageNotReadableException(
+                "JSON parse error: Cannot deserialize value of type `java.lang.String` from Object value",
+                (org.springframework.http.HttpInputMessage) null);
+        handler.onUnreadable(ex, req, r);
+        assertEquals(400, r.getStatus());
+        String body = r.getContentAsString();
+        assertTrue(body.contains("INVALID_REQUEST"), body);
+        assertFalse(body.contains("Cannot deserialize") || body.contains("java.lang.String"),
+                "解析 cause 细节不得外泄: " + body);
+        verify(audit).logInvalid(any(UserContext.class), eq("/api/v1/copilot/search"), contains("请求体"));
+    }
+
+    /** F2（2026-09-13 公开前复验）：Accept: application/json 打 SSE 端点 → 协商异常曾落 500，现 406。 */
+    @Test
+    void notAcceptableOnV1Is406Not500() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/v1/chat/completions");
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        handler.onNotAcceptable(new HttpMediaTypeNotAcceptableException("No acceptable representation"), req, r);
+        assertEquals(406, r.getStatus());
+        String body = r.getContentAsString();
+        assertTrue(body.contains("\"error\"") && body.contains("text/event-stream"), body);
+        verifyNoInteractions(audit); // 协议噪音，对齐 404/405 不落审计先例
+    }
+
+    /** 纵深防御：即便畸形 body 异常漏到全局 handler，/v1 面也必须保持 OpenAI 形状（非 {code,message}）。 */
+    @Test
+    void unreadableBodyOnV1KeepsOpenAiShape() throws Exception {
+        MockHttpServletRequest req = new MockHttpServletRequest("POST", "/v1/chat/completions");
+        MockHttpServletResponse r = new MockHttpServletResponse();
+        handler.onUnreadable(new HttpMessageNotReadableException("boom", (org.springframework.http.HttpInputMessage) null), req, r);
+        assertEquals(400, r.getStatus());
+        String body = r.getContentAsString();
+        assertTrue(body.contains("\"error\"") && body.contains("invalid_request_error"), body);
+        assertFalse(body.contains("INVALID_REQUEST"), "全局形状不得漏到 /v1");
     }
 }
