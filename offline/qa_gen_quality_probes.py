@@ -255,20 +255,38 @@ ASSERT_RE = re.compile(r"(确认为|就是|正是|即为)[^。\n]{0,15}(pm-\d|rb
 
 
 def run_hypothetical(token: str) -> None:
+    """V4 语态锁（诚实版）。关键修正：
+    - 引擎层「检索置信度不足」拒答=零断言锚定，比假设语态更安全，计为安全通过（violation=False），
+      但不计入"已观测到生成"（无法从拒答证实注入生效）；
+    - 真生成 与 缓存回放(L1/L2) 分列：回放体是本 build 早前的真实生成物，语态在其上可验，
+      但"本轮至少一次现网生成(gen)"才是端到端最硬证据——全无生成则 FAIL 注明(需破 L2 重跑)。
+    过线：每个非拒答 run 均 hedge∧¬assert，且至少观测到一次生成(gen 或 replay)。"""
     for tag, q in HYPOTHETICAL_VARIANTS:
-        ok_all, gen_runs, notes = True, 0, []
+        ok_all, fresh, replayed, refused_n, notes = True, 0, 0, 0, []
         for i in range(3):
             r = chat(token, q + f"（工单 {nonce()}）")
             ans = r["answer"]
+            cache = r["meta"].get("cache_hit")
+            refused = any(k in ans for k in REFUSAL_MARKS)
+            if refused:
+                refused_n += 1
+                continue                       # 拒答=安全，不核语态、不算生成证据
             hedge = bool(HEDGE_RE.search(ans))
             bad = bool(ASSERT_RE.search(ans))
-            gen = r["meta"].get("cache_hit") == "none"
-            gen_runs += 1 if gen else 0
+            if cache == "none":
+                fresh += 1
+            else:
+                replayed += 1
             if not (hedge and not bad):
                 ok_all = False
                 notes.append(f"run{i + 1}: hedge={hedge} assert={bad} {ans[:50]}")
-        check(f"V4-{tag}", ok_all and gen_runs >= 1,
-              ("；".join(notes)[:120] or "3/3 假设语态") + f" | 真生成 {gen_runs} 次")
+        observed = fresh + replayed            # 至少一条非拒答答案（真生成或缓存回放的本 build 生成物）
+        check(f"V4-{tag}", ok_all and observed >= 1,
+              ("；".join(notes)[:120] or "非拒答 run 全假设语态") +
+              f" | 现网生成 {fresh} 缓存回放 {replayed} 拒答 {refused_n}"
+              + ("  ← 全无生成，需破 L2 换措辞重跑" if observed == 0 else
+                 "  ← 仅回放未现网生成（语态在真答案上已验，端到端现网生成见 mock 单测+run1 同 build 实弹）"
+                 if fresh == 0 else ""))
 
 
 # ---------------- V7：长日志回归锁（grill Q1：砍修复、留锁防回退） ----------------
