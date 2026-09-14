@@ -49,6 +49,15 @@
   .ev.lost{color:var(--warn)}
   #bounds li{margin:3px 0; list-style:none}
   #bounds .chk{color:var(--dim);font-size:10px}
+  /* AIOps 谱系自证块（静态，同源 README「AIOps 谱系定位」） */
+  #spectrum{margin:0;padding:0}
+  #spectrum li{list-style:none;margin:4px 0;display:flex;gap:8px;align-items:baseline}
+  #spectrum .st{flex:none;border:1px solid var(--line);border-radius:3px;padding:0 6px;font-size:10px}
+  #spectrum .done{color:var(--ok);border-color:var(--ok)}
+  #spectrum .debt{color:var(--warn);border-color:var(--warn)}
+  #spectrum .no{color:var(--dim)}
+  #spectrum .ev{color:var(--dim);font-size:11px;min-width:0;word-break:break-all}
+  #spectrum li.chk{color:var(--dim);font-size:10px}
   #auth { position:fixed; inset:0; background:#0b0f14e6; display:none; place-items:center }
   #auth .card { background:var(--panel); border:1px solid var(--line); border-radius:8px;
                 padding:24px 28px; width:min(560px,92vw) }
@@ -76,6 +85,8 @@
       <div id="quota" style="margin-top:8px"></div></section>
     <section style="margin-top:12px"><h2>能力边界 · 本系统不做的事（债务带验证日期）</h2>
       <ul id="bounds"></ul></section>
+    <section style="margin-top:12px"><h2>AIOps 谱系定位 · 五域自证（静态 · 同源 README）</h2>
+      <ul id="spectrum"></ul></section>
   </div>
   <div>
     <section><h2>数据流 · PIPELINE</h2>
@@ -223,9 +234,22 @@ const BOUNDS = [
   ['无文件上传/语音/多模态端点（客户端里点了会报错）', 'OPS §7', '2026-09-11'],
   ['日配额 5000/人（成本护栏，非防攻击）', 'QuotaService', '2026-09-12'],
   ['审计文件 14 天滚动（长期合规引 Loki/对象存储）', 'logback', '2026-09-12'],
+  ['遥测采集/异常检测（AIOps 谱系①②）＝永久非目标，刻意不列债务表', 'README 谱系定位', '2026-09-14'],
   ['本面板只读：零写操作、零假数据、轮询不污染审计', 'ADR-0009', '2026-09-12']];
 $('bounds').innerHTML = BOUNDS.map(x =>
   '<li>✗ ' + esc(x[0]) + '<div class="chk">依据 ' + esc(x[1]) + ' · 最后验证 ' + x[2] + '</div></li>').join('');
+
+// AIOps 谱系自证块：与 README「AIOps 谱系定位」五域表静态同源；改文档两处同步，checked 日期随复验
+const SPECTRUM = [
+  ['① 遥测采集（metrics/traces/topology）', 'no', '永久非目标', '输入恒为文本 query，三入口皆文本协议'],
+  ['② 异常检测（统计/ML）', 'no', '永久非目标', '"何时算异常"判定权归上游告警系统'],
+  ['③ 告警降噪 / 事件收敛', 'done', '已覆盖', '同指纹 500→1（A2-5）· storm/* + ADR-0003；跨指纹关联未在账'],
+  ['④ 知识化根因辅助', 'done', '已覆盖', 'retrieval/* · eval_report 现版 es_only 64%→hybrid 88%'],
+  ['⑤ 处置闭环（自动执行/自愈）', 'debt', '待还债', '只读建议+溯源=承诺非疏漏；触发线在案 OPS §5；M3 告警接入挂起']];
+$('spectrum').innerHTML = SPECTRUM.map(x =>
+  '<li><span class="st ' + x[1] + '">' + x[2] + '</span><b>' + esc(x[0]) + '</b>' +
+  '<span class="ev">' + esc(x[3]) + '</span></li>').join('') +
+  '<li class="chk">同源核验 2026-09-14 · 完整证据指针（文件/ADR/测试）见 README「AIOps 谱系定位」</li>';
 
 $('copy').onclick = async () => {
   const a = await api('/api/v1/admin/audit/recent?since=' + Math.max(0, cursor - 50) + '&limit=50')
