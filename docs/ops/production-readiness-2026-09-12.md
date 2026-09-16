@@ -52,7 +52,7 @@
 | 健康检查 | 已具备（双面） | `/actuator/health` 聚合 + `/admin/health` 鉴权明细探针（5s TTL 双检防惊群）；断 ES 实测 DEGRADED |
 | 指标采集 | 已具备（自研） | OpsMetrics 10 计数器 + 运行态（在途组/熔断/冷却/配额），Ops Console 实时可视化；**进程内存态，重启清零，无趋势** |
 | 指标导出 | 缺失 | 无 micrometer/prometheus——ADR-0009 触发线（多实例/>5 人日常用）后升级，约 1 天 |
-| 告警 | 部分 | daily_usage 拒答率阈值退出码（cron MAILTO）；实时 webhook 按硬约束挂起（无真实告警源不做 adapter） |
+| 告警 | 部分 | daily_usage 拒答率阈值退出码（cron MAILTO）；实时 webhook 按硬约束挂起（无真实告警源不做 adapter）。**状态注（2026-09-16，ADR-0011）**：已有**自举告警源**（`offline/alert_producer.py`，读运行态真相面 → `source=alert` 回打自身链路），外部监控系统的 adapter 仍挂起 |
 
 修补：**M2**（logs 目录磁盘哨兵并入 daily_usage）；导出线不动。
 
@@ -72,7 +72,7 @@
 **高（上线前，~1 工作日）**：H1 应用日志持久化+滚动+cap（0.5h）→ H2 request_id 贯穿（1-2h）→
 H3 LLM 单次退避重试+429/网络错分类（2-3h）。
 **中（上线后随手）**：M1 启动脱敏配置摘要（0.5h）→ M2 磁盘哨兵（1h）→ M4 错误码枚举（1h，另轮）。
-M3 告警 webhook：等真实告源（硬约束）。
+M3 告警 webhook：**2026-09-16 状态更新（ADR-0011）**——自举告警源已上线（换源非 adapter）；面向外部监控系统的 webhook adapter 仍等真实告源（硬约束）。
 **低（企业级触发线，ADR/债务闹钟在案，勿提前做）**：L1 Micrometer 导出（~1 天）→ L2 多实例
 RS256+分布式 SF（周级，>200 人/QPS50）→ L3 OIDC（公司强推）→ L4 TLS/等保（跨机）→
 L5 增量 ingest（语料 >2000 条或更新 <10min）。
@@ -86,6 +86,6 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 | H3 LLM 单次退避重试 | **已修** | LlmClient.streamChat 重试循环：仅首 token 吐出前的瞬时错（429/网络 IOException/HTTP 5xx）单次退避（1s/400ms）；OpsMetrics 增 llm_retries/llm_network_errors；终态 429 仍 llm_rate_limited | 单测 5 例（重试/耗尽/429 类型传播/吐 token 后禁重试/非瞬时禁重试）全绿；/state 暴露新键；面板 tiles 同步（契约四层仍绿） |
 | M1 启动配置摘要 | **已修** | StartupConfigSummary（ApplicationRunner）：凭据全部 set(len=N)/absent 归约后拼接，无字面量 | 容器实测摘要在 app.log；Mimosa 扫描器对 apiKey() 方法名两次误报"硬编码凭据"——实为脱敏读取，已留档待人工复核 |
 | M2 磁盘哨兵 | **已修** | daily_usage.py 输出增 logs_disk_mb，>500MB stderr 告警（不占 refuse 退出码） | 实测 logs_disk_mb=1.7 正常输出 |
-| M3 告警 webhook | 挂起 | 无真实告警源（硬约束） | — |
+| M3 告警 webhook | 部分接入 | 自举源已上线（ADR-0011）；外部监控 adapter 仍无真实告源（硬约束） | `offline/alert_producer.py`、`docs/qa/2026-09-16-self-alert-loop.md` |
 | M4 错误码枚举 | 待修（另轮） | 现状字符串 <10 个 | — |
 | L1-L5 | 挂起（企业级触发线） | ADR-0003/0005/0006/0009、OPS 债务表 | — |

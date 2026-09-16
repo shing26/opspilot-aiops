@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import sys
 import time
 import urllib.error
@@ -35,10 +37,27 @@ import localapi  # noqa: E402  （单一事实源：登录/取数/SSRF 白名单
 
 REPO = Path(__file__).resolve().parent.parent
 LEDGER = REPO / "logs" / "alert-producer.jsonl"
+LOCK = REPO / "logs" / ".alert-producer.lock"
 ENV = "local"
-# 配额保留线：告警不得把人挤出去——防的是极端风暴下"告警自己烧穿配额，
-# 导致随后真人排障被 429"。sre-watcher 已是独立主体，这条是第二层防御。
+# 配额保留线：告警不得把自己烧穿——防的是极端风暴下"告警自己耗尽配额，
+# 使随后的人工排障被 429"。注意配额按 sub 计数，而本进程有独立主体 sre-watcher，
+# 所以这条线保护的是**告警主体自己的余量**，不是别人的配额（ADR-0011 已按此口径修正）。
 QUOTA_RESERVE = 50
+# 登录面连续失败上限：口令错/主体被锁时重试只会把 15 分钟锁定刷成常锁（AuthService 5 次失败锁 15 分钟），
+# 且每次失败都写一行鉴权审计——故失败即退避，超过上限直接退出并报告，等人修凭据。
+MAX_LOGIN_FAILURES = 3
+# 组件 detail 进 prompt 前的白名单：这是全链路唯一"非人工撰写"的输入面，
+# 虽来自本机中间件异常，仍按不可信处理（去控制字符、限长、只留安全字符集）。
+# 刻意不含 < > ` $ 与引号：错误文本不需要它们，而它们正是拼接/注入类写法的原料。
+DETAIL_SAFE = re.compile(r"[^\w\s:.,;/()\[\]=@+\-]")
+DETAIL_MAX = 120
+
+
+class LoginFailed(RuntimeError):
+    """登录面失败（凭据错 / 主体被锁 / 登录端点异常）。
+
+    与"网关不可达"必须分开：前者重试有害（加深锁定）且需人介入，后者是瞬时可自愈。
+    """
 
 # 规则 → 告警文案。文案刻意带错误码：真实告警本就携带错误码，且精确符号走快路径
 # （跳过 rerank 压 TTFT）；两条复用既有语料（51001/51005），两条指向 2xx 自举语料，
@@ -86,6 +105,12 @@ def deltas(cur: dict, prev: dict | None) -> tuple[dict, bool]:
     return ({k: (0 if reset else max(0, cur[k] - prev.get(k, 0))) for k in METRIC_KEYS}, reset)
 
 
+def _safe_detail(v) -> str:
+    """把组件 detail 洗成可安全进 prompt/审计的短文本（限长 + 字符白名单）。"""
+    s = DETAIL_SAFE.sub(" ", str(v or ""))
+    return " ".join(s.split())[:DETAIL_MAX]
+
+
 def detect(state: dict, d: dict) -> list[dict]:
     """真相面 → 候选告警。只做判定；冷却/预算/配额等发送闸门在 Producer 里。"""
     out: list[dict] = []
@@ -94,18 +119,18 @@ def detect(state: dict, d: dict) -> list[dict]:
         c = (state.get("health") or {}).get(comp) or {}
         if str(c.get("status", "UP")).upper() != "UP":
             out.append({"rule": "dep_down", "service": comp,
-                        "query": QUERIES["dep_down"].format(comp=comp, status=c.get("status"),
-                                                            detail=c.get("detail"))})
+                        "query": QUERIES["dep_down"].format(comp=comp, status=_safe_detail(c.get("status")),
+                                                            detail=_safe_detail(c.get("detail")))})
 
     rt = state.get("runtime") or {}
     deg = rt.get("degradation") or {}
     level = str(deg.get("level") or "L0")
     if level in ("L1", "L2") or _num(deg.get("cooldown_s")) > 0:
         out.append({"rule": "degrade", "service": "opspilot-gateway",
-                    "query": QUERIES["degrade"].format(level=level, failures=deg.get("failures"),
-                                                       threshold=deg.get("threshold"),
-                                                       cooldown=deg.get("cooldown_s"),
-                                                       inflight=rt.get("inflight"))})
+                    "query": QUERIES["degrade"].format(level=_safe_detail(level), failures=_num(deg.get("failures")),
+                                                       threshold=_num(deg.get("threshold")),
+                                                       cooldown=_num(deg.get("cooldown_s")),
+                                                       inflight=_num(rt.get("inflight")))})
 
     if d["llm_rate_limited"] or d["llm_network_errors"]:
         out.append({"rule": "upstream_limited", "service": "dashscope-api",
@@ -132,10 +157,13 @@ class Producer:
         self.dry_run = args.dry_run
         self.cooldown = args.cooldown
         self.max_per_hour = args.max_per_hour
+        self.interval = getattr(args, "interval", 15)
         # 可调是为了可测：把保留线设 0 才能构造"配额真被打满 → 429"的活体用例，
         # 否则保留线总是先一步挡住，429 分支永远测不到。
         self.quota_reserve = getattr(args, "quota_reserve", QUOTA_RESERVE)
+        self.collect_deltas = getattr(args, "collect_deltas", False)
         self.token = ""
+        self.login_failures = 0
         self.prev: dict | None = None
         self.last_emit: dict[str, float] = {}   # rule → 上次**真的发出去**的时刻（冷却只约束发送）
         self.emits: list[float] = []
@@ -143,7 +171,11 @@ class Producer:
 
     # ---- 与网关交互 -------------------------------------------------------
     def login(self) -> None:
-        self.token = localapi.login(self.user)
+        """登录失败归类为 LoginFailed（凭据/锁定，需人介入），其余异常才是瞬时不可达。"""
+        try:
+            self.token = localapi.login(self.user)
+        except urllib.error.HTTPError as e:
+            raise LoginFailed(f"HTTP {e.code}") from e
 
     def fetch_state(self) -> dict:
         """读管理面；401 重登一次（24h token 过期是常态），403 直接判主体配置错误。"""
@@ -159,19 +191,27 @@ class Producer:
             raise
 
     def emit(self, alert: dict) -> dict:
-        """发一条告警；台账记录里带上服务端权威事实（fingerprint/cache_hit/refs）。"""
+        """发一条告警；台账记录里带上服务端权威事实（fingerprint/cache_hit/refs）。
+
+        非 2xx 仍记 `emit=true`（请求确实发出去了、配额确实扣了）但带 `sent_ok=false`：
+        冷却与小时预算照常生效——这是刻意的保守取舍，409/429/5xx 时"立刻重发"比"少发一条"更危险。
+        401 额外清空 token，让下一轮走重登路径（自愈），不必等到下个 fetch_state。
+        """
         body = {"query": alert["query"], "source": "alert", "service": alert["service"], "env": ENV}
         if self.dry_run:
             return {"rule": alert["rule"], "service": alert["service"], "emit": False,
                     "skip": "dry_run", "query": alert["query"]}
-        r = localapi.stream_chat(body, self.token)
+        r = localapi.stream_chat(body, self.token, collect_deltas=self.collect_deltas)
         meta, done = r.get("meta") or {}, r.get("done") or {}
+        if r["status"] == 401:
+            self.token = ""                      # 凭证失效：下一轮重登（自愈路径）
         # refs 帧字段是 chunkId（AnswerPayload.Ref 的 Jackson 默认命名，非 chunk_id）；
         # chunk_id 形如 "<doc_id>::<breadcrumb>"，doc_id 侧由此派生——台账同时留原始与派生，
         # 便于读者拿原始帧对账而不必信派生结果。
         refs = [x.get("chunkId") or "" for x in (done.get("refs") or [])]
         return {"rule": alert["rule"], "service": alert["service"], "emit": True,
-                "http": r["status"], "error_code": r.get("code"),
+                "http": r["status"], "sent_ok": 200 <= r["status"] < 300,
+                "error_code": r.get("code"),
                 "fp": meta.get("fingerprint"), "cache_hit": meta.get("cache_hit"),
                 "deduplicated": meta.get("deduplicated"),
                 "degradation_level": meta.get("degradation_level"),
@@ -250,11 +290,30 @@ class Producer:
                 # 就能让告警源永久失效，而那正是最需要它的时刻。
                 if not self.token:
                     self.login()
+                self.login_failures = 0
+                self._touch_lock()
                 self.cycle()
             except PermissionError as e:
                 print(f"[fatal] {e}", file=sys.stderr)
                 return 2
-            except Exception as e:                       # 单轮失败不得让 watcher 死掉
+            except LoginFailed as e:
+                # 凭据错或主体被锁：重试有害（AuthService 5 次失败锁 15 分钟，重试即常锁），
+                # 且每次失败都写一行鉴权审计 → 退避 + 上限后退出，等人修凭据。
+                self.stats["errors"] += 1
+                self.token = ""
+                self.login_failures += 1
+                self.ledger({"rule": "-", "emit": False, "skip": "login_failed",
+                             "note": f"{e}（连续 {self.login_failures} 次）"})
+                if self.login_failures >= MAX_LOGIN_FAILURES:
+                    print(f"[fatal] 连续 {self.login_failures} 次登录失败（{e}）："
+                          f"检查 {self.user} 的凭据/是否被锁，修好后重启——不再空转重试",
+                          file=sys.stderr)
+                    return 2
+                backoff = min(300, max(interval, 5) * (2 ** self.login_failures))
+                print(f"[warn] 登录失败（{e}），退避 {backoff}s", file=sys.stderr)
+                time.sleep(backoff)
+                continue
+            except Exception as e:                       # 网关不可达等瞬时错：留痕后继续
                 self.stats["errors"] += 1
                 self.token = ""                          # 凭证/网络态未知 → 下轮重新登录
                 self.ledger({"rule": "-", "emit": False, "skip": "unreachable",
@@ -265,6 +324,39 @@ class Producer:
             time.sleep(interval)
         return 0
 
+    # ---- 单实例守卫 -------------------------------------------------------
+    def _touch_lock(self) -> None:
+        """刷新锁文件 mtime：存活实例每轮触碰，僵死实例的锁会自然过期。"""
+        try:
+            LOCK.write_text(str(os.getpid()), encoding="utf-8")
+        except OSError:
+            pass
+
+
+def _acquire_lock(interval: int, force: bool) -> bool:
+    """单实例守门：冷却/小时预算/计数器基线都是**进程内**状态，跑两个实例 = 双倍告警速率，
+    且两个进程交错写同一 JSONL。锁文件按 mtime 判活（存活实例每轮触碰）：
+    僵死实例留下的锁在 max(120, interval*4) 秒后视为过期、可被接管。
+    锁不可用（无写权限等）时不阻断告警——可用性优先于互斥，风险已知且已写入文档。
+    """
+    try:
+        if LOCK.exists() and not force:
+            age = time.time() - LOCK.stat().st_mtime
+            if age < max(120, interval * 4):
+                return False
+        LOCK.parent.mkdir(parents=True, exist_ok=True)
+        LOCK.write_text(str(os.getpid()), encoding="utf-8")
+        return True
+    except OSError:
+        return True
+
+
+def _release_lock() -> None:
+    try:
+        LOCK.unlink()
+    except OSError:
+        pass
+
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="OpsPilot 自举告警生产者（ADR-0011）")
@@ -273,12 +365,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cooldown", type=int, default=300, help="同一规则两次发送的最小间隔秒（默认 300）")
     ap.add_argument("--max-per-hour", type=int, default=20, help="每小时告警上限（默认 20，防风暴自伤）")
     ap.add_argument("--quota-reserve", type=int, default=QUOTA_RESERVE,
-                    help=f"配额保留线（默认 {QUOTA_RESERVE}）：剩余低于此值则不发告警，留给人用")
+                    help=f"本主体配额保留线（默认 {QUOTA_RESERVE}）：剩余低于此值则不发告警")
     ap.add_argument("--user", default="sre-watcher", help="告警主体（默认 sre-watcher）")
     ap.add_argument("--dry-run", action="store_true", help="只判定与留痕，不发告警请求")
+    ap.add_argument("--collect-deltas", action="store_true",
+                    help="在返回值里收集完整答案增量（默认关：仅用 meta/done，长答案下省内存）")
+    ap.add_argument("--force", action="store_true", help="无视既有锁文件强行启动（单实例约束见 --help 说明）")
     a = ap.parse_args(argv)
     p = Producer(a)
-    rc = p.run(0 if a.once else a.interval)
+    if not _acquire_lock(a.interval, a.force):
+        print("[fatal] 已有一个告警生产者实例在运行（冷却/小时预算为进程内状态，多实例会成倍告警）——"
+              "确认无实例后可加 --force 接管", file=sys.stderr)
+        return 3
+    try:
+        rc = p.run(0 if a.once else a.interval)
+    finally:
+        _release_lock()
     s = p.stats
     print(f"[summary] cycles={s['cycles']} candidates={s['candidates']} emitted={s['emitted']} "
           f"skipped={s['skipped']} errors={s['errors']}")

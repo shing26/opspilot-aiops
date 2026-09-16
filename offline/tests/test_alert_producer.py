@@ -137,12 +137,106 @@ def test_dry_run_sends_nothing():
 # ---- 出口白名单（SSRF 面）-------------------------------------------------
 
 def test_network_primitives_refuse_non_local_targets():
-    for bad in ("http://evil.example.com/v1", "https://127.0.0.1:8081/x", "file:///etc/passwd"):
+    for bad in ("http://evil.example.com/v1", "https://127.0.0.1:8081/x", "file:///etc/passwd",
+                "http://localhost@evil.example.com/x",          # userinfo 混淆
+                "http://user:pw@localhost:8081/x"):
         try:
             localapi.assert_local(bad)
         except ValueError:
             continue
         raise AssertionError("非本机 http 目标必须被拒绝: " + bad)
+
+
+def test_loopback_ip_is_verified_after_resolution(monkeypatch):
+    """主机名通过但解析到非环回地址 → 必须拒绝（hosts 篡改 / DNS rebinding 面）。"""
+    import socket as real_socket
+
+    def fake_getaddrinfo(host, port, **kw):
+        return [(real_socket.AF_INET, real_socket.SOCK_STREAM, 6, "", ("203.0.113.7", port or 80))]
+
+    monkeypatch.setattr(ap.localapi.socket, "getaddrinfo", fake_getaddrinfo)
+    try:
+        localapi.assert_local("http://localhost:8081/api/v1/admin/state")
+    except ValueError as e:
+        assert "非环回" in str(e)
+        return
+    raise AssertionError("解析到非环回地址必须拒绝")
+
+
+# ---- 组件 detail 进 prompt 前的清洗 ---------------------------------------
+
+def test_safe_detail_whitelist_and_cap():
+    assert ap._safe_detail("io.grpc.StatusRuntimeException: UNAVAILABLE: io exception") == \
+        "io.grpc.StatusRuntimeException: UNAVAILABLE: io exception"
+    assert "<script>" not in ap._safe_detail("<script>alert(1)</script>")
+    assert ap._safe_detail("x" * 500) == "x" * ap.DETAIL_MAX
+    assert ap._safe_detail(None) == ""
+    # 清洗后的 detail 必须真的进不了危险字符
+    st = _state(health={"redis": {"status": "DOWN", "detail": "`rm -rf /`\x07\x00"}})
+    got = ap.detect(st, {k: 0 for k in ap.METRIC_KEYS})[0]["query"]
+    assert "`" not in got and "\x00" not in got
+
+
+# ---- 登录失败的退避与快速失败 ---------------------------------------------
+
+def test_login_failure_backs_off_then_exits(monkeypatch):
+    """凭据错/主体被锁：不得无限重试（会加深 15 分钟锁定并刷审计），退避后退出码 2。"""
+    p = _producer()
+    writes = []
+    monkeypatch.setattr(p, "ledger", lambda rec: writes.append(rec))
+    monkeypatch.setattr(ap.time, "sleep", lambda s: None)
+    monkeypatch.setattr(p, "login", lambda: (_ for _ in ()).throw(ap.LoginFailed("HTTP 401")))
+    rc = p.run(interval=0)
+    assert rc == 2 and p.login_failures == ap.MAX_LOGIN_FAILURES
+    assert all(w["skip"] == "login_failed" for w in writes), writes
+    assert len(writes) == ap.MAX_LOGIN_FAILURES
+
+
+def test_login_success_resets_failure_counter(monkeypatch):
+    p = _producer()
+    p.login_failures = 2
+    monkeypatch.setattr(p, "ledger", lambda rec: None)
+    monkeypatch.setattr(p, "login", lambda: setattr(p, "token", "t"))
+    monkeypatch.setattr(p, "cycle", lambda: [])
+    assert p.run(interval=0) == 0
+    assert p.login_failures == 0
+
+
+# ---- 单实例守卫 -----------------------------------------------------------
+
+def test_lock_blocks_second_instance_and_expires(monkeypatch, tmp_path):
+    lock = tmp_path / "producer.lock"
+    monkeypatch.setattr(ap, "LOCK", lock)
+    assert ap._acquire_lock(interval=15, force=False) is True
+    assert ap._acquire_lock(interval=15, force=False) is False     # 第二个实例被挡
+    assert ap._acquire_lock(interval=15, force=True) is True        # --force 可接管
+    import os as _os
+    old = lock.stat().st_mtime - 10_000                             # 模拟僵死实例的陈旧锁
+    _os.utime(lock, (old, old))
+    assert ap._acquire_lock(interval=15, force=False) is True        # 过期锁可被接管
+
+
+def test_emit_marks_failed_sends(monkeypatch):
+    """非 2xx 仍记 emit=true（请求确实发出、配额确实扣了），但必须带 sent_ok=false 可查。"""
+    p = _producer()
+    p.token = "t"
+    monkeypatch.setattr(ap.localapi, "stream_chat",
+                        lambda body, token, timeout=120, collect_deltas=True:
+                        {"status": 429, "code": "HTTP_429", "meta": {}, "done": {}, "deltas": [],
+                         "error": None, "ttft_s": None, "total_s": 0.01})
+    rec = p.emit({"rule": "dep_down", "service": "qdrant", "query": "q"})
+    assert rec["emit"] is True and rec["sent_ok"] is False and rec["http"] == 429
+
+
+def test_emit_clears_token_on_401(monkeypatch):
+    p = _producer()
+    p.token = "stale"
+    monkeypatch.setattr(ap.localapi, "stream_chat",
+                        lambda body, token, timeout=120, collect_deltas=True:
+                        {"status": 401, "code": "HTTP_401", "meta": {}, "done": {}, "deltas": [],
+                         "error": None, "ttft_s": None, "total_s": 0.01})
+    p.emit({"rule": "dep_down", "service": "qdrant", "query": "q"})
+    assert p.token == "", "401 后必须清 token，让下一轮走重登自愈"
 
 
 # ---- 鉴权失败的两条路径（401 自愈 / 403 致命）-----------------------------

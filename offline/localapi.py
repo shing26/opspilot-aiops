@@ -7,7 +7,9 @@ token 路径相对本文件解析，不再依赖运行目录（修复 a3/evaluat
 """
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -23,16 +25,51 @@ ACCOUNTS = {"sre_l1": "sre-limited", "sre_l3": "sre-full", "sre_acme": "sre-acme
 
 
 def assert_local(url: str) -> str:
+    """出口白名单：仅 http + 环回主机，且**解析后的 IP 也必须仍是环回**。
+
+    只比主机名字符串不够：hosts 文件被改或 DNS rebinding 都能让 `localhost` 指向远端，
+    那样"本机白名单"就变成了通往内网的跳板。故这里解析一次 IP 并逐条校验。
+    """
     p = urlparse(url)
     if p.scheme != "http" or p.hostname not in ALLOWED_HOSTS:
         raise ValueError(f"验收脚本仅允许本机 http 服务，拒绝: {url}")
+    if p.username or p.password:
+        raise ValueError(f"URL 不得携带 userinfo（混淆手法），拒绝: {url}")
+    try:
+        infos = socket.getaddrinfo(p.hostname, p.port or 80, type=socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise ValueError(f"主机名无法解析: {p.hostname}") from e
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if not ip.is_loopback:
+            raise ValueError(f"主机名解析到非环回地址，拒绝: {p.hostname} -> {ip}")
     return url
+
+
+class _LoopbackOnlyRedirect(urllib.request.HTTPRedirectHandler):
+    """禁止跟随任何跳出白名单的重定向。
+
+    urllib 默认跟随 3xx：本机服务若被污染或误配而重定向到外部地址，等于白名单被绕过。
+    重定向目标必须重新过一遍 assert_local，否则直接拒绝。
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        assert_local(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_LoopbackOnlyRedirect)
+
+
+def _open(req: urllib.request.Request, timeout: int):
+    """统一出口：所有 HTTP 调用都经此（白名单 + 不跟随越界重定向）。"""
+    return _OPENER.open(req, timeout=timeout)
 
 
 def get_json(path: str, token: str, timeout: int = 10) -> dict:
     req = urllib.request.Request(assert_local(BASE + path), method="GET",
                                  headers={"Authorization": "Bearer " + token})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with _open(req, timeout) as r:
         return json.load(r)
 
 
@@ -68,7 +105,7 @@ def post_json(path: str, body: dict, token: str, timeout: int = 60) -> dict:
     req = urllib.request.Request(
         assert_local(BASE + path), data=json.dumps(body).encode("utf-8"), method="POST",
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with _open(req, timeout) as r:
         return json.load(r)
 
 
@@ -77,7 +114,7 @@ def search_docs(query: str, mode: str, token: str) -> list[dict]:
     return post_json("/api/v1/copilot/search", {"query": query, "mode": mode}, token, timeout=30)["results"]
 
 
-def stream_chat(body: dict, token: str, timeout: int = 120) -> dict:
+def stream_chat(body: dict, token: str, timeout: int = 120, collect_deltas: bool = True) -> dict:
     """SSE 原语（自举告警生产者与后续验收共用，见 ADR-0011）。
 
     为什么不能复用 post_json：/chat/stream 的响应是事件流——post_json 用 json.load(r) 会
@@ -87,8 +124,11 @@ def stream_chat(body: dict, token: str, timeout: int = 120) -> dict:
     因为告警链路绝不能因一次限流就崩掉或转入重试风暴）：
       {status, code, meta, deltas, done, error, ttft_s, total_s}
       meta   = 服务端权威事实（fingerprint / cache_hit / degradation_level / fast_path / deduplicated）
-      done   = {ttft_ms, refs}，refs 是溯源引用（含 doc_id），收敛与命中判据都取自这里
+      done   = {ttft_ms, refs}，refs 是溯源引用（含 docId 派生的 chunkId），收敛与命中判据都取自这里
       error  = 服务端 error 帧内容（链路异常时的固定话术 + code）
+
+    两条边界：`collect_deltas=False` 时不收集答案增量（只用 meta/done 的调用方省内存）；
+    `timeout` 同时是**整体截止**——逐次读的 socket 超时挡不住"慢速滴流"永久占住连接。
     """
     req = urllib.request.Request(
         assert_local(BASE + "/api/v1/copilot/chat/stream"),
@@ -96,13 +136,17 @@ def stream_chat(body: dict, token: str, timeout: int = 120) -> dict:
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
                  "Accept": "text/event-stream"})
     t0 = time.time()
+    deadline = t0 + timeout
     out = {"status": 0, "code": None, "meta": {}, "deltas": [], "done": {}, "error": None,
-           "ttft_s": None, "total_s": 0.0}
+           "ttft_s": None, "total_s": 0.0, "truncated": False}
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _open(req, timeout) as r:
             out["status"] = r.status
             event = None
             for raw in r:
+                if time.time() > deadline:
+                    out["truncated"] = True          # 滴流超时：显式标注，不假装是完整流
+                    break
                 line = raw.decode("utf-8").rstrip("\n")
                 if line.startswith("event:"):
                     event = line[6:].strip()
@@ -116,7 +160,8 @@ def stream_chat(body: dict, token: str, timeout: int = 120) -> dict:
                     elif event == "delta":
                         if out["ttft_s"] is None:
                             out["ttft_s"] = round(time.time() - t0, 3)
-                        out["deltas"].append(data.get("token", ""))
+                        if collect_deltas:
+                            out["deltas"].append(data.get("token", ""))
                     elif event == "done":
                         out["done"] = data
                     elif event == "error":
@@ -137,7 +182,7 @@ def expect_http_status(path: str, body: dict, token: str, expected: int) -> tupl
         assert_local(BASE + path), data=json.dumps(body).encode("utf-8"), method="POST",
         headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with _open(req, 60) as r:
             return r.status == expected, r.status
     except urllib.error.HTTPError as e:
         return e.code == expected, e.code
