@@ -273,3 +273,62 @@ SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 15s -
 - [docs/qa/](docs/qa/) — 红队缺陷台账（三 Persona 测评 / 模块独立+集成验证）
 - [offline/eval/reports/](offline/eval/reports/) — 评测报告
 - [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML
+
+## 目录与文档地图
+
+> 给接手的人（或下一个 Agent）一页定位：四份根文档**按读者分工**，互不重复。
+
+| 你在做什么 | 打开哪份 |
+| --- | --- |
+| 判断这项目值不值得看 | [README.md](README.md)（本文：门面与实测指标） |
+| 起服务 / 跑演示 / 录屏 | [DEMO.md](DEMO.md)（六幕脚本，前置 `scripts/demo.sh` 自检） |
+| 日常运维：开号、离职、配额、告警、债务闹钟 | [OPS.md](OPS.md)（管理员速查） |
+| 对齐领域词汇（Query / Chunk / 指纹…） | [CONTEXT.md](CONTEXT.md)（术语表——**改名词先改这里**） |
+
+**目录职责**
+
+| 路径 | 是什么 | 入库 |
+| --- | --- | --- |
+| `src/main/java/com/opspilot/` | 在线面：`gateway`(协议/编排) `retrieval` `llm` `resilience` `auth` `cache` `storm` `metrics` `health` `ingest` `chunk` `config` | ✅ |
+| `src/test/java/` | 单测与集成（118 用例） | ✅ |
+| `docs/adr/` | 10 项架构决策（每份含否决项与后果）——**改架构先写 ADR** | ✅ |
+| `docs/qa/` | 红队缺陷台账 / 模块复验台账（缺陷与验证的单一事实源） | ✅ |
+| `docs/ops/` | 生产化就绪评估 | ✅ |
+| `offline/chunkers/` | Python 切分管道（OpenAPI AST / 标题树 / 错误码三切分器 + `build_chunks.py`） | ✅ |
+| `offline/corpus/` | 语料源（openapi / runbooks / postmortems）+ 生成物 `chunks.jsonl` | ✅ |
+| `offline/eval/` | golden dataset、`evaluate.py`、评测报告 | ✅ |
+| `offline/load/` | Locust 压测脚本与报告 | ✅ |
+| `offline/tests/` | pytest（切分器单测） | ✅ |
+| `offline/localapi.py` | **验收/评测脚本的本机 HTTP 单点**（SSRF 白名单 + token 路径解析）——新增脚本复用它，别再造轮子 | ✅ |
+| `offline/acceptance_a2.py` / `acceptance_a3.py` | A2 机制验收 / A3 综合验收 | ✅ |
+| `offline/qa_gen_quality_probes.py` | 生成质量 V1–V8 探针（live gate） | ✅ |
+| `offline/console_client.py` | 控制台演示客户端（SSE 打字机 / 风暴模拟） | ✅ |
+| `scripts/` | 运维与入口脚本，逐个见下表 | ✅ |
+| `data/` | H2 用户主库（含凭据散列） | ❌ |
+| `logs/` | 运行日志 + `audit.jsonl` 合规审计 | ❌ |
+| `backup/` | `backup.sh` 产出，按 7/14 天策略自清 | ❌ |
+| `_archive/` | **历史归档区**（本机留档，不入库）：外部评估报告、一次性演练产物；目录内有说明 | ❌ |
+| `target/` | Maven 构建产物 | ❌ |
+
+**scripts/ 一览**
+
+| 脚本 | 用途 |
+| --- | --- |
+| `quickstart.sh` | 公开入口：一键冷启动（预检 buildx / compose 插件） |
+| `run.sh` | 开发态起服务（加载 `.env` + `mvn spring-boot:run`，可透传 `--opspilot.ingest=true`） |
+| `demo.sh` | 演示前自检（健康 / 权限 / 面板契约 / live 键集合等七检） |
+| `backup.sh` | users 备份 + audit 打包（HTTP 优先，容器内 CLI 兜底） |
+| `user_admin.sh` | 账号生命周期 CLI：`add` / `disable` / `passwd` / `backup` |
+| `seed_demo_users.sh` | 幂等初始化三个演示账号（含跨租户矩阵靶） |
+| `gen_tokens.py` | 生成红队畸形 token 样本（合法账号走 login，不预签 token） |
+| `daily_usage.py` | 从审计日志聚合当日用量（cron 友好） |
+| `check_panel_contract.sh` | 面板↔后端字面量契约（CI 零依赖，后端改名即红） |
+| `py.sh` | Python 解释器三档探测（跨平台单点，被多个脚本复用） |
+
+**收纳规矩（防止再乱）**
+
+1. 新证据与报告 → `offline/*/reports/`；DoD 要求入库，且**数字必须与正文同代**（E1 教训：语料扩后旧报告会让 README 数字陈旧）。
+2. 一次性产物、外部评估、过时台账 → `_archive/`，git 忽略，不污染根视图。
+3. 例行数据备份 → `backup/`，交给 `backup.sh` 的 7/14 天策略，勿手工堆积。
+4. 根目录只留四份文档 + 构建入口；**新文档先进 `docs/`**，确实属于必读门面才升到根。
+5. 改架构或口径 → 先更新 ADR / 术语表，再改代码；改完回来同步本地图。
