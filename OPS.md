@@ -4,7 +4,13 @@
 
 ## 1. 账号生命周期（不再手工签 token）
 
-所有用户操作走 CLI（需服务同机可访问 `./data/`，与运行中网关经 H2 AUTO_SERVER 并发无冲突）：
+所有用户操作走 CLI。**⚠️ 并发口径按后端形态分**（2026-09-16 实测更正，事故 `51103_H2_CONCURRENT_WRITE_CORRUPTION`）：
+
+- **宿主裸进程形态**：CLI 与运行中网关经 H2 AUTO_SERVER 并发无冲突（原口径，成立）。
+- **容器形态**：`./data` 是 bind mount，**H2 的锁文件跨挂载点不可靠**——CLI 与容器内网关同时写会
+  损坏账号库（本次实测：CLI 写成功后停容器，下次打开即 MVStore chunk 损坏、恢复工具也救不回）。
+  **正确做法：先 `docker compose stop gateway` 再跑 CLI，或走 HTTP 管理面（`/admin/backup` 等）。**
+- 动手前先备份：`bash scripts/backup.sh`（账号库是唯一不可再生数据）。
 
 ```bash
 export DEMO_PASSWORD='…'   # 或任何一次性环境变量；口令绝不进命令行参数
@@ -64,7 +70,7 @@ cron（Linux 部署版；本机手动跑同样有效）：
 
 ## 5. 知识库运维与债务闹钟表
 
-- 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 27s，live+账户限流最坏 ~6min）。
+- 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 423 文档 30s，live；mock 后端 10s；live+账户限流最坏 ~6min）。
 - `scripts/gen_tokens.py` **是红队畸形 token 签发器**（A2-8b/8c 与 demo.sh 预检依赖）——不是遗留脚本，勿删。
 - 旧 `demo_tokens.txt` 体系已死；合法凭据一律 login 换取。
 
@@ -75,7 +81,8 @@ cron（Linux 部署版；本机手动跑同样有效）：
 | 多实例 | 团队 >200 人或持续峰值 QPS > 50 | 单实例虚拟线程（实测 500 并发收敛）；先调 JVM 堆压榨单机 |
 | 外部 IdP | 公司强推统一 SSO / 禁用自建口令 | H2+bcrypt 结构下加 `/auth/login/oidc` 映射入口即可，不侵入校验链 |
 | 断言语态结构化门控 | 任何一次**被真人/QA 复现、且落在探针正则覆盖之外**的断言式事故编号回答（防断言语态现为软约束层：prompt 规则 6 + 正则探针，上限=探针选词，见 ADR-0010） | 立项输出结构化门控：模型按标注输出置信、渲染层依标注 gating，不再依赖句式正则；泛化症状探针在 `offline/qa_gen_quality_probes.py` 锁最恶劣形态 |
-| 处置闭环（对目标系统的自动执行/自愈） | 产品方向从"建议"转"执行"，或接入真实告警流 + 可审计的 runbook 执行通道（审批链/HITL 门，见 ADR-0009 只读面扩展） | 只读立场为承诺非疏漏：拒答门控 + 全链路溯源保证人在回路；执行侧此前仅以 M3 挂起记录于生产就绪评估。**注**：AIOps 谱系 ①遥测采集/②异常检测=**永久非目标**，不列本表（边界声明见 README/面板谱系块） |
+| 处置闭环（对目标系统的自动执行/自愈） | 产品方向从"建议"转"执行"，或接入真实告警流 **+** 可审计的 runbook 执行通道（审批链/HITL 门，见 ADR-0009 只读面扩展） | 只读立场为承诺非疏漏：拒答门控 + 全链路溯源保证人在回路。**2026-09-16 状态注**：告警流已接入（自举源，ADR-0011），但触发线是**合取**——执行通道仍未建、产品方向仍是"建议"，故本项**未触发**，仍按待还债记录。**注**：AIOps 谱系 ①遥测采集/②异常检测=**永久非目标**，不列本表（边界声明见 README/面板谱系块） |
+| 跨指纹 incident 关联（同一根因、多条不同指纹告警的归并） | 自举告警源上线后**前置已满足**（ADR-0011，真实告警流已存在）；触发线=真实告警流中出现"同一根因、多措辞/多服务"的告警且人工归并成本可测——证据面即 `logs/alert-producer.jsonl` 的 fp 分布（同事故不同措辞会给出不同 fp） | 同指纹域收敛已覆盖（500 并发 → LLM 1 次）；跨指纹目前仍靠人读告警文本，台账如实登记"未收敛项"，不冒充能力 |
 
 ## 6. 公开 push 门闩（已执行记录：2026-09-10 清洗并首推 private）
 

@@ -1,8 +1,8 @@
 {
   "backend": {
     "embedding": "dashscope:text-embedding-v3",
-    "llm": "dashscope:qwen-plus",
-    "rerank": "dashscope:gte-rerank-v2"
+    "rerank": "dashscope:gte-rerank-v2",
+    "llm": "dashscope:qwen-plus"
   },
   "embedding_backend": "dashscope:text-embedding-v3",
   "modes": {
@@ -14,8 +14,8 @@
       },
       "semantic": {
         "hit@1": 0.64,
-        "hit@3": 1.0,
-        "mrr": 0.8133
+        "hit@3": 0.92,
+        "mrr": 0.7667
       }
     },
     "vector_only": {

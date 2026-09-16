@@ -93,7 +93,7 @@ H2 主库中的一行用户记录（sub + bcrypt 口令 + tenant + auth_level + 
 ### 评测域
 
 **Golden Dataset**:
-50 组标注样本（25 精确错误码 + 25 口语化语义），与合成语料同源，ground truth 为期望 chunk_id 集合。
+59 组标注样本（34 精确错误码 + 25 口语化语义），与合成语料同源，ground truth 为期望 chunk_id 集合。
 
 **越狱用例（Jailbreak Case）**:
 诱导模型输出越权内容的对抗 Prompt，验收标准是引擎层过滤使其召回为空，而非模型自觉。

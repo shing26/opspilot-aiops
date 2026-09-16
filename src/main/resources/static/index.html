@@ -243,13 +243,13 @@ $('bounds').innerHTML = BOUNDS.map(x =>
 const SPECTRUM = [
   ['① 遥测采集（metrics/traces/topology）', 'no', '永久非目标', '输入恒为文本 query，三入口皆文本协议'],
   ['② 异常检测（统计/ML）', 'no', '永久非目标', '"何时算异常"判定权归上游告警系统'],
-  ['③ 告警降噪 / 事件收敛', 'done', '已覆盖', '同指纹 500→1（A2-5）· storm/* + ADR-0003；跨指纹关联未在账'],
+  ['③ 告警降噪 / 事件收敛', 'done', '已覆盖', '同指纹 500→1（A2-5）· storm/* + ADR-0003；跨指纹关联前置已满足、已入债务账'],
   ['④ 知识化根因辅助', 'done', '已覆盖', 'retrieval/* · eval_report 现版 es_only 64%→hybrid 88%'],
-  ['⑤ 处置闭环（自动执行/自愈）', 'debt', '待还债', '只读建议+溯源=承诺非疏漏；触发线在案 OPS §5；M3 告警接入挂起']];
+  ['⑤ 处置闭环（自动执行/自愈）', 'debt', '待还债', '只读建议+溯源=承诺非疏漏；触发线在案 OPS §5；自举告警源已接入（ADR-0011）']];
 $('spectrum').innerHTML = SPECTRUM.map(x =>
   '<li><span class="st ' + x[1] + '">' + x[2] + '</span><b>' + esc(x[0]) + '</b>' +
   '<span class="ev">' + esc(x[3]) + '</span></li>').join('') +
-  '<li class="chk">同源核验 2026-09-14 · 完整证据指针（文件/ADR/测试）见 README「AIOps 谱系定位」</li>';
+  '<li class="chk">同源核验 2026-09-16 · 完整证据指针（文件/ADR/测试）见 README「AIOps 谱系定位」</li>';
 
 $('copy').onclick = async () => {
   const a = await api('/api/v1/admin/audit/recent?since=' + Math.max(0, cursor - 50) + '&limit=50')

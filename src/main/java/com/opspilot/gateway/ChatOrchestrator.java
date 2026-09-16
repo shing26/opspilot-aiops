@@ -124,7 +124,7 @@ public class ChatOrchestrator {
         if (!reg.leader()) {
             String shared = reg.future().get(90, TimeUnit.SECONDS);
             metrics.dedupAggregated();
-            replay(sink, shared, "none", true, fp, t0, user, query, via);
+            replay(sink, shared, "none", true, fp, t0, user, query, via, source);
             return;
         }
 
@@ -137,7 +137,7 @@ public class ChatOrchestrator {
             if (cached != null) {
                 metrics.l1Hit();
                 reg.future().complete(cached);
-                replay(sink, cached, "L1", false, fp, t0, user, query, via);
+                replay(sink, cached, "L1", false, fp, t0, user, query, via, source);
                 return;
             }
             L2SemanticCacheService.CacheHit l2hit = l2.lookup(query, user.tenantId(), user.authLevel());
@@ -146,10 +146,10 @@ public class ChatOrchestrator {
                 String json = l2hit.payloadJson();   // 含 refs，回放溯源完整
                 l1.put(user.tenantId(), user.authLevel(), query, json);
                 reg.future().complete(json);
-                replay(sink, json, "L2", false, fp, t0, user, query, via);
+                replay(sink, json, "L2", false, fp, t0, user, query, via, source);
                 return;
             }
-            String json = runPipeline(req, user, sink, fp, t0, via);
+            String json = runPipeline(req, user, sink, fp, t0, via, source);
             reg.future().complete(json);
         } catch (Exception e) {
             reg.future().completeExceptionally(e);
@@ -161,7 +161,7 @@ public class ChatOrchestrator {
 
     /** leader 全链路：降级判定 → 检索 → LLM 流式（或 SOP 直出）→ 写缓存。返回答案 JSON。 */
     private String runPipeline(ChatRequest req, UserContext user, ChatSink sink,
-                               String fp, long t0, String via) throws Exception {
+                               String fp, long t0, String via, String source) throws Exception {
         Level level = degrade.current();
         String query = req.query();
 
@@ -178,8 +178,8 @@ public class ChatOrchestrator {
             long sopFirstDeltaNano = System.nanoTime();
             sink.streamInChunks(answer);
             sink.done(t0, sopFirstDeltaNano, List.of());
-            audit.log(user, "chat", via, query, fp, "none", "sop_fallback", false, user.authLevel(),
-                    (System.nanoTime() - t0) / 1_000_000);
+            audit.log(user, "chat", via, source, query, fp, "none", "sop_fallback", false, user.authLevel(),
+                    (System.nanoTime() - t0) / 1_000_000, null, null);
             return json;
         }
 
@@ -208,8 +208,8 @@ public class ChatOrchestrator {
             sink.delta(refusal);
             sink.done(t0, refusalNano, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
-            audit.log(user, "chat", via, query, fp, "none", outcome.mode(), true, 0,
-                    (System.nanoTime() - t0) / 1_000_000);
+            audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), true, 0,
+                    (System.nanoTime() - t0) / 1_000_000, null, null);
             return json;
         }
 
@@ -246,7 +246,7 @@ public class ChatOrchestrator {
             l2.store(query, qv, json, maxAuth, user.tenantId());
             long ftNano = firstTokenNano.get();
             sink.done(t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
-            audit.log(user, "chat", via, query, fp, "none", outcome.mode(), false, maxAuth,
+            audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), false, maxAuth,
                     (System.nanoTime() - t0) / 1_000_000, null, masked > 0 ? masked : null);
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
@@ -270,12 +270,12 @@ public class ChatOrchestrator {
      * sfKey 掺租户后本不应触发；触发即意味着又出现了新的无租户共享旁路——宁误伤不泄露。
      */
     void replay(ChatSink sink, String json, String cacheHit, boolean deduplicated,
-                String fp, long t0, UserContext user, String query, String via) throws Exception {
+                String fp, long t0, UserContext user, String query, String via, String source) throws Exception {
         AnswerPayload p = mapper.readValue(json, AnswerPayload.class);
         if (!user.tenantId().equals(p.tenant())) {
             log.error("shared replay tenant mismatch: payload={} requester={}", p.tenant(), user.tenantId());
-            audit.log(user, "chat", via, query, fp, "dedup_guard", p.mode(), true, 0,
-                    (System.nanoTime() - t0) / 1_000_000);
+            audit.log(user, "chat", via, source, query, fp, "dedup_guard", p.mode(), true, 0,
+                    (System.nanoTime() - t0) / 1_000_000, null, null);
             sink.error(new IllegalStateException("shared replay tenant mismatch"));
             return;
         }
@@ -285,7 +285,7 @@ public class ChatOrchestrator {
         sink.done(t0, replayFirstDeltaNano, p.refs());
         // src_tenant 随行（QA P1-2"命中来源"）：与 tenant 相等=正常同租户回放；
         // grep 不等即可发现任何新的跨租户共享旁路。
-        audit.log(user, "chat", via, query, fp, cacheHit + (deduplicated ? "+dedup" : ""),
-                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant());
+        audit.log(user, "chat", via, source, query, fp, cacheHit + (deduplicated ? "+dedup" : ""),
+                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant(), null);
     }
 }

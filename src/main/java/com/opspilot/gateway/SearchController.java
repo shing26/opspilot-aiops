@@ -54,10 +54,11 @@ public class SearchController {
                     "mode 仅允许 hybrid|es_only|vector_only");
         }
         SearchOutcome outcome = searchService.search(req.query(), user.tenantId(), level, mode);
-        audit.log(user, "search", "search-api", req.query(), null, "none", outcome.mode(),
+        // source 恒为 manual：检索面（SearchRequest）无 source 字段，它不是告警链路的一环
+        audit.log(user, "search", "search-api", "manual", req.query(), null, "none", outcome.mode(),
                 outcome.chunks().isEmpty(),
                 outcome.chunks().stream().mapToInt(c -> c.authLevel()).max().orElse(0),
-                outcome.tookMs());
+                outcome.tookMs(), null, null);
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("mode", outcome.mode());
         resp.put("fast_path", outcome.fastPath());

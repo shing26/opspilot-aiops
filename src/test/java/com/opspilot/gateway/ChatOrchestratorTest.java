@@ -148,7 +148,11 @@ class ChatOrchestratorTest {
     }
 
     private static ChatRequest req(String query) {
-        return new ChatRequest(query, "manual", null, null);
+        return req(query, "manual");
+    }
+
+    private static ChatRequest req(String query, String source) {
+        return new ChatRequest(query, source, null, null);
     }
 
     private static String q() {
@@ -202,12 +206,12 @@ class ChatOrchestratorTest {
                         new AnswerPayload.Ref("rb-001::s1", "面包屑", "svc")),
                         "hybrid", false, 3, "tenant-internal"));
         RecordingSink sink = new RecordingSink();
-        orchestrator.replay(sink, json, "none", true, "fp1", System.nanoTime(), ACME, q(), "sse");
+        orchestrator.replay(sink, json, "none", true, "fp1", System.nanoTime(), ACME, q(), "sse", "manual");
 
         assertNotNull(sink.error, "外来租户载荷必须走 error 收尾而非回放");
         assertEquals("", sink.answer.toString(), "绊线触发前不得吐出任何内容");
-        verify(audit).log(eq(ACME), eq("chat"), anyString(), anyString(), anyString(),
-                eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong());
+        verify(audit).log(eq(ACME), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
+                eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong(), isNull(), isNull());
     }
 
     /** 组键口径：tenant 是第一字段——与 L1 key 的 cache:l1:<tenant>:<level>: 同构（权限维度完备）。 */
@@ -239,9 +243,39 @@ class ChatOrchestratorTest {
         orchestrator.replay(follower,
                 new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
                         new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal")),
-                "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse");
-        verify(audit).log(eq(INTERNAL), eq("chat"), anyString(), anyString(), anyString(),
-                eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"));
+                "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse", "manual");
+        verify(audit).log(eq(INTERNAL), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
+                eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull());
+    }
+
+    /**
+     * 自举告警源的审计锁（2026-09-16）：source=alert 必须原样落到审计行——这是"系统自己发现
+     * 并上报"整条闭环唯一可被外部核验的面（谁发的、发了几条）。键位固定在 via 之后：
+     * 与 via（协议面 sse/openai/search-api）正交，两者不可合并。
+     */
+    @Test
+    void alertSourceLandsInAuditRow() throws Exception {
+        when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
+                .thenReturn(outcome("rb-201::s1"));
+        RecordingSink sink = new RecordingSink();
+        orchestrator.submit(req(q(), "alert"), INTERNAL, sink, "sse");
+        llmGate.countDown();                    // setUp 的 internal 桩阻塞在闸门上，本用例无需跨租户计时
+        assertTrue(sink.finished.await(30, TimeUnit.SECONDS));
+        verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("alert"), anyString(), anyString(),
+                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull());
+    }
+
+    /** 缺省来源归一（DTO sourceOrDefault）：审计行不得出现 null/空白来源。 */
+    @Test
+    void blankSourceNormalizesToManualInAudit() throws Exception {
+        when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
+                .thenReturn(outcome("rb-201::s1"));
+        RecordingSink sink = new RecordingSink();
+        orchestrator.submit(new ChatRequest(q(), "   ", null, null), INTERNAL, sink, "sse");
+        llmGate.countDown();
+        assertTrue(sink.finished.await(30, TimeUnit.SECONDS));
+        verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
+                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull());
     }
 
     /**
@@ -285,7 +319,7 @@ class ChatOrchestratorTest {
                 "写进 L1 的载荷必须是掩码版（回放卫生）");
         assertFalse(json.getValue().contains(longText.substring(0, 90)), "缓存载荷含逐字原文");
 
-        verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), anyString(), anyString(),
+        verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
                 eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(),
                 argThat((Integer n) -> n != null && n >= 1));
         Object masked = metrics.snapshot().get("verbatim_masked");

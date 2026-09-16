@@ -15,7 +15,7 @@ class AuditServiceTest {
 
     private static void writeN(AuditService svc, int n) {
         for (int i = 0; i < n; i++) {
-            svc.log(U, "chat", "sse", "q" + i, "fp", "none", "hybrid", false, 1, i);
+            svc.log(U, "chat", "sse", "manual", "q" + i, "fp", "none", "hybrid", false, 1, i, null, null);
         }
     }
 
@@ -86,13 +86,28 @@ class AuditServiceTest {
         AuditService svc = new AuditService();
         org.slf4j.MDC.put("request_id", "abc12345");
         try {
-            svc.log(U, "chat", "sse", "q", "fp", "none", "hybrid", false, 1, 1);
+            svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null);
         } finally {
             org.slf4j.MDC.remove("request_id");
         }
-        svc.log(U, "chat", "sse", "q2", "fp", "none", "hybrid", false, 1, 2);
+        svc.log(U, "chat", "sse", "manual", "q2", "fp", "none", "hybrid", false, 1, 2, null, null);
         var r = svc.recentSince(0, 10);
         assertEquals("abc12345", r.events().get(0).get("request_id"), "MDC 在场→行携带 id");
         assertFalse(r.events().get(1).containsKey("request_id"), "MDC 缺席→无该字段");
+    }
+
+    /**
+     * 告警来源可辨识（2026-09-16 自举告警源配套）：source 与 via 正交，必须是一等审计事实——
+     * 否则"这条请求是系统自诊断发的还是人发的"在日志里答不出来，闭环叙事就没有可核验面。
+     */
+    @Test
+    void auditRowCarriesSourceAndBlankNormalizesToManual() {
+        AuditService svc = new AuditService();
+        svc.log(U, "chat", "sse", "alert", "q", "fp", "none", "hybrid", false, 1, 1, null, null);
+        svc.log(U, "chat", "sse", "   ", "q2", "fp", "none", "hybrid", false, 1, 2, null, null);
+        var r = svc.recentSince(0, 10);
+        assertEquals("alert", r.events().get(0).get("source"), "告警请求必须可在审计中辨识");
+        assertEquals("manual", r.events().get(1).get("source"),
+                "空白来源归一为 manual——审计行不留空，避免'没来源'与'人工'两种含义混淆");
     }
 }

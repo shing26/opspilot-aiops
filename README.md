@@ -7,7 +7,7 @@
 - **S**：微服务告警风暴瞬时数千条同质告警打垮 LLM 链路；通用向量检索丢失错误码等精确符号，Top-1 不足 60%。
 - **T**：7 天交付高并发混合检索排障网关：精确符号 Top-1 100%、热点 TP99<50ms、500 并发 LLM 降为 1 次、权限泄漏绝对 0；随后追加生产化硬化（租户隔离、账号体系、中间件加固、零空窗重建）。
 - **A**：① Python AST 切分保护代码块/表格不腰斩，面包屑入元数据；② ES keyword + Qdrant 向量双路并行（虚拟线程+超时隔离），自研 RRF k=60 无量纲融合，精确符号快路径跳过 Rerank 压 TTFT；③ Redisson `来源×指纹` 聚合计数窗口 + 进程内 Single-Flight 收敛风暴（窗口供计数叙事，穿透闸门归 Single-Flight）；④ 三级降级状态机 LLM 429 熔断直出静态 SOP；⑤ auth_level + tenant 双维引擎层硬过滤，缓存/回放全链路权限维度；⑥ 五轮 QA 红队 + 双轴 code-review 闭环（P0 提权绕过 / TDD 锁；第四轮三 Persona 全系统测评揪出 Single-Flight 缺租户与 admin 信任域两处 P0；第五轮生成质量包立逐字导出出口硬护栏与熔断半开自愈）→ v1.0.0 冻结 → DashScope live 实测 → 四 Sprint 生产化（H2 账号+实时吊销、中间件凭据+环回、blue/green 原子切流、审计/配额/CI）→ 转公开前全模块独立+集成复验（台账 `docs/qa/2026-09-13-module-verification.md`），债务带触发线记录在案。
-- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 64% 拉到 88%，2026-09-13 现报告版）、热点 TP99 36.6ms、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏（双向判别语料 + 跨租户并发用例锁死）、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测 27s 零中断（第四轮修复后 303 文档全量重灌 50s 零空窗）。
+- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 64% 拉到 88%，2026-09-16 现报告版）、热点 TP99 36.6ms、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏（双向判别语料 + 跨租户并发用例锁死）、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测 27s 零中断（第四轮修复后 423 文档全量重灌 30s 零空窗）。
 
 ## AIOps 谱系定位 · 是什么，以及明确不是什么
 
@@ -17,9 +17,9 @@
 | --- | --- | --- | --- |
 | ① 遥测采集（metrics/traces/topology） | **永久非目标** | 输入恒为一段文本 query（人贴堆栈或告警系统 POST），无指标流/事件总线/拓扑图；做成采集平台是另一个产品，不是本系统的缺口 | 「架构」节图入口面（三入口皆文本协议）；`gateway/CopilotController.java`、`gateway/OpenAiController.java`（全部入参=文本+元数据） |
 | ② 异常检测（统计/ML） | **永久非目标** | 全仓无检测算法路径——"何时算异常"的判定权恒归上游告警系统，本系统消费其结果 | `grep -riE "anomal|forecast" src/main` 为空；CONTEXT.md 术语表无此词条（有词条必先入术语表，反向可验） |
-| ③ 告警降噪 / 事件收敛 | **已覆盖（同指纹域）**，边界明示 | `来源×指纹` 滑窗计数 + 进程内 Single-Flight：500 并发同指纹 → LLM 仅 1 次。**跨指纹 incident 关联未覆盖且未在账**（前置=真实告警流接入，即 M3 挂起项），不冒充能力 | `storm/FingerprintService.java`、`storm/SingleFlightRegistry.java`；[ADR-0003](docs/adr/0003-single-instance-inprocess-single-flight.md)；A2-5（`offline/acceptance_a2.py`）；验证台账 `docs/qa/2026-09-13-module-verification.md` §3.2 |
-| ④ 知识化根因辅助 | **已覆盖** | 双路召回 + RRF + 精排 over 46 篇复盘/Runbook + OpenAPI；置信度不足显式拒答而非硬编 | `retrieval/HybridSearchService.java`；[ADR-0001](docs/adr/0001-java-online-python-offline-split-at-jsonl.md)/[ADR-0002](docs/adr/0002-dashscope-one-stop-1024-dim.md)；`offline/eval/reports/eval_report.md`（es_only 64%→hybrid 88%，现报告版） |
-| ⑤ 处置闭环（动作执行/自愈） | **待还债（触发线在案）** | 当前形态=输出可溯源排障步骤供**人**执行；对目标系统零写操作是产品承诺非缺陷。触发线：接入可审计执行通道（runbook 执行引擎 + 审批链/HITL 门）后立项；告警接入侧 M3 按硬约束挂起（无真实告警源不做 adapter） | OPS §5 债务闹钟表"处置闭环"行；`docs/ops/production-readiness-2026-09-12.md` M3 |
+| ③ 告警降噪 / 事件收敛 | **已覆盖（同指纹域）**，边界明示 | `来源×指纹` 滑窗计数 + 进程内 Single-Flight：500 并发同指纹 → LLM 仅 1 次。**跨指纹 incident 关联未覆盖**——但 2026-09-16 起**前置已满足**（自举告警源提供了真实告警流，[ADR-0011](docs/adr/0011-self-bootstrapped-alert-source.md)），该边界已入债务账并带触发线（OPS §5），不再"未在账" | `storm/FingerprintService.java`、`storm/SingleFlightRegistry.java`；[ADR-0003](docs/adr/0003-single-instance-inprocess-single-flight.md)；A2-5（`offline/acceptance_a2.py`）；台账 `docs/qa/2026-09-16-self-alert-loop.md` §3（11 条同故障告警 → 指纹一致、LLM 增量 0） |
+| ④ 知识化根因辅助 | **已覆盖** | 双路召回 + RRF + 精排 over 63 篇复盘/Runbook + OpenAPI；置信度不足显式拒答而非硬编 | `retrieval/HybridSearchService.java`；[ADR-0001](docs/adr/0001-java-online-python-offline-split-at-jsonl.md)/[ADR-0002](docs/adr/0002-dashscope-one-stop-1024-dim.md)；`offline/eval/reports/eval_report.md`（es_only 64%→hybrid 88%，现报告版） |
+| ⑤ 处置闭环（动作执行/自愈） | **待还债（触发线在案）** | 当前形态=输出可溯源排障步骤供**人**执行；对目标系统零写操作是产品承诺非缺陷。触发线（合取）：接入可审计执行通道（runbook 执行引擎 + 审批链/HITL 门）后立项。**告警接入侧已解除挂起**——自举告警源已上线（ADR-0011，换源而非 adapter）；面向外部监控系统的 adapter 仍按硬约束挂起 | OPS §5 债务闹钟表"处置闭环"行（含 2026-09-16 状态注）；`docs/ops/production-readiness-2026-09-12.md` M3 |
 
 **一句话口径**：OpsPilot 做的是 AIOps 的 **③④ 两个子域的网关入口层**——"让告警风暴里的一条 query 得到可信、可溯源、越不了权的排障建议"。标题词 AIOps 指的是这个可验证子集；①②⑤ 上表三分类各归其位，欢迎按证据列逐行核验。
 
@@ -39,7 +39,7 @@
 
 | 维度 | 目标 | 实测 | 口径 |
 | --- | --- | --- | --- |
-| 精确符号 Top-1 命中率 | 100% | **100%** | hybrid，25 错误码用例（live） |
+| 精确符号 Top-1 命中率 | 100% | **100%** | hybrid，34 错误码用例（live） |
 | 语义 Top-3 召回率 | >90% | **100%** | hybrid，25 口语化用例（live） |
 | 热点命中 TP99 | <50ms | **36.6ms** | 纯 L1 命中 n=500（live，回放不触外部 API） |
 | 风暴 LLM 触发次数 | 500→1 | **1** | 500 并发同指纹，llm_calls Δ=1（live） |
@@ -48,7 +48,7 @@
 
 > **Embedding 后端**：以上为 **DashScope live** 后端实测——`text-embedding-v3`（1024 维神经语义）+ `gte-rerank-v2`（精排）+ `qwen-plus`（流式生成）。无 `DASHSCOPE_API_KEY` 时服务自动切换本地词法 mock 后端，用于零成本机制验证与 CI 验收（同一代码路径，双模自动切换）。
 >
-> **live 独有的论证价值**：评测集显示语义查询的 **Top-1 命中率 `es_only` 仅 64% → hybrid 88%**（MRR 0.813→0.940，2026-09-13 现报告版；语料扩至 303 篇前为 72%→88%）——向量路把纯词法在首位漏掉的 24 个百分点口语化查询捞了回来。这是 mock 词法后端无法暴露、也只有接入神经向量后才成立的混合检索核心卖点。
+> **live 独有的论证价值**：评测集显示语义查询的 **Top-1 命中率 `es_only` 仅 64% → hybrid 88%**（语义 MRR 0.767→0.940，2026-09-16 现报告版；语料扩至 303 篇前为 72%→88%）——向量路把纯词法在首位漏掉的 24 个百分点口语化查询捞了回来。这是 mock 词法后端无法暴露、也只有接入神经向量后才成立的混合检索核心卖点。**扩语料会让纯词法腿漂移**：语料 303→423 后 `es_only` 语义 Hit@3 由 100% 降至 92%、MRR 0.813→0.767，而 hybrid 逐位不变——混合检索的稳健性正体现在这里（E1 教训第二次实测复现）。
 
 ## 架构（30 秒看懂数据流）
 
@@ -89,7 +89,7 @@ flowchart TD
 ```
 
 - **权限是引擎层硬过滤不是 Prompt 约束**：tenant 与 auth_level 以 term/range 注入 ES Query DSL 与 Qdrant Filter，越权话术无法跨越数据级过滤；role 只在平台管理面生效（ADR-0008：权限三元组必须同构存在于每一条共享路径）。
-- **知识库零空窗重建**：`POST /admin/reingest` 走 blue/green 别名原子切流（ADR-0006），失败保留旧库在线，实测 303 文档 50s 零中断。
+- **知识库零空窗重建**：`POST /admin/reingest` 走 blue/green 别名原子切流（ADR-0006），失败保留旧库在线，实测 423 文档 30s 零中断（live；mock 后端 10s）。
 
 ### 三级自适应降级状态机
 
@@ -191,12 +191,38 @@ curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOK
 
 **协议取舍声明**（详见 ADR-0007）：无状态单轮——取最后一条 user 消息，忽略 system/历史（检索按单 query 指纹设计，多轮请由客户端并入单条消息）；自定义 meta/ttft 在 OpenAI 帧无位置，丢弃；溯源以正文尾部 markdown 保留。注意 Windows Git Bash 的 `curl -d` 发中文有 GBK locale 坑，测试请含 ASCII 或用脚本。
 
+## 自举告警源（dogfooding）
+
+语料、query、评测集、压测流量全部由本项目自己生成——"在合成场景上正确"从未被真实输入检验过。自举告警源补上这一环：**把项目自己的运行史当作告警源**（[ADR-0011](docs/adr/0011-self-bootstrapped-alert-source.md)）。
+
+```bash
+cd offline && PY=.venv/Scripts/python.exe   # Windows；Linux/macOS 为 .venv/bin/python
+set -a; . ../.env; set +a                   # 口令与密钥只从环境读取
+$PY alert_producer.py --once                # 单轮探测（验收友好）
+$PY alert_producer.py                       # 常驻，默认 15s 一轮
+$PY alert_producer.py --dry-run --once      # 只判定与留痕，不发任何请求
+```
+
+五条规则，取数全部来自既有**只读**面 `/api/v1/admin/state`（不新增后端接口、不新增指标）：
+
+| 规则 | 判据 |
+| --- | --- |
+| 依赖 DOWN | `health.{redis,qdrant,es}.status != UP`（告警文案带组件真实 detail） |
+| 熔断 / 降级 | `runtime.degradation.level ∈ {L1,L2}` 或 `cooldown_s > 0` |
+| 上游限流 | `metrics.llm_rate_limited` / `llm_network_errors` 增量 > 0 |
+| 检索路劣化 | `retrieval_timeouts` 增量 > 0 且伴 `es_only_requests` 增量 |
+| 拒答 / 降级直出 | `low_confidence_refusals` / `sop_fallbacks` 增量 > 0 |
+
+命中即 `source=alert` POST 回既有入口，之后走**同一条流水线**（指纹归一 → Single-Flight → 缓存 → 检索 → 生成）——"系统自己发的告警"与人工排障共享全部护栏与溯源。告警主体是独立账号 `sre-watcher`（平台级，配额与审计主体与演示账号隔离），审计行新增 `source` 字段与 `via` 正交，来源可辨。护栏：每规则冷却 300s、每小时上限 20 条、配额保留线 50（留给人用）、计数器复位识别、单轮失败不退出、出口走 localhost 白名单。
+
+> **已知盲区（不假装覆盖）**：网关自身不可用时，生产者经 `/state` 无法自证，只能记 `unreachable`——单进程自举的固有边界。实测证据、未收敛项与两次真实故障自检记录见 [docs/qa/2026-09-16-self-alert-loop.md](docs/qa/2026-09-16-self-alert-loop.md)。
+
 ## 评测与压测
 
 ```bash
 cd offline
 PY=.venv/bin/python          # Windows venv 为 .venv/Scripts/python.exe；或直接 bash ../scripts/py.sh 探测
-$PY eval/build_golden.py     # 50 样本
+$PY eval/build_golden.py     # 59 样本（34 精确码 + 25 语义）
 $PY eval/evaluate.py         # 3 模式对比 + 越狱 → eval/reports/（报告自报服务端 live/mock 后端真相）
 .venv/bin/locust -f load/locustfile.py --headless -u 50 -t 30s --html load/reports/locust_a.html
 SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 15s --html load/reports/locust_b.html
@@ -270,7 +296,7 @@ SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 15s -
 - [OPS.md](OPS.md) — 管理员日常速查：账号生命周期/配额/用量 SOP/债务闹钟/推送门闩
 - [CONTEXT.md](CONTEXT.md) — 领域术语表
 - [docs/adr/](docs/adr/) — 10 项架构决策记录（每份含否决项与后果）
-- [docs/qa/](docs/qa/) — 红队缺陷台账（三 Persona 测评 / 模块独立+集成验证）
+- [docs/qa/](docs/qa/) — 红队缺陷台账（三 Persona 测评 / 模块独立+集成验证 / 自举告警闭环验收）
 - [offline/eval/reports/](offline/eval/reports/) — 评测报告
 - [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML
 
@@ -303,6 +329,7 @@ SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 15s -
 | `offline/acceptance_a2.py` / `acceptance_a3.py` | A2 机制验收 / A3 综合验收 | ✅ |
 | `offline/qa_gen_quality_probes.py` | 生成质量 V1–V8 探针（live gate） | ✅ |
 | `offline/console_client.py` | 控制台演示客户端（SSE 打字机 / 风暴模拟） | ✅ |
+| `offline/alert_producer.py` | **自举告警生产者**（[ADR-0011](docs/adr/0011-self-bootstrapped-alert-source.md)）：读运行态真相面 → 命中即以 `source=alert` 回打自身链路 | ✅ |
 | `scripts/` | 运维与入口脚本，逐个见下表 | ✅ |
 | `data/` | H2 用户主库（含凭据散列） | ❌ |
 | `logs/` | 运行日志 + `audit.jsonl` 合规审计 | ❌ |
@@ -319,7 +346,7 @@ SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 15s -
 | `demo.sh` | 演示前自检（健康 / 权限 / 面板契约 / live 键集合等七检） |
 | `backup.sh` | users 备份 + audit 打包（HTTP 优先，容器内 CLI 兜底） |
 | `user_admin.sh` | 账号生命周期 CLI：`add` / `disable` / `passwd` / `backup` |
-| `seed_demo_users.sh` | 幂等初始化三个演示账号（含跨租户矩阵靶） |
+| `seed_demo_users.sh` | 幂等初始化四个账号：三演示角色（含跨租户矩阵靶）+ 告警主体 `sre-watcher` |
 | `gen_tokens.py` | 生成红队畸形 token 样本（合法账号走 login，不预签 token） |
 | `daily_usage.py` | 从审计日志聚合当日用量（cron 友好） |
 | `check_panel_contract.sh` | 面板↔后端字面量契约（CI 零依赖，后端改名即红） |

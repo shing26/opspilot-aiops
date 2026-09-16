@@ -54,37 +54,31 @@ public class AuditService {
     public record RecentResult(java.util.List<Map<String, Object>> events, long maxSeq, boolean truncated) {}
 
     /**
-     * @param via 调用面来源（"sse"/"openai"/"search-api"），合规视角区分谁经哪个协议面进来；
-     *            旧日志无此字段，消费端（daily_usage）按 dict .get 解析天然向后兼容。
+     * 合规业务事件（**单一入口**：新增字段一律加参，不加少参重载）。
+     * 本方法 2026-09-16 前有三档重载（10/11/12 参），source 缺口正藏在"调用方走了哪一档"里——
+     * 重载会让新字段在旧调用点上静默缺省，落进日志就是"看着有、其实没有"。
+     *
+     * @param via    调用面来源（"sse"/"openai"/"search-api"），合规视角区分谁经哪个协议面进来；
+     *               旧日志无此字段，消费端（daily_usage）按 dict .get 解析天然向后兼容。
+     * @param source 业务来源标记（ADR-0004 的 manual|alert，DTO 侧已 @Pattern 收口）；
+     *               与 via 正交——via 答"从哪个协议面进来"，source 答"这是人工排障还是告警触发"。
+     *               空值归一为 manual：审计行永不留空，避免"没来源"和"人工"两种含义混淆。
+     *               注意它是**客户端自述元数据**，不参与鉴权/配额，只作可观测与风暴窗口分档，
+     *               不可当来源溯源的证据使用。
+     * @param srcTenant 回放/共享载荷的来源租户（QA P1-2 补"命中来源"宣称缺口）。仅缓存/Single-Flight
+     *               回放路径携带（正常恒等于请求者租户；不等即 P0-1 类复发的可 grep 告警面），
+     *               普通生成请求传 null 不落字段，避免全量噪音。
+     * @param verbatimMasked 出口掩码句数（生成质量包 Q2=C），仅 &gt;0 时携带——"谁试图逐字导出、
+     *               被拦了几句"的事后可查面。
      */
-    public void log(UserContext user, String kind, String via, String query, String fingerprint,
-                    String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs) {
-        log(user, kind, via, query, fingerprint, cacheHit, mode, refused, maxResultAuthLevel, tookMs, null);
-    }
-
-    /**
-     * 完整形态：srcTenant = 回放/共享载荷的来源租户（QA P1-2 补"命中来源"宣称缺口）。
-     * 仅缓存/Single-Flight 回放路径携带（正常恒等于请求者租户；不等即 P0-1 类复发的可 grep 告警面），
-     * 普通生成请求传 null 不落字段，避免全量噪音。
-     */
-    public void log(UserContext user, String kind, String via, String query, String fingerprint,
-                    String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs,
-                    String srcTenant) {
-        log(user, kind, via, query, fingerprint, cacheHit, mode, refused, maxResultAuthLevel, tookMs,
-                srcTenant, null);
-    }
-
-    /**
-     * 最终形态（生成质量包 Q2=C 追加）：verbatimMasked = 出口掩码句数，仅 >0 时携带
-     * （无事件不落字段，避免全量噪音）——"谁试图逐字导出、被拦了几句"的事后可查面。
-     */
-    public void log(UserContext user, String kind, String via, String query, String fingerprint,
+    public void log(UserContext user, String kind, String via, String source, String query, String fingerprint,
                     String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs,
                     String srcTenant, Integer verbatimMasked) {
         Map<String, Object> ev = new LinkedHashMap<>();
         ev.put("ts", System.currentTimeMillis());
         ev.put("ev", kind);
         ev.put("via", via);
+        ev.put("source", source == null || source.isBlank() ? "manual" : source);
         ev.put("sub", user == null ? "" : user.sub());
         ev.put("tenant", user == null ? "" : user.tenantId());
         ev.put("level", user == null ? 0 : user.authLevel());

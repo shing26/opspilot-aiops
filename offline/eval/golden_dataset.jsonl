@@ -1,4 +1,4 @@
-{"id": "exact-50012_DB_TIMEOUT", "type": "exact", "query": "50012_DB_TIMEOUT", "expected_docs": ["order-center-api", "pm-001", "rb-001"], "auth_level": 3}
+{"id": "exact-50012_DB_TIMEOUT", "type": "exact", "query": "50012_DB_TIMEOUT", "expected_docs": ["ac-501", "order-center-api", "pm-001", "rb-001"], "auth_level": 3}
 {"id": "exact-50013_DB_DEADLOCK", "type": "exact", "query": "50013_DB_DEADLOCK", "expected_docs": ["order-center-api", "pm-002", "rb-002"], "auth_level": 3}
 {"id": "exact-50021_REDIS_TIMEOUT", "type": "exact", "query": "50021_REDIS_TIMEOUT", "expected_docs": ["order-center-api", "pm-003", "rb-003"], "auth_level": 3}
 {"id": "exact-50022_REDIS_CONN_REFUSED", "type": "exact", "query": "50022_REDIS_CONN_REFUSED", "expected_docs": ["order-center-api", "pm-004", "rb-003"], "auth_level": 3}
@@ -23,6 +23,15 @@
 {"id": "exact-50141_CONNECTION_POOL_EXHAUSTED", "type": "exact", "query": "50141_CONNECTION_POOL_EXHAUSTED", "expected_docs": ["pm-001", "rb-001"], "auth_level": 3}
 {"id": "exact-50151_FEIGN_TIMEOUT", "type": "exact", "query": "50151_FEIGN_TIMEOUT", "expected_docs": ["order-center-api", "pm-007", "pm-013", "rb-005", "rb-012"], "auth_level": 3}
 {"id": "exact-50161_SENTINEL_BLOCKED", "type": "exact", "query": "50161_SENTINEL_BLOCKED", "expected_docs": ["order-center-api", "pm-003", "rb-008"], "auth_level": 3}
+{"id": "exact-51103_H2_CONCURRENT_WRITE_CORRUPTION", "type": "exact", "query": "51103_H2_CONCURRENT_WRITE_CORRUPTION", "expected_docs": ["pm-104", "rb-105"], "auth_level": 3}
+{"id": "exact-51201_CIRCUIT_BREAKER_NO_SELFHEAL", "type": "exact", "query": "51201_CIRCUIT_BREAKER_NO_SELFHEAL", "expected_docs": ["pm-201", "rb-201"], "auth_level": 3}
+{"id": "exact-51202_CACHE_EVICTED_EARLY", "type": "exact", "query": "51202_CACHE_EVICTED_EARLY", "expected_docs": ["pm-202", "rb-202"], "auth_level": 3}
+{"id": "exact-51203_CONTAINER_MEM_BUDGET", "type": "exact", "query": "51203_CONTAINER_MEM_BUDGET", "expected_docs": ["pm-203", "rb-203"], "auth_level": 3}
+{"id": "exact-51204_BACKUP_LAYER_MISSING", "type": "exact", "query": "51204_BACKUP_LAYER_MISSING", "expected_docs": ["pm-204", "rb-204"], "auth_level": 3}
+{"id": "exact-51205_SINGLEFLIGHT_TENANT_GAP", "type": "exact", "query": "51205_SINGLEFLIGHT_TENANT_GAP", "expected_docs": ["pm-205", "rb-205"], "auth_level": 3}
+{"id": "exact-51206_CLIENT_ERROR_LAYERING", "type": "exact", "query": "51206_CLIENT_ERROR_LAYERING", "expected_docs": ["pm-206", "rb-206"], "auth_level": 3}
+{"id": "exact-51207_HOSTPORT_PROXY_LATENCY", "type": "exact", "query": "51207_HOSTPORT_PROXY_LATENCY", "expected_docs": ["pm-207", "rb-207"], "auth_level": 3}
+{"id": "exact-51208_DEPENDENCY_DOWN", "type": "exact", "query": "51208_DEPENDENCY_DOWN", "expected_docs": ["rb-208"], "auth_level": 3}
 {"id": "sem-01", "type": "semantic", "query": "下单一直超时页面转圈，数据库是不是扛不住了", "expected_docs": ["rb-001", "pm-001"], "auth_level": 3}
 {"id": "sem-02", "type": "semantic", "query": "连接池被占满，获取连接等待超时", "expected_docs": ["rb-001", "pm-001", "rb-012"], "auth_level": 3}
 {"id": "sem-03", "type": "semantic", "query": "库存扣减的时候事务互相卡住回滚了", "expected_docs": ["rb-002", "pm-002"], "auth_level": 3}

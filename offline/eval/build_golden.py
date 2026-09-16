@@ -1,7 +1,11 @@
-"""生成 Golden Dataset：50 组标注样本（25 精确错误码 + 25 口语化语义）。
+"""生成 Golden Dataset：59 组标注样本（34 精确错误码 + 25 口语化语义）。
 
 精确样本的 ground truth 从 chunks.jsonl 自动派生（含该错误码的文档集合），
 语义样本为手工构造的口语化描述 → 期望文档。与合成语料同源，保证可对齐。
+
+2026-09-16：精确码 25 → 34（新增 51103 与 51201-51208，自举告警源配套语料）。
+扩语料会改变 BM25 文档频率、纯词法腿指标会漂移，故同批重跑 evaluate.py 并刷新
+offline/eval/reports/ 与 README 数字（E1 教训：数字必须与随附产物同代）。
 
 运行目录：offline/。所有路径经 resolve 校验，禁止 .. 且限定在本目录内。
 """
@@ -24,7 +28,7 @@ def _within_root(rel: str) -> Path:
     return p
 
 
-# 25 个精确错误码（与注册表一致）
+# 34 个精确错误码（与 offline/tests/test_chunkers.py 的 ERROR_REGISTRY 一致）
 EXACT_CODES = [
     "50012_DB_TIMEOUT", "50013_DB_DEADLOCK", "50021_REDIS_TIMEOUT", "50022_REDIS_CONN_REFUSED",
     "50031_MQ_CONSUME_LAG", "50032_MQ_SEND_FAILED", "50041_PAY_GATEWAY_502", "50042_PAY_SIGN_INVALID",
@@ -34,6 +38,12 @@ EXACT_CODES = [
     "50092_THREAD_POOL_EXHAUSTED", "50101_SLOW_SQL_DETECTED", "50111_CERT_EXPIRING",
     "50121_DNS_RESOLUTION_FAILED", "50131_NTP_DRIFT", "50141_CONNECTION_POOL_EXHAUSTED",
     "50151_FEIGN_TIMEOUT", "50161_SENTINEL_BLOCKED",
+    # 51xxx = 项目自身/环境类事故码（1xx/2xx 自举语料）
+    "51103_H2_CONCURRENT_WRITE_CORRUPTION",
+    "51201_CIRCUIT_BREAKER_NO_SELFHEAL", "51202_CACHE_EVICTED_EARLY",
+    "51203_CONTAINER_MEM_BUDGET", "51204_BACKUP_LAYER_MISSING",
+    "51205_SINGLEFLIGHT_TENANT_GAP", "51206_CLIENT_ERROR_LAYERING",
+    "51207_HOSTPORT_PROXY_LATENCY", "51208_DEPENDENCY_DOWN",
 ]
 
 # 25 个口语化语义查询 → 期望文档（与语料主题词重叠，mock 词法向量可召回）

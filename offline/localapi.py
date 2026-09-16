@@ -8,6 +8,7 @@ token 路径相对本文件解析，不再依赖运行目录（修复 a3/evaluat
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -74,6 +75,60 @@ def post_json(path: str, body: dict, token: str, timeout: int = 60) -> dict:
 def search_docs(query: str, mode: str, token: str) -> list[dict]:
     """非流式 /search，直接返回 results 列表。timeout=30 保持 a3/evaluate 原口径。"""
     return post_json("/api/v1/copilot/search", {"query": query, "mode": mode}, token, timeout=30)["results"]
+
+
+def stream_chat(body: dict, token: str, timeout: int = 120) -> dict:
+    """SSE 原语（自举告警生产者与后续验收共用，见 ADR-0011）。
+
+    为什么不能复用 post_json：/chat/stream 的响应是事件流——post_json 用 json.load(r) 会
+    整流读完再整体解析，必然抛错；且它不设 Accept 头，内容协商可能落到非流式分支。
+
+    返回结构固定，**非 2xx 不抛异常**（把 429/401 当成可决策的返回值而非异常，
+    因为告警链路绝不能因一次限流就崩掉或转入重试风暴）：
+      {status, code, meta, deltas, done, error, ttft_s, total_s}
+      meta   = 服务端权威事实（fingerprint / cache_hit / degradation_level / fast_path / deduplicated）
+      done   = {ttft_ms, refs}，refs 是溯源引用（含 doc_id），收敛与命中判据都取自这里
+      error  = 服务端 error 帧内容（链路异常时的固定话术 + code）
+    """
+    req = urllib.request.Request(
+        assert_local(BASE + "/api/v1/copilot/chat/stream"),
+        data=json.dumps(body).encode("utf-8"), method="POST",
+        headers={"Authorization": "Bearer " + token, "Content-Type": "application/json",
+                 "Accept": "text/event-stream"})
+    t0 = time.time()
+    out = {"status": 0, "code": None, "meta": {}, "deltas": [], "done": {}, "error": None,
+           "ttft_s": None, "total_s": 0.0}
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            out["status"] = r.status
+            event = None
+            for raw in r:
+                line = raw.decode("utf-8").rstrip("\n")
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:"):
+                    try:
+                        data = json.loads(line[5:].strip())
+                    except json.JSONDecodeError:
+                        continue                       # 非 JSON 帧（如 OpenAI 面的 [DONE]）不属本原语口径
+                    if event == "meta":
+                        out["meta"] = data
+                    elif event == "delta":
+                        if out["ttft_s"] is None:
+                            out["ttft_s"] = round(time.time() - t0, 3)
+                        out["deltas"].append(data.get("token", ""))
+                    elif event == "done":
+                        out["done"] = data
+                    elif event == "error":
+                        out["error"] = data
+    except urllib.error.HTTPError as e:
+        out["status"] = e.code
+        try:
+            out["code"] = json.loads(e.read().decode("utf-8", "ignore")).get("code")
+        except Exception:
+            out["code"] = None
+    out["total_s"] = round(time.time() - t0, 3)
+    return out
 
 
 def expect_http_status(path: str, body: dict, token: str, expected: int) -> tuple[bool, int]:
