@@ -119,6 +119,7 @@ README 数字与报告同代、CONTEXT.md 术语表样本数同步。**报告自
 | A5（P2） | 组件 `detail` 是全链路唯一"非人工撰写"的 prompt 输入面，无字符限制 | 加白名单清洗（去控制字符、限 120 字、剔除 `<>\`$` 等拼接原料），并用例锁住 |
 | A6（P2） | OpenAI 面硬编码 `source="manual"` 无边界注释 | 补注释锁定"该面恒 manual，告警链路只走 `/chat/stream`" |
 | — | 评审同时触发本机安全插件对 `localapi.py` 的 SSRF 复核 | 借机**真实加固**：`assert_local` 增加"解析后 IP 必须仍是环回"（防 hosts 篡改/DNS rebinding）与 userinfo 拒绝；新增禁止跟随越界重定向的 opener，全部出口统一走它 |
+| C1（push 后由 CI 抓到） | "本文件不触网"只是文档承诺：`test_gate_order_*` 最后一步用**真发一次请求**断言"闸门全开"，本机网关恰好在跑所以绿，CI 无网关立刻 `Connection refused`（`python` job 红，`java`/`panel-contract` 绿） | 用例改为**桩替 emit 并断言委派**；另加 autouse fixture 把"不触网"变成机制——未显式 monkeypatch 的真实 HTTP 调用直接判失败。教训：本地绿不等于 CI 绿，凡"恰好有环境"的断言都是定时炸弹 |
 
 **评审确认无 P0**：无凭据泄漏、无未授权访问、无注入；`source` 字段经全仓 grep 证实**只被窗口分档读取**，不参与鉴权/配额。回归锁随之增至 **30 用例**（切分 8 + 生产者 22）。
 

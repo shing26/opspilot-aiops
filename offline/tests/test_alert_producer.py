@@ -12,9 +12,25 @@ import sys
 import types
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import alert_producer as ap  # noqa: E402
 import localapi  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch):
+    """把"本文件不触网"从文档承诺变成机制。
+
+    教训来源：`test_gate_order_*` 曾用"真发一次请求"来断言闸门全开，本机网关恰好在跑所以绿，
+    CI（无网关）立刻 `Connection refused`。凡用例需要网络语义，必须显式 monkeypatch
+    （`localapi.stream_chat` / `get_json` / `login`）；未 patch 的真实调用在这里直接判失败。
+    """
+    def _boom(req, timeout):
+        raise AssertionError("单元用例不得发起真实网络调用：请 monkeypatch localapi.stream_chat/_open/get_json/login")
+
+    monkeypatch.setattr(ap.localapi, "_open", _boom)
 
 
 def _state(metrics=None, health=None, degradation=None, quota=None, inflight=0) -> dict:
@@ -103,7 +119,7 @@ def test_upstream_and_refusal_rules():
 
 # ---- 发送闸门：顺序即优先级 -------------------------------------------------
 
-def test_gate_order_budget_beats_quota_beats_cooldown():
+def test_gate_order_budget_beats_quota_beats_cooldown(monkeypatch):
     p = _producer(max_per_hour=1)
     p.emits = [__import__("time").time()]                    # 已用满小时预算
     low_q = _state(quota={"limit": 100, "used": 99})
@@ -113,10 +129,15 @@ def test_gate_order_budget_beats_quota_beats_cooldown():
     p2 = _producer()
     assert p2.gate(alert, low_q, 0.0)["skip"] == "quota_reserve"
 
+    # 闸门全开时必须落到 emit——用桩替掉 emit，断言"委派"而不是真发请求：
+    # 这一条曾用真发请求断言（本机网关恰好在跑所以绿，CI 无网关即 Connection refused）。
+    sent = []
     p3 = _producer(cooldown=300)
+    monkeypatch.setattr(p3, "emit", lambda a: sent.append(a["rule"]) or {"rule": a["rule"], "emit": True})
     p3.last_emit["dep_down"] = 1000.0
     assert p3.gate(alert, _state(), 1200.0)["skip"] == "cooldown"
     assert "skip" not in p3.gate(alert, _state(), 1400.0)   # 冷却以"真的发出去"计时
+    assert sent == ["dep_down"], "闸门全开时应委派给 emit"
 
 
 def test_gate_skips_are_recorded_with_rule_and_query():
