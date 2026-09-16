@@ -133,11 +133,28 @@ def test_gate_order_budget_beats_quota_beats_cooldown(monkeypatch):
     # 这一条曾用真发请求断言（本机网关恰好在跑所以绿，CI 无网关即 Connection refused）。
     sent = []
     p3 = _producer(cooldown=300)
-    monkeypatch.setattr(p3, "emit", lambda a: sent.append(a["rule"]) or {"rule": a["rule"], "emit": True})
-    p3.last_emit["dep_down"] = 1000.0
+    monkeypatch.setattr(p3, "emit", lambda a: sent.append(a["service"]) or {"rule": a["rule"], "emit": True})
+    p3.last_emit[p3._key(alert)] = 1000.0
     assert p3.gate(alert, _state(), 1200.0)["skip"] == "cooldown"
     assert "skip" not in p3.gate(alert, _state(), 1400.0)   # 冷却以"真的发出去"计时
-    assert sent == ["dep_down"], "闸门全开时应委派给 emit"
+    assert sent == ["qdrant"], "闸门全开时应委派给 emit"
+
+
+def test_cooldown_is_per_component_not_per_rule(monkeypatch):
+    """多组件同时不可用：冷却必须按 (规则,组件) 计。
+
+    按规则单键时 `dep_down` 只报第一个组件，其余被静默吞掉——真实的 redis+es 同时中断
+    就是这么暴露的（2026-09-17 实测：candidates=2 但 emitted=1）。
+    """
+    p = _producer(cooldown=300)
+    sent = []
+    monkeypatch.setattr(p, "emit", lambda a: sent.append(a["service"]) or {"rule": a["rule"], "emit": True})
+    a_redis = {"rule": "dep_down", "service": "redis", "query": "q"}
+    a_es = {"rule": "dep_down", "service": "es", "query": "q"}
+    assert p.gate(a_redis, _state(), 1000.0).get("emit") is True
+    p.last_emit[p._key(a_redis)] = 1000.0
+    assert p.gate(a_es, _state(), 1100.0).get("emit") is True, "另一组件的故障不得被冷却吞掉"
+    assert p.gate(a_redis, _state(), 1100.0)["skip"] == "cooldown", "同一组件仍受冷却约束"
 
 
 def test_gate_skips_are_recorded_with_rule_and_query():

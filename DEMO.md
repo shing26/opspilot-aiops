@@ -1,6 +1,6 @@
 # OpsPilot 演示手册（DEMO）
 
-> 六幕演示脚本。服务、中间件、live 后端就绪后全程约 5 分钟；也可作为面试现场的可复现操作单。
+> 六幕主线（服务、中间件、live 后端就绪后约 5 分钟）+ 幕⑦标准协议面（+40 秒）+ 幕⑧自举闭环（+3 分钟，独立一条链路）。也可作为面试现场的可复现操作单。
 > 前置自检：`bash scripts/demo.sh`（见文末）。**管理员日常操作（开号/离职/配额/告警）看 [OPS.md](OPS.md)，不是本文。**
 
 ## 0. 启动
@@ -128,17 +128,18 @@ curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization
 | --- | --- |
 | 端口 8081 被占 / 启动即退 | `powershell "Get-Process java -ErrorAction SilentlyContinue | Stop-Process -Force"` 重试；`8080` 被本机 nexus-web 占用是既定事实 |
 | `JWT_SECRET 环境变量未设置` | .env 未 source，或行内有前导空格/值带引号 |
-| 检索结果异常少 / mode 一直 es_only | 中间件没起来：`docker compose up -d`；Qdrant 集合空（曾 `down -v`）→ 启动参数加 `--opspilot.ingest=true` 重灌（~40s） |
+| 检索结果异常少 / mode 一直 es_only | 中间件没起来：`docker compose up -d`；Qdrant 集合空（曾 `down -v`）→ 启动参数加 `--opspilot.ingest=true` 重灌（423 文档实测 22.3s，live） |
 | rerank 403 | 旧 `gte-rerank` 已停授权；确认 `${RERANK_MODEL:gte-rerank-v2}`（ADR-0002 有修订注记） |
+| `curl -d` 发中文报 400 请求体解析失败 | Git Bash/CMD 的 curl 按本地代码页发中文（GBK 出局）→ 带中文的请求一律走 python（`offline/localapi.py` 的 `post_json`/`stream_chat`） |
 
 ## 3. 成本口径
 
-演示全程（含六幕）约 **15-20 次 LLM 调用 + 40 次 embedding**，live 下人民币几分到几角。风暴幕 500 并发只打 1 次 LLM——这本身就是产品卖点。
+演示全程（含六幕）约 **15-20 次 LLM 调用 + 40 次 embedding**，live 下人民币几分到几角。风暴幕 500 并发只打 1 次 LLM——这本身就是产品卖点。幕⑧追加 **1-2 次**（同故障重复触发走 L1 缓存，不再调用 LLM，这一点当场可见）。
 
 ## 4. 完整回归（面试前 3 分钟自测）
 
 ```bash
-.venv/Scripts/python.exe acceptance_a2.py    # 期望 A2: 7/7 PASS（~2min，含 500 并发风暴）
+.venv/Scripts/python.exe acceptance_a2.py    # 期望 A2: 10/10 PASS（~2min，含 500 并发风暴）
 .venv/Scripts/python.exe acceptance_a3.py    # 期望 A3: 8/8 PASS（~5min，含评测集检索）
 ```
 
@@ -173,3 +174,46 @@ curl -N http://localhost:8081/v1/chat/completions -H "Authorization: Bearer $TOK
 
 （历史：曾接入 LobeChat 壳验证兼容性并实测全链路穿透，2026-09-11 撤除——聊天壳只呈现"会答对的对话框"，
 本协议面的价值是兼容性证明本身，UI 不承载系统实质；见 ADR-0007 状态注与 OPS §7。）
+
+### 幕⑧（+3 分钟，独立链路）自举闭环——系统自己发现故障
+
+> **这一幕和前七幕的区别**：前面所有幕的 query 都是人敲的、故障都是参数模拟的。这一幕里
+> **故障是真的（真停一个依赖）、query 是系统自己写的、知识来自它自己的事故复盘**——
+> 语料/评测集/压测流量全由本项目自产，"被真实输入检验过"这件事只有在这一幕成立（ADR-0011）。
+
+一条命令跑完全程（脚本会真的停掉再起回 qdrant，请确认在本机开发环境执行）：
+
+```bash
+bash scripts/demo_self_alert.sh          # 完整链路，约 3 分钟
+bash scripts/demo_self_alert.sh --quick  # 只演到"告警 + 收敛"，跳过恢复等待
+```
+
+八个镜头与预期（脚本按序打印，照此口播）：
+
+| 镜头 | 动作 | 预期 |
+| --- | --- | --- |
+| ① | 健康态探测 | `candidates=0`——没故障就不发告警（不造假告警） |
+| ② | `docker compose stop qdrant` | 真实依赖不可用 |
+| ③ | 等健康面反映（15s） | `health=DEGRADED`（探活 5s TTL + 3s 探测超时） |
+| ④ | 单轮探测 | 告警发出：`rule=dep_down service=qdrant http=200 sent_ok=True`；台账带 `fp` 与命中文档；审计出现 `source=alert` + `sub=sre-watcher` |
+| ⑤ | 连发同故障告警 | `llm_calls` 增量 **0**（同指纹走 L1），台账 `cache_hit=L1`、指纹逐位一致 |
+| ⑥ | 直查告警里的错误码 | `51208_DEPENDENCY_DOWN` → Top-1 = **rb-208**（系统自己写的那篇处置单，含「止损操作」） |
+| ⑦ | 起回 qdrant + 等 80s | 网关侧健康面自愈（gRPC 通道重建约 1 分钟；外部 REST 早已健康，**这条观测滞后已写进 rb-208**） |
+| ⑧ | 再探测 | `candidates=0`——**恢复即停报** |
+
+口播（约 3 分钟）：
+
+> "前面几幕的故障是我按参数模拟的、query 是我敲的。这一幕不一样：我现在**真的把向量库停掉**——
+> 注意没有任何人告诉系统'出故障了'，是它自己轮询运行态发现的：依赖 DOWN、健康面转 DEGRADED。
+> 它给自己发了一条告警，`source=alert`，主体是独立的告警账号——这条审计行就是证据：来源可辨、主体可辨。
+> 再看收敛：同样的告警再发两次，指纹逐位相同、缓存直接命中，**LLM 调用增量是 0**——告警风暴打不爆它。
+> 最有意思的是它检索到了什么：告警里带的错误码，查出来的是**它自己那篇处置单**——这套系统的知识库里
+> 躺着它自己踩过的坑，包括'依赖停了之后网关侧健康面要一分钟才反应过来'，那也是实测写进去的。
+> 最后我把向量库起回来，它自己停了告警。整条链路：自检 → 自报 → 收敛 → 命中自己的复盘 → 恢复停报，
+> 零人工构造 query。"
+
+**被问到就答**：生产者 `offline/alert_producer.py` 只读既有观测面（`/admin/state` 的 health/degradation/metrics/quota）、
+只调既有入口，不新增后端接口；五条规则（依赖 DOWN / 熔断降级 / 上游限流 / 检索路劣化 / 拒答激增）；
+护栏含单实例锁、每规则冷却 300s、每小时上限 20 条、本主体配额保留线、登录失败退避、出口环回白名单。
+**已知盲区**：网关自身挂掉时生产者无法自证，只能记 `unreachable`——单进程自举的固有边界，不假装覆盖。
+实测台账：[docs/qa/2026-09-16-self-alert-loop.md](docs/qa/2026-09-16-self-alert-loop.md)。

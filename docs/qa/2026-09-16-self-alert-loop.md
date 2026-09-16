@@ -102,6 +102,14 @@ README 数字与报告同代、CONTEXT.md 术语表样本数同步。**报告自
    MVStore chunk 损坏，`org.h2.tools.Recover` 也救不回。根因（高度可疑，未插桩）：容器 bind mount 上
    H2 锁文件不可靠 → 双写。→ 已按纪律处置：OPS §1 并发口径更正（容器形态必须串行）、事故成文
    `pm-104`/`rb-105`、损坏文件留档 `data/users.mv.db.corrupt-20260916.bak`、事后补做账号库备份。
+3. **中间件"健康但不可用"（2026-09-17 录屏期间实测）**：Docker Desktop 重启后留下两类坑——
+   ①**宿主端口代理失效**（容器内 `redis-cli ping` 通、宿主裸 socket `PING` 收到 `b''`，网关启动报 `AUTH` 超时）；
+   ②**长跑网关的客户端连接不自愈**（中间件恢复后网关仍 `health=DOWN`、检索空、**登录 500**，
+   根因是登录路径要写 Redis `auth:fail` 计数器）。恢复动作（先 `restart` 中间件修端口、**再**重启网关）
+   已入 OPS §10，含"登录 500 不是账号库坏了"的判别法。
+   **顺带暴露一个设计缺口**：告警冷却按"规则"计，而 `dep_down` 覆盖 redis/es/qdrant 三个组件——
+   两组件同时不可用时只报第一个、另一个被**静默吞掉**（实测 `candidates=2 emitted=1`）。
+   已修为按 `(规则, 组件)` 计冷却，并补回归锁 `test_cooldown_is_per_component_not_per_rule`。
 
 ## 6. 双轴评审与同批修复
 

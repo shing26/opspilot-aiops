@@ -165,7 +165,7 @@ class Producer:
         self.token = ""
         self.login_failures = 0
         self.prev: dict | None = None
-        self.last_emit: dict[str, float] = {}   # rule → 上次**真的发出去**的时刻（冷却只约束发送）
+        self.last_emit: dict[str, float] = {}   # "规则:组件" → 上次**真的发出去**的时刻（冷却只约束发送）
         self.emits: list[float] = []
         self.stats = {"cycles": 0, "candidates": 0, "emitted": 0, "skipped": 0, "errors": 0}
 
@@ -189,6 +189,16 @@ class Producer:
                 raise PermissionError(
                     f"主体 {self.user} 无权读 /admin/state（需 role=platform 且 auth_level>=3）") from e
             raise
+
+    @staticmethod
+    def _key(alert: dict) -> str:
+        """冷却与预算的键 = 规则 + 组件。
+
+        按规则单键会在"一个规则覆盖多个组件"时出错：dep_down 覆盖 redis/es/qdrant，
+        三个同时不可用时只有第一个能发出，其余被冷却静默吞掉——真实的 redis+es 同时中断
+        就是这么暴露的。冷却的语义是"别再重复报同一件事"，而"哪个组件"是这件事的一部分。
+        """
+        return f"{alert.get('rule')}:{alert.get('service', '')}"
 
     def emit(self, alert: dict) -> dict:
         """发一条告警；台账记录里带上服务端权威事实（fingerprint/cache_hit/refs）。
@@ -247,7 +257,7 @@ class Producer:
         if self.quota_low(state):
             return {"rule": alert["rule"], "service": alert["service"], "emit": False,
                     "skip": "quota_reserve", "query": alert["query"]}
-        if now - self.last_emit.get(alert["rule"], 0.0) < self.cooldown:
+        if now - self.last_emit.get(self._key(alert), 0.0) < self.cooldown:
             return {"rule": alert["rule"], "service": alert["service"], "emit": False,
                     "skip": "cooldown", "query": alert["query"]}
         return self.emit(alert)
@@ -269,7 +279,7 @@ class Producer:
             self.stats["candidates"] += 1
             rec = self.gate(alert, state, now)
             if rec.get("emit"):
-                self.last_emit[alert["rule"]] = now
+                self.last_emit[self._key(alert)] = now
                 self.emits.append(now)
                 self.stats["emitted"] += 1
                 print(f"[alert] {alert['rule']} service={alert['service']} http={rec.get('http')} "

@@ -196,3 +196,19 @@ cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');imp
 **契约防漂移**（改名即红，两道闸）：`scripts/check_panel_contract.sh`（CI 独立 job，零服务）比对 HTML fetch 路径↔Controller `@GetMapping`、OpsMetrics 键↔面板 tiles、`/state` 键集双向；`demo.sh` 第 7 检是 live 键集合断言。Java 侧改任一被面板消费的键而不同步 HTML，CI 点名 `面板引用了后端不存在的键`。
 
 **运维预期**：面板是进程内 ring buffer（最近 200 条审计事件，重启清零）+ 游标轮询（前台 2s / 标签页隐藏自动降 30s）——**成功读路径不落审计**（实测轮询 60s，audit.jsonl 行增量 0），所以面板自身不会污染它展示的证据流；事件缓冲轮转/服务重启导致的缺口以 `truncated=true` 显式标 ⚠️，绝不做连续假象。轮询周期是前端常量 `cadence()`，调它不改后端。
+
+## 10. 中间件异常后的恢复动作（2026-09-17 实测）
+
+Docker Desktop 重启（升级/崩溃自恢复）会给本机留下两类**看起来正常、实际不可用**的坑，
+两者都不报错、都让"容器健康"与"服务可用"背离，各有一条固定恢复动作：
+
+| 症状 | 判据（怎么确认不是应用 bug） | 恢复动作 |
+| --- | --- | --- |
+| 宿主端口代理失效 | 容器内 `redis-cli ping` 通、`docker exec … curl localhost:9200` 通，但**宿主**连 `127.0.0.1:6379/9200/6334` 被接受后零字节返回（裸 socket `PING` 收到 `b''`）；网关启动报 `RedisTimeoutException: Command execution timeout for command: (AUTH)` | `docker compose restart <service>`（实测 redis / elasticsearch / qdrant 三个都需各自重启一次；`restart` 会重建端口映射） |
+| 长跑网关的中间件连接不自愈 | 中间件起来之后网关仍 `health=DOWN`、检索返回空、**登录 500**（根因是登录路径要写 Redis 的 `auth:fail` 计数器，连接已失效 → `WriteRedisConnectionException`），实测持续 3 分钟以上未自愈 | 重启网关进程（客户端连接重建）；数据在命名卷里，重启后核对 `health.es.value` / `health.qdrant.value` 是否仍等于语料数即可确认无损 |
+
+**顺序**：先修端口代理（`restart` 中间件）→ 确认宿主侧协议可达 → **再**重启网关。
+反过来做会得到"起来了但仍然 DOWN"的假象（客户端在端口还是坏的时候完成初始化）。
+
+**注**：登录 500 这个形态曾经把人往"账号库坏了"上带——判别法是看 `logs/app.log` 里那条异常的类名：
+`WriteRedisConnectionException` 指向 Redis 连接，不是 `JdbcSQLNonTransientConnectionException`（那才是账号库）。
