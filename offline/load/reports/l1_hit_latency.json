@@ -1,0 +1,36 @@
+{
+  "measured_at": "2026-09-17T09:29:06+08:00",
+  "subject": "sre-full",
+  "query": "50012_DB_TIMEOUT 下单超时怎么排查",
+  "n": 200,
+  "backend": {
+    "embedding": "dashscope:text-embedding-v3",
+    "rerank": "dashscope:gte-rerank-v2",
+    "llm": "dashscope:qwen-plus"
+  },
+  "cache_hit_distribution": {
+    "L1": 200
+  },
+  "server_ttft_ms": {
+    "n": 200,
+    "mean": 7.84,
+    "p50": 7.0,
+    "p90": 10.0,
+    "p95": 12.0,
+    "p99": 16.0,
+    "max": 24.0,
+    "min": 5.0
+  },
+  "client_end_to_end_ms": {
+    "n": 200,
+    "mean": 24.96,
+    "p50": 21.77,
+    "p90": 34.56,
+    "p95": 37.99,
+    "p99": 46.33,
+    "max": 59.16,
+    "min": 16.33
+  },
+  "refs_min": 3,
+  "note": "服务端 TTFT = SSE done 帧 ttft_ms（系统处理耗时，可与目标线比较）；客户端端到端含本机解释器与 HTTP 往返开销，勿拿来当系统性能。样本全部为 L1 命中（非 L1 即中止），不触外部 API，零 LLM 成本。"
+}

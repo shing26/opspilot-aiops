@@ -55,7 +55,7 @@ $PY console_client.py
 
 预期：打字机流式输出排障答案；`[meta]` 含 `fingerprint/cache_hit/degradation_level/fast_path`；`[TTFT]` 秒级（live 冷路径真实延迟：embedding+rerank+LLM）；`[refs]` 列出面包屑溯源。
 
-### 幕② 缓存秒回（讲点：L1 掺 tenant+authLevel 的 Key 设计；热点 P99≈37ms 现场版）
+### 幕② 缓存秒回（讲点：L1 掺 tenant+authLevel 的 Key 设计；热点 P99≈16ms 现场版）
 
 同一条命令**立刻再跑一次**：
 
@@ -63,7 +63,7 @@ $PY console_client.py
 $PY console_client.py
 ```
 
-预期：`cache_hit: "L1"`，TTFT 从秒级掉到 ~20ms。⚠️ 若被问"缓存是不是作弊"——口径：缓存 Key 含权限维度，回放内容与首次一致且永不跨密级（幕⑤反证）。
+预期：`cache_hit: "L1"`，TTFT 从秒级掉到 ~20ms。⚠️ 若被问"缓存是不是作弊"——口径：缓存 Key 含权限维度，回放内容与首次一致且永不跨密级（幕⑤反证）；延迟数字底稿见 `offline/load/reports/l1_hit_latency.md`（n=200 回放，服务端 TTFT p99=16ms）。
 
 ### 幕③ 语义改写命中 L2（讲点：神经向量余弦>0.95 语义缓存）
 

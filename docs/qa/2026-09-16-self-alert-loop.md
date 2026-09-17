@@ -68,7 +68,7 @@
 | 项 | 实测 |
 | --- | --- |
 | 切分 | `chunks=423`（原 303，+120）· `by_type={api_endpoint:25, markdown_section:398}` · 无 chunk_id 重复 |
-| 单测 | `pytest offline/tests` **30 passed**（切分 8 + 生产者 22） |
+| 单测 | `pytest offline/tests` **31 passed**（切分 8 + 生产者 23） |
 | 蓝绿重建 | live 全量 **22.3s**（`logs/app.log`：`入库完成: 423 chunks … 耗时 22290ms`）、零空窗、`reingest_last=ok (trigger=admin-reingest)`；ES `423 docs` / Qdrant `423 pts`（mock 后端同语料 8.0s） |
 | 新码命中 | 9/9 精确码 Top-1 = 期望处置单（`/search` 逐码直查，命令见 §7；命令输出 `Top1=rb-105/rb-201..rb-208` 与期望逐位一致）；评测面同批复核：`eval_report.json` exact hit@1 = 1.0（34/34，ground truth 为文档集，故精确码的"是否 rb 而非 pm"以直查为准） |
 
@@ -129,7 +129,7 @@ README 数字与报告同代、CONTEXT.md 术语表样本数同步。**报告自
 | — | 评审同时触发本机安全插件对 `localapi.py` 的 SSRF 复核 | 借机**真实加固**：`assert_local` 增加"解析后 IP 必须仍是环回"（防 hosts 篡改/DNS rebinding）与 userinfo 拒绝；新增禁止跟随越界重定向的 opener，全部出口统一走它 |
 | C1（push 后由 CI 抓到） | "本文件不触网"只是文档承诺：`test_gate_order_*` 最后一步用**真发一次请求**断言"闸门全开"，本机网关恰好在跑所以绿，CI 无网关立刻 `Connection refused`（`python` job 红，`java`/`panel-contract` 绿） | 用例改为**桩替 emit 并断言委派**；另加 autouse fixture 把"不触网"变成机制——未显式 monkeypatch 的真实 HTTP 调用直接判失败。教训：本地绿不等于 CI 绿，凡"恰好有环境"的断言都是定时炸弹 |
 
-**评审确认无 P0**：无凭据泄漏、无未授权访问、无注入；`source` 字段经全仓 grep 证实**只被窗口分档读取**，不参与鉴权/配额。回归锁随之增至 **30 用例**（切分 8 + 生产者 22）。
+**评审确认无 P0**：无凭据泄漏、无未授权访问、无注入；`source` 字段经全仓 grep 证实**只被窗口分档读取**，不参与鉴权/配额。回归锁随之增至 **31 用例**（切分 8 + 生产者 23；2026-09-17 因多组件冷却缺陷又补 1 条）。
 
 ## 7. 未收敛项与已知盲区（不冒充能力）
 

@@ -140,7 +140,7 @@ cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');imp
 |---|---|---|
 | H2 `./data/users.mv.db`（口令散列 + token_ver 吊销状态） | **唯一不可再生** | `scripts/backup.sh` 每日（网关活着走 `POST /admin/backup`、DB 所有者在线 `BACKUP TO` 事务一致；网关停了走 CLI 嵌入式。**禁止 cp 热拷运行中的库文件**） |
 | `logs/audit.jsonl` | 合规留痕，logback 14 天滚动会回收 | backup.sh 一并 tar（保 14 天） |
-| ES / Qdrant | **派生索引，不备份**——chunks.jsonl 在 git（ADR-0001），恢复=reingest 36s | 无需动作 |
+| ES / Qdrant | **派生索引，不备份**——chunks.jsonl 在 git（ADR-0001），恢复=reingest（实测 423 文档 22.3s，live、服务端日志口径；mock 8.0s） | 无需动作 |
 
 cron（Linux 部署）：
 
@@ -171,7 +171,7 @@ docker compose start gateway
 
 ## 9. Ops Console 运维面板（只读可观测面，ADR-0009）
 
-**它是什么**：浏览器开 `http://localhost:8081/` 即得（Boot 默认资源处理器同源 serve，**零构建、零 CDN、无外部依赖**）。把已有的 `/admin/state` 快照与 `/admin/audit/recent` 事件流渲染成「运行状态 / 数据流 / 能力边界」三块。**它是 LobeChat 撤壳的反面答案**：撤的是聊天壳（承载不了运维真相），建的是仪表盘（把 JSON 真相摆出来）——不新增状态源、不承载对话交互。
+**它是什么**：浏览器开 `http://localhost:8081/` 即得（Boot 默认资源处理器同源 serve，**零构建、零 CDN、无外部依赖**）。把已有的 `/admin/state` 快照与 `/admin/audit/recent` 事件流渲染成五块：「运行状态 / 降级状态机 / 数据流 / 能力边界 / AIOps 谱系定位」（分区数以 `index.html` 的 `<h2>` 为准，README「Ops Console」节同源描述）。**它是 LobeChat 撤壳的反面答案**：撤的是聊天壳（承载不了运维真相），建的是仪表盘（把 JSON 真相摆出来）——不新增状态源、不承载对话交互。
 
 **接入**：面板需 **role=platform** 的 JWT（数据端点全部受守卫；HTML 壳本身匿名可开、零信息）。取 token：
 
