@@ -10,6 +10,23 @@ cd "$(dirname "$0")/.."
 if [ -f .env ]; then set -a; . ./.env; set +a; fi
 JAR=target/opspilot-gateway-1.0.0.jar
 [ -f "$JAR" ] || { echo "缺 $JAR（先 mvn package -DskipTests）"; exit 1; }
+
+# 容器形态守卫（事故 51103 的复现路径）：容器网关经 ./data 挂载持有同一个 H2 账号库，
+# 而 H2 的锁文件跨 bind mount 不可靠——两个进程同写会损坏库且恢复工具救不回，
+# 账号库又是全系统唯一不可再生的数据。OPS §1 已定"容器形态必须串行"，此处把它变成机制。
+if command -v docker >/dev/null 2>&1 \
+   && [ "$(docker inspect -f '{{.State.Running}}' opspilot-gateway 2>/dev/null || echo false)" = "true" ]; then
+  cat >&2 <<'MSG'
+拒绝执行：容器 opspilot-gateway 正在运行，它正持有同一个 H2 账号库（./data 挂载）。
+容器 bind mount 上的 H2 锁不可靠，两进程同写会损坏账号库（事故 51103：MVStore chunk
+损坏，官方恢复工具也救不回）。请选其一：
+  1) 串行执行：      docker compose stop gateway  然后重跑本命令（容器形态下这是常态做法）
+  2) 走 HTTP 管理面：curl -X POST http://localhost:8081/api/v1/admin/backup -H "Authorization: Bearer <platform JWT>"
+  3) 容器内 CLI：   见 scripts/quickstart.sh 的 seed 形态（docker compose exec + PropertiesLauncher）
+MSG
+  exit 2
+fi
+
 export H2_DB_URL="${H2_DB_URL:-jdbc:h2:file:./data/users;AUTO_SERVER=TRUE}"
 export H2_DB_USER="${H2_DB_USER:-opspilot}"
 JAVA_BIN="${JAVA_HOME:-/e/java/jdk21}/bin/java"

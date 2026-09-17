@@ -65,14 +65,15 @@ seed() {
 seed sre-limited tenant-internal 1 sre
 seed sre-full    tenant-internal 3 platform
 seed sre-acme    tenant-acme     3 sre
-# seed 失败被 '|| skip' 吞掉会伪装幂等——list 终核对三个账号确实在库
+seed sre-watcher tenant-internal 3 platform   # 自举告警主体（ADR-0011）：DEMO 幕⑧ 与 alert_producer.py 默认用它
+# seed 失败被 '|| skip' 吞掉会伪装幂等——list 终核对四个账号确实在库
 LST=$(docker compose exec -T gateway java -cp app.jar \
     -Dloader.main=com.opspilot.auth.UserAdminCli \
     org.springframework.boot.loader.launch.PropertiesLauncher list 2>/dev/null || true)
-for u in sre-limited sre-full sre-acme; do
+for u in sre-limited sre-full sre-acme sre-watcher; do
   echo "$LST" | grep -q "$u" || die "seed 后账号 $u 不在库（前面 skip 是假幂等，查 docker compose logs gateway）"
 done
-say "演示账号 3/3 在库"
+say "演示账号 4/4 在库"
 
 # 5) 红队畸形 token 样本（A2-8b/8c 与 demo 预检依赖；文件不入库）
 PY=$(bash scripts/py.sh 2>/dev/null || true)

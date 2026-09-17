@@ -27,6 +27,15 @@ if [ -f "$t" ]; then
 else
   bad "缺 scripts/redteam_tokens.txt（gen_tokens.py 生成，不入库）"
 fi
+# 告警主体：DEMO 幕⑧ 与 alert_producer.py 默认用 sre-watcher——它不在预检里的话，
+# 会出现"预检全绿但幕⑧在第一次登录就挂"（容器冷启动曾漏 seed 该账号）
+if [ -n "${DEMO_PASSWORD:-}" ] && [ -n "$PY" ]; then
+  "$PY" -c "import sys;sys.path.insert(0,'offline');import localapi;localapi.login('sre-watcher')" >/dev/null 2>&1 \
+    && ok "告警主体 sre-watcher 可登录（幕⑧依赖）" \
+    || bad "sre-watcher 无法登录：幕⑧跑不了（bash scripts/seed_demo_users.sh；容器形态见 quickstart.sh）"
+else
+  echo "SKIP  告警主体登录（口令或 Python 缺失）"
+fi
 
 # 4) 鉴权面：无 token 的 admin 必须 401（裸 URL 不泄漏指标）
 a=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/v1/admin/metrics || echo 000)
@@ -61,23 +70,24 @@ else
   bad "缺 target jar（mvn package -DskipTests）"
 fi
 
-# 7) Ops Console：HTML 壳就位 + live /state 键契约（面板契约改名由 CI check_panel_contract.sh
-#    兜底，这里验"跑起来的真服务"返回面板消费的全部顶层键）
+# 7) Ops Console：HTML 壳就位 + 契约脚本 + live /state 顶层键可达
+#    键集的**权威**是 scripts/check_panel_contract.sh（CI 同一份，静态四层）；
+#    这里只做两件它做不到的事：①在真栈上跑一遍它 ②确认 live 服务确实返回面板要读的顶层键。
 [ -f src/main/resources/static/index.html ] && ok "面板 HTML 就位（localhost:8081/）" \
   || bad "缺 src/main/resources/static/index.html"
+bash scripts/check_panel_contract.sh >/dev/null 2>&1 && ok "面板契约脚本四层一致（与 CI 同源）" \
+  || bad "面板契约脚本报红：跑 bash scripts/check_panel_contract.sh 看详情"
 if [ -n "${DEMO_PASSWORD:-}" ] && [ -n "$PY" ]; then
   S=$("$PY" -c "
 import sys, json, urllib.request
 sys.path.insert(0, 'offline')
 import localapi
 t = localapi.login('sre-full')
-req = urllib.request.Request('http://localhost:8081/api/v1/admin/state',
-    headers={'Authorization': 'Bearer ' + t})
-d = json.load(urllib.request.urlopen(req, timeout=15))
-missing = [k for k in ('build','metrics','health','runtime') if k not in d] \
-        + [k for k in ('sf_groups','degradation','quota') if k not in d.get('runtime',{})]
+d = localapi.get_json('/api/v1/admin/state', t)
+# 只断言顶层四块存在（精确键集归契约脚本管，别在这里抄第二份）
+missing = [k for k in ('build','metrics','health','runtime') if k not in d]
 print('missing:' + ','.join(missing) if missing else 'UP')" 2>/dev/null)
-  [ "$S" = "UP" ] && ok "/state 键契约齐全（面板可接入）" || bad "/state 键缺失: ${S:-获取失败}"
+  [ "$S" = "UP" ] && ok "/state 顶层键齐全（面板可接入）" || bad "/state 键缺失: ${S:-获取失败}"
 else
   echo "SKIP  /state 键契约（口令或 Python 缺失）"
 fi

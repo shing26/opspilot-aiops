@@ -2,7 +2,7 @@
 # 备份 SOP（OPS.md §8）：只备份**不可再生**的数据。
 #   users zip     —— H2 账号库（口令散列 + token_ver 吊销状态）
 #   audit tar.gz  —— 合规留痕（logs/，logback 14 天滚动会回收）
-# 刻意不备份 ES/Qdrant：派生索引，chunks.jsonl 在 git（ADR-0001），恢复=reingest 36s。
+# 刻意不备份 ES/Qdrant：派生索引，chunks.jsonl 在 git（ADR-0001），恢复=reingest（实测 423 文档 22.3s，live）。
 # 路径 A（网关在跑，常态）：HTTP /admin/backup 由 DB 所有者执行，零 TCP 依赖；
 # 路径 B（网关已停）：CLI 嵌入式直连。
 set -euo pipefail
@@ -23,9 +23,20 @@ if curl -s -o /dev/null --max-time 3 http://localhost:8081/actuator/health; then
   test -s "backup/users-${DAY}.zip" || { echo "响应正常但宿主 backup/users-${DAY}.zip 缺失（容器未挂载 ./backup 卷？）"; exit 1; }
 else
   bash scripts/user_admin.sh backup --to "backup/users-${DAY}.zip"
+  # CLI 路径同样必须核产物（QA P1-3 只补了 HTTP 路径）：响应/退出码说成功≠文件真在
+  test -s "backup/users-${DAY}.zip" || { echo "CLI 备份未产出宿主 backup/users-${DAY}.zip"; exit 1; }
 fi
-tar czf "backup/audit-${DAY}.tar.gz" logs/ 2>/dev/null || echo "warn: logs/ 为空，跳过审计打包"
+# 审计打包：logs/ 空可以跳过（旧行为，但要说出来）；tar 因权限/IO 失败必须失败
+if [ -n "$(ls -A logs 2>/dev/null || true)" ]; then
+  tar czf "backup/audit-${DAY}.tar.gz" logs/ \
+    || { echo "审计打包失败（logs/ 非空但 tar 非零退出）"; exit 1; }
+else
+  echo "warn: logs/ 为空，跳过审计打包"
+fi
 find backup -name 'users-*.zip' -mtime +7 -delete
 find backup -name 'audit-*.tar.gz' -mtime +14 -delete
+# 清理后必须还有账号库备份活着：cron 断档一周后重跑，别把唯一存量也删掉
+ls backup/users-*.zip >/dev/null 2>&1 \
+  || { echo "清理后没有任何 users 备份存活——检查保留策略/系统时钟（mtime 异常会误删新备份）"; exit 1; }
 ls -la backup/ | tail -3
 echo "OK ${DAY} 备份完成（users 保 7 天 / audit 14 天）"
