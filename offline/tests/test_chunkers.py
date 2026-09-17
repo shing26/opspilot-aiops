@@ -102,6 +102,22 @@ def test_error_registry_full_coverage():
     assert not missing, f"错误码未覆盖: {missing}"
 
 
+def test_golden_codes_match_registry():
+    """两份"精确错误码清单"必须逐元素相等（本体与顺序都一致）。
+
+    它们此前各写一份、没有任何交叉断言：`build_golden.EXACT_CODES` 决定评测集覆盖哪些码，
+    `ERROR_REGISTRY` 决定单测断言哪些码必须被语料覆盖——改一处忘另一处时**两边都不会报错**，
+    只会让评测集与语料断言悄悄错位（"同一个事实两处各写一份"的典型）。
+    """
+    sys.path.insert(0, str(Path(__file__).parent.parent / "eval"))
+    import build_golden  # noqa: E402
+
+    assert list(build_golden.EXACT_CODES) == list(ERROR_REGISTRY), (
+        "两份错误码清单已漂移：\n"
+        f"  仅在 build_golden.EXACT_CODES: {sorted(set(build_golden.EXACT_CODES) - set(ERROR_REGISTRY))}\n"
+        f"  仅在 test_chunkers.ERROR_REGISTRY: {sorted(set(ERROR_REGISTRY) - set(build_golden.EXACT_CODES))}")
+
+
 def test_auth_level_distribution():
     chunks = []
     for _, cs in _all_md_chunks():

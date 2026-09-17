@@ -1,5 +1,6 @@
 # 一期 CI：零凭据、零中间件即可跑——mvn 单测全 mock/H2-local；Python 侧 chunkers 不变量
-# + 跨语言词法护栏；bash 侧 Ops Console 契约检查（面板↔端点键名防漂移，ADR-0009）。
+# + 跨语言词法护栏 + 告警生产者判定/闸门（不触网，由 fixture 强制）；bash 侧面板契约
+# 与全脚本语法检查（脚本是运维动作的入口，语法错到用的时候才发现太晚）。
 # live 依赖的 A2/A3 验收不进 CI（需 compose 栈），由本地验收脚本承担。
 name: CI
 on:
@@ -34,8 +35,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install pytest
-        run: pip install pytest
+      - name: Install pinned dev deps
+        run: pip install -r offline/requirements-dev.txt   # 版本锁定见该文件（不锁=pytest 大版本变更即打红）
       - name: Chunker invariants + lexicon guards
         working-directory: offline
         run: python -m pytest tests/
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bash syntax check (every script)
+        run: |
+          fail=0
+          for f in scripts/*.sh; do
+            if ! bash -n "$f"; then echo "::error file=$f::bash -n 失败"; fail=1; fi
+          done
+          [ "$fail" = "0" ] && echo "OK: $(ls scripts/*.sh | wc -l) 个脚本语法通过"
+          exit $fail

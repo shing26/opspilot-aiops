@@ -229,7 +229,7 @@ SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 20s -
 $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/reports/l1_hit_latency.md
 ```
 
-> 需活体栈 + `pip install locust`；`evaluate` 依赖的 `/copilot/search` 不受配额限制。数字底稿与指标出处即 `offline/eval/reports/eval_report.md` 与 `offline/load/reports/`。
+> 需活体栈 + `pip install -r offline/requirements-dev.txt`（锁定的 pytest/locust 版本，见该文件）；`evaluate` 依赖的 `/copilot/search` 不受配额限制。数字底稿与指标出处即 `offline/eval/reports/eval_report.md` 与 `offline/load/reports/`。
 
 ## 安全设计
 
@@ -325,7 +325,8 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 | `offline/corpus/` | 语料源（openapi / runbooks / postmortems）+ 生成物 `chunks.jsonl` | ✅ |
 | `offline/eval/` | golden dataset、`evaluate.py`、评测报告 | ✅ |
 | `offline/load/` | Locust 压测脚本与报告 | ✅ |
-| `offline/tests/` | pytest（切分器单测） | ✅ |
+| `offline/tests/` | pytest（切分器不变量 + 告警生产者判定/闸门，**不触网**由 fixture 强制） | ✅ |
+| `offline/requirements-dev.txt` | 开发/验证依赖的**锁定版本**（运行时代码零第三方依赖，全 stdlib） | ✅ |
 | `offline/localapi.py` | **验收/评测脚本的本机 HTTP 单点**（SSRF 白名单 + token 路径解析）——新增脚本复用它，别再造轮子 | ✅ |
 | `offline/acceptance_a2.py` / `acceptance_a3.py` | A2 机制验收 / A3 综合验收 | ✅ |
 | `offline/qa_gen_quality_probes.py` | 生成质量门禁的 live 五道（V2/V3/V4/V5/V7）+ chat 预算闸；V1/V6/V8 分属 Java 单测、ZSET 用例、文档核对 | ✅ |
