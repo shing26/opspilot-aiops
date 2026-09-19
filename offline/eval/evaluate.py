@@ -2,7 +2,10 @@
 
 调用在线 /api/v1/copilot/search，用 L3 token 放开全密级以测召回质量
 （检索密级恒取 token auth_level，authLevelOverride 参数已因提权面移除）。
-输出 eval/reports/eval_report.json 与 markdown 对比表。
+输出 eval/reports/eval_report.json 与 markdown 对比表，并刷新
+eval/reports/PROVENANCE.json（报告↔语料同代的登记，见 offline/provenance.py）——
+后者的存在意义：报告一落盘就同时钉死"它是在哪份语料上跑出来的"，
+下次语料变了而没人重跑评测时，CI 会替人发现（台账 E1 教训两次，都是靠人）。
 安全：URL 固定 localhost 且经校验，路径经 resolve 限定目录。
 """
 from __future__ import annotations
@@ -14,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import localapi as api  # noqa: E402  # 共享 HTTP/token 辅助（单一事实源）
+import provenance  # noqa: E402  # 报告↔语料同代登记（CI 门闩的写入侧）
 
 ROOT = Path.cwd().resolve()
 
@@ -113,6 +117,13 @@ def main() -> int:
         fh.write("\n".join(lines) + "\n")
 
     print("\n".join(lines))
+
+    # 报告刚落盘，此刻的语料状态就是它的出处——当场登记，不留给"记得去登记"。
+    if provenance.stamp() != 0:
+        print("FAIL 同代登记失败：本次报告所依据的 golden 与当前语料不自洽，"
+              "这份数字不能对外引用。先 `python eval/build_golden.py` 再重跑本脚本。",
+              file=sys.stderr)
+        return 1
     return 0
 
 

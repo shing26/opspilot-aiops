@@ -76,9 +76,15 @@ SEMANTIC = [
 ]
 
 
-def main() -> int:
+def build_samples(chunks_path: Path) -> list[dict]:
+    """从 chunks.jsonl 派生 golden 样本集（纯函数，不写盘）。
+
+    抽出来的原因（2026-09-18）：`offline/provenance.py` 需要**不落盘地复算**同一份样本，
+    以判定「已入库的 golden 是否仍能从当前语料逐字节复现」——这是"报告与语料同代"的机器判据。
+    样本表只有这一处来源；复算方若自己抄一份表，就等于新开了一个漂移面。
+    """
     code2docs = defaultdict(set)
-    with _within_root("corpus/chunks.jsonl").open(encoding="utf-8") as fh:
+    with chunks_path.open(encoding="utf-8") as fh:
         for line in fh:
             c = json.loads(line)
             for code in c["metadata"]["error_codes"]:
@@ -93,10 +99,18 @@ def main() -> int:
     for i, (q, docs) in enumerate(SEMANTIC):
         samples.append({"id": f"sem-{i+1:02d}", "type": "semantic", "query": q,
                         "expected_docs": docs, "auth_level": 3})
+    return samples
 
+
+def render_jsonl(samples: list[dict]) -> str:
+    """样本集的落盘形态（唯一渲染点；复算方比对同一函数的产出）。"""
+    return "".join(json.dumps(s, ensure_ascii=False) + "\n" for s in samples)
+
+
+def main() -> int:
+    samples = build_samples(_within_root("corpus/chunks.jsonl"))
     with _within_root("eval/golden_dataset.jsonl").open("w", encoding="utf-8") as fh:
-        for s in samples:
-            fh.write(json.dumps(s, ensure_ascii=False) + "\n")
+        fh.write(render_jsonl(samples))
     print(f"OK golden={len(samples)} (exact={len(EXACT_CODES)} semantic={len(SEMANTIC)})")
     return 0
 

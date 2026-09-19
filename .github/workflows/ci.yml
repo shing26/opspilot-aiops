@@ -1,6 +1,7 @@
 # 一期 CI：零凭据、零中间件即可跑——mvn 单测全 mock/H2-local；Python 侧 chunkers 不变量
 # + 跨语言词法护栏 + 告警生产者判定/闸门（不触网，由 fixture 强制）；bash 侧面板契约
-# 与全脚本语法检查（脚本是运维动作的入口，语法错到用的时候才发现太晚）。
+# 与全脚本语法检查（脚本是运维动作的入口，语法错到用的时候才发现太晚）；
+# 以及"报告↔语料同代"门闩（台账 E1 教训：语料变了不重跑评测，README 数字就悄悄陈旧）。
 # live 依赖的 A2/A3 验收不进 CI（需 compose 栈），由本地验收脚本承担。
 name: CI
 on:
@@ -27,6 +28,19 @@ jobs:
       - uses: actions/checkout@v4
       - name: Ops Console ↔ backend key contract (ADR-0009 / W11)
         run: bash scripts/check_panel_contract.sh
+
+  provenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # 判据是内容摘要（非 mtime）：git checkout 会把所有 mtime 刷成检出时刻，
+      # 时间戳判据在 CI 里恒真、等于门闩空转（见 offline/provenance.py 顶部）。
+      - name: Report ⟷ corpus same-generation gate
+        working-directory: offline
+        run: python provenance.py --check
 
   python:
     runs-on: ubuntu-latest

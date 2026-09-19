@@ -9,3 +9,9 @@ docker-compose.yml text eol=lf
 *.yml       text eol=lf
 *.yaml      text eol=lf
 .env.example text eol=lf
+# 数据产物与语料（2026-09-18 引入，随 offline/provenance.py 一起来）：
+# 语料 .md 与 chunks/golden .jsonl 是**被摘要的对象**。摘要按内容（CRLF→LF 归一）计算，
+# 故检出约定本来不影响判定；但工作区与 blob 行尾不一致会让"人和 CI 算出的摘要为什么不同"
+# 变成反复排查的坑——直接在检出层抹平，不留这个解释成本。
+*.jsonl     text eol=lf
+*.md        text eol=lf
