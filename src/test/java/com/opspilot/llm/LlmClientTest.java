@@ -15,6 +15,8 @@ import static org.mockito.Mockito.*;
 /**
  * H3 重试语义锁：仅"首 token 吐出前"的瞬时错（429/网络层/HTTP 5xx）允许单次退避重试；
  * 已吐 token 后重试会造成答案重复，禁止；429 与网络错分类计数，终态口径不变。
+ * P1（2026-09-19）：5xx/4xx 的瞬时性判定走 LlmHttpException.status 字段——文案不再承重，
+ * 另有反向锁证明"文案像 5xx 的普通异常"不再被误判为瞬时。
  * attemptOnce 以 spy 桩掉——不真发 HTTP。
  */
 class LlmClientTest {
@@ -83,11 +85,35 @@ class LlmClientTest {
         verify(metrics).llmNetworkError();
     }
 
-    /** 非瞬时（4xx 配置类）不重试——重试只会烧额度不改变结局。 */
+    /** HTTP 5xx = 瞬时（P1 后按 status 字段判定，不再读文案）：重试耗尽计网络错，类型化异常原样上抛。 */
+    @Test
+    void http5xxRetriesOnceAndCountsNetworkError() {
+        var spy = spy(client);
+        doThrow(new LlmClient.LlmHttpException(503)).when(spy).attemptOnce(any(), any());
+        var thrown = assertThrows(LlmClient.LlmHttpException.class,
+                () -> spy.streamChat(List.of(Map.of("content", "q")), t -> {}));
+        assertEquals(503, thrown.status());
+        verify(metrics).llmRetry();
+        verify(metrics).llmNetworkError();
+    }
+
+    /** P1 反向锁：message 文案不再承重——文案里带 "LLM HTTP 503" 的普通异常不是瞬时错。 */
+    @Test
+    void messageTextIsNoLongerLoadBearingForClassification() {
+        var spy = spy(client);
+        doThrow(new RuntimeException("LLM HTTP 503（普通异常，非类型化）"))
+                .when(spy).attemptOnce(any(), any());
+        assertThrows(RuntimeException.class,
+                () -> spy.streamChat(List.of(Map.of("content", "q")), t -> {}));
+        verify(metrics, never()).llmRetry();
+        verify(metrics, never()).llmNetworkError();
+    }
+
+    /** 非 5xx（4xx 配置类）不重试——重试只会烧额度不改变结局（P1 后走类型化异常）。 */
     @Test
     void nonTransientFailureNeverRetries() {
         var spy = spy(client);
-        doThrow(new RuntimeException("LLM HTTP 401")).when(spy).attemptOnce(any(), any());
+        doThrow(new LlmClient.LlmHttpException(401)).when(spy).attemptOnce(any(), any());
         assertThrows(RuntimeException.class,
                 () -> spy.streamChat(List.of(Map.of("content", "q")), t -> {}));
         verify(metrics, never()).llmRetry();

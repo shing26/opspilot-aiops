@@ -123,3 +123,9 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 | `Level` 枚举被 sink 层耦合，挪出可减改动点 | **诊断反了**：Level 属 resilience（`DegradationStateMachine.java:18`），gateway→resilience 依赖方向正确；"加一档改 ≥6 处"是带 UI 呈现的状态机的固有扇出，挪文件减少 0 个改动点；漏改风险已被面板契约 CI job + `DegradationRecoveryTest` + `AdminControllerTest` 18 格矩阵兜住（有报错，非评审所称"漏改不报错"） | **不采纳**（扇出≠错位） |
 
 > 口径注：评审 §2 给的"83 文件 / 7,506 行"与实测 **82 文件 / 7,056 行**（main+test Java）不符（其扫描脚本口径不同，`IngestionRunner 371 行`一条倒是精确）。外部二手数字引用前须按本表对账——与 E1 教训同源：不采信未复核的他方数字。
+
+## 修补记录（2026-09-19：外部评审采纳项落地回填）
+
+| 项 | 状态 | 依据 | 验收证据 |
+|---|---|---|---|
+| P1 5xx 分类类型化 | **已修** | `LlmHttpException`（带 `status` 字段 + `isServerSide()` 收口瞬时性判定）替换 `"LLM HTTP n"` 文案异常；`isTransient` 读字段不读文案；`attemptOnce` 对其直传不包裹（一旦被包裹就丢 status，分类退化回读文案）。message 保留同文案仅供人读 | LlmClientTest 7 例全绿：503 重试耗尽→计 llm_retry + llm_network_error 且 `status=503` 原样上抛（新增）；401→不重试（改类型化）；**反向锁**——文案含 "LLM HTTP 503" 的普通异常→不重试（证明文案不再承重，倒退回字符串匹配时该例必红）；mvn 123 全绿 |
