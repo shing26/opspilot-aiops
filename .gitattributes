@@ -15,3 +15,6 @@ docker-compose.yml text eol=lf
 # 变成反复排查的坑——直接在检出层抹平，不留这个解释成本。
 *.jsonl     text eol=lf
 *.md        text eol=lf
+# 报告类 JSON 同理（PROVENANCE.json 等）：不做这行，autocrlf 会在每次 git touch 时
+# 把工作区刷成 CRLF 并刷警告；摘要判据本身已行尾归一，这里只是消灭排查噪音。
+*.json      text eol=lf

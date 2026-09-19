@@ -95,3 +95,31 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 | M3 告警 webhook | 部分接入 | 自举源已上线（ADR-0011）；外部监控 adapter 仍无真实告源（硬约束） | `offline/alert_producer.py`、`docs/qa/2026-09-16-self-alert-loop.md` |
 | M4 错误码枚举 | **不立项（2026-09-17 降级）** | 原判"字符串 <10 个"不实：主源码+资源 grep 实测**恰好 1 处**且是拒答话术里的示例码（文案非配置），见 `docs/qa/2026-09-13-module-verification.md` §8 | 不立项；若演进到需按枚举做类型化处理再按新需求重开 |
 | L1-L5 | 挂起（企业级触发线） | ADR-0003/0005/0006/0009、OPS 债务表 | — |
+
+## 修补记录（2026-09-18：证据链与文档时效，来自外部补齐清单 O1/O2）
+
+> 这两项不是"缺功能"，而是**卖点的交付方式**：本项目的差异化是"每个出口都可核验"，
+> 而证据此前散在五个落点、且"数字与产物同代"只有人工纪律兜底（E1 教训两次，两次都靠人发现）。
+
+| 项 | 状态 | 依据 | 验收证据 |
+|---|---|---|---|
+| O2 报告↔语料同代门闩 | **已修** | `offline/provenance.py`：对"语料文档字节集 + `chunks.jsonl` + `golden_dataset.jsonl`"取内容摘要（行尾归一），CI 新增 `provenance` job 跑 `--check`；`evaluate.py` 落盘报告后自动 `--stamp` 刷新出处登记 | `offline/tests/test_provenance.py` 13 例全绿；**双向锁**——"加一篇语料不重生成报告 → 红"与"只重新登记 → 不红"都有用例；变异验证：把 `diff()` 改成恒空则 4 例失败、把自洽性检查放水则 2 例失败（证明门闩非空转） |
+| O1 证据链一键打包 | **已修** | `scripts/pack_evidence.py`：一条命令产出自述快照（目录 + 可选 zip），档内 `MANIFEST.md` 逐项写明出处文件/产生命令/复核前提三档（干净检出｜需活体栈｜需 live key）；`CHECKSUMS.sha256` 供 `sha256sum -c` | 干净检出形态（隐藏 `logs/`）实测一条命令产 35 产物、35 项校验全 OK；`.env` 全部 8 个值 grep 归档零命中；`offline/tests/test_pack_evidence.py` 10 例全绿（含"非 LOCAL 登记项不得是 gitignore 路径"与"MANIFEST 不得含 key 值"） |
+
+**两处实测踩坑（已修，均属跨平台行尾一类）**：
+1. 内容摘要最初直接吃工作区字节 → 本机 CRLF 与 CI（LF）会算出不同摘要、门闩在 CI **假红**。改为按内容归一（文本类 CRLF→LF）后再摘要；并把 `*.jsonl`/`*.md` 一并钉进 `.gitattributes`（该文件此前只覆盖 `.sh/.py/.yml`）。实测等价性：同一语料按 LF 复制后三路摘要逐位相同。
+2. `CHECKSUMS.sha256` 最初用 `write_text` 落盘 → Windows 写出 CRLF，`sha256sum -c` 把行尾 `\r` 当文件名、**35 项全部失败**（归档自带的完整性命令直接失效）。改为显式 LF 落盘，实测 35/35 OK。
+
+## 外部框架评审核实（2026-09-19，来源：code-review-agent《全项目框架补强建议》§3.6 + §四）
+
+> 该评审对 OpsPilot 的指控均标**【勘察】未复核**。逐条实测（HEAD bf9b1ad）后：2 条属实采纳、
+> 2 条不采纳。不采纳项按纪律登记触发线（见 OPS §5 债务表）——不留"没有到期日的欠账"。
+
+| 指控 | 实测 | 处置 |
+|---|---|---|
+| 错误分类靠 `startsWith("LLM HTTP 5")` 文本判别（§四#1） | **属实**：`LlmClient.java:104` 拼文案、`:140` 按前缀分类；全测试域 grep `LLM HTTP 5` 零命中——5xx→transient 分支无回归锁（LlmClientTest 只锁了 IOException 与 401 两路） | **采纳（P1）**：类型化异常带 status 字段，`isTransient` 判 status 不读文案；用例双向锁 |
+| 配置无 fail-fast（§四#2） | **属实**：`OpsPilotProperties` 全 record 零校验注解；实测锐边——`inflight-threshold=-1` 使 `DegradationStateMachine.java:42` 恒真 = **永久 L1 且无告警**；`llm-timeout-seconds=0` = 每次调用立即超时→熔断常开 | **采纳（P2）**：`@Validated` + 约束注解，非法值启动即拒并点名变量；application.yml 默认值逐项核对不会误伤 |
+| `LlmClient` 无接口、"换供应商须重构核心" | **夸大**：baseUrl/model/key 全走配置，硬编码仅 URL 路径段 `/compatible-mode`；LLM 腿换 OpenAI 兼容供应商≈改配置。真供应商耦合在数据层（1024 维向量 + rerank，[ADR-0002](../../docs/adr/0002-dashscope-one-stop-1024-dim.md) 在案决策） | **不采纳**：接口只有一个真实实现（mock 是测试模式非供应商），为它建抽象是投机泛化。触发线入 OPS §5 债务表 |
+| `Level` 枚举被 sink 层耦合，挪出可减改动点 | **诊断反了**：Level 属 resilience（`DegradationStateMachine.java:18`），gateway→resilience 依赖方向正确；"加一档改 ≥6 处"是带 UI 呈现的状态机的固有扇出，挪文件减少 0 个改动点；漏改风险已被面板契约 CI job + `DegradationRecoveryTest` + `AdminControllerTest` 18 格矩阵兜住（有报错，非评审所称"漏改不报错"） | **不采纳**（扇出≠错位） |
+
+> 口径注：评审 §2 给的"83 文件 / 7,506 行"与实测 **82 文件 / 7,056 行**（main+test Java）不符（其扫描脚本口径不同，`IngestionRunner 371 行`一条倒是精确）。外部二手数字引用前须按本表对账——与 E1 教训同源：不采信未复核的他方数字。

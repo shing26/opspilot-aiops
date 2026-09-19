@@ -231,6 +231,23 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 
 > 需活体栈 + `pip install -r offline/requirements-dev.txt`（锁定的 pytest/locust 版本，见该文件）；`evaluate` 依赖的 `/copilot/search` 不受配额限制。数字底稿与指标出处即 `offline/eval/reports/eval_report.md` 与 `offline/load/reports/`。
 
+**报告与语料必须同代——2026-09-18 起由 CI 强制，不再靠自觉**：
+
+```bash
+cd offline && python provenance.py --check     # 零凭据、零网络
+```
+
+判据是**内容摘要**（语料文档 + `chunks.jsonl` + `golden_dataset.jsonl`），不是 mtime：CI 的 `git checkout` 会把所有文件 mtime 刷成检出时刻，"报告不早于语料"在 CI 里恒真、等于空门闩。语料字节变了而报告没重生成，摘要必然对不上，`provenance` job 即转红。`evaluate.py` 每次运行都会自动刷新 `eval/reports/PROVENANCE.json`（出处登记），人不需要记得同步。这条规矩此前是人工纪律，代价是同类事故发生过两次（E1：语料扩后 `es_only` 语义 Top-1 72%→64%；2026-09-16 复现：303→423 后 Hit@3 100%→92%）。
+
+**证据链一键打包**（把"愿意翻就能翻"变成"一条命令给我快照"）：
+
+```bash
+python scripts/pack_evidence.py            # → _archive/evidence/<时间>-<sha>-<mode>/
+python scripts/pack_evidence.py --zip      # 另产同名压缩包
+```
+
+归档入口是 `MANIFEST.md`：逐条写明**这个数字来自哪个文件、用什么命令产生、在当前模式下能不能复核**，并把产物分成三档——*干净检出即可复核* / *需活体栈* / *需 live key*。本项目的资源约束是双模的（无 key 走 mock、有 key 走 live，同代码路径），所以归档必须自报 `mode`：在 mock 档里，它会把"随附报告是 live 口径、这些指标值在这里复核不出来"直接写在开头，而不是让人拿 mock 快照去核对 live 数字。零凭据、零网络、仅 stdlib，干净检出下一条命令跑通；本机运行态证据（`logs/`，不入库）默认排除，需 `--include-local-evidence` 显式开启（含查询内容与租户标识，会告警）。
+
 ## 安全设计
 
 - **凭据零入库**：`DASHSCOPE_API_KEY`/`JWT_SECRET`/`DEMO_PASSWORD`/`H2_DB_PASSWORD` 仅从环境变量读取，`.env` 已 gitignore。
@@ -247,7 +264,7 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 - **知识库零空窗重建（P4）**：blue/green 别名原子切流——staging 灌库 + 计数硬验收 + 单请求换 ES/Qdrant 别名，失败保留旧库在线（`POST /api/v1/admin/reingest`，ADR-0006）；实测在线把 mock 向量集零中断切到 live。
 - **合规审计**：业务请求每请求一行 JSON 落 `logs/audit.jsonl`（谁/何租户/何密级/查了什么/结果最高密级；回放路径另携带 `src_tenant` 命中来源）；鉴权拒绝/登录失败/运维动作同样留痕（`ev=auth|admin|invalid`，原因可辨）——"攻击探测事后不可查"曾是第四轮 QA 立案的 P1，现已补全并接入 A2-10 计数断言。14 天滚动。
 - **成本护栏（P4）**：`/chat/stream` 每用户日配额（Redis INCR，默认 5000/天可 env 覆盖）——防失控循环；评测/检索路径不受限。
-- **CI（P4）**：`mvn test`（零 key 零中间件）+ chunkers 不变量与**跨语言词法护栏**（Python 正则与 Java `EsSearchService.ERROR_CODE` 逐字符比对，防离线/在线漂移导致快路径静默 miss）。
+- **CI（P4）**：五个 job——`mvn test`（零 key 零中间件）、面板↔后端字面量契约、`bash -n` 全脚本语法门禁、chunkers 不变量与**跨语言词法护栏**（Python 正则与 Java `EsSearchService.ERROR_CODE` 逐字符比对，防离线/在线漂移导致快路径静默 miss）、以及**报告↔语料同代门闩**（`python provenance.py --check`）。
 - **哈希升级**：缓存 Key 由任务书原 MD5 升级为 SHA-256（安全扫描建议，语义不变）。
 - **命名口径为刻意决策**：缓存存储 JSON 用 Jackson 默认 camelCase（`AnswerPayload`，从不上线），对外 SSE 帧用 snake_case（`SseEvents` 手工构 Map）——两域两制不做统一，理由与成本分析见 `AnswerPayload` Javadoc。
 
@@ -323,7 +340,8 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 | `docs/ops/` | 生产化就绪评估 | ✅ |
 | `offline/chunkers/` | Python 切分管道（OpenAPI AST / 标题树 / 错误码三切分器 + `build_chunks.py`） | ✅ |
 | `offline/corpus/` | 语料源（openapi / runbooks / postmortems）+ 生成物 `chunks.jsonl` | ✅ |
-| `offline/eval/` | golden dataset、`evaluate.py`、评测报告 | ✅ |
+| `offline/eval/` | golden dataset、`evaluate.py`（评测并自动刷新出处登记）、评测报告 | ✅ |
+| `offline/provenance.py` | **报告↔语料同代判据**：CI 门闩 `--check` + 出处登记 `--stamp`（内容摘要，非 mtime） | ✅ |
 | `offline/load/` | Locust 压测脚本与报告 | ✅ |
 | `offline/tests/` | pytest（切分器不变量 + 告警生产者判定/闸门，**不触网**由 fixture 强制） | ✅ |
 | `offline/requirements-dev.txt` | 开发/验证依赖的**锁定版本**（运行时代码零第三方依赖，全 stdlib） | ✅ |
@@ -353,11 +371,13 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 | `daily_usage.py` | 从审计日志聚合当日用量（cron 友好） |
 | `check_panel_contract.sh` | 面板↔后端字面量契约（CI 零依赖，后端改名即红） |
 | `py.sh` | Python 解释器三档探测（跨平台单点，被多个脚本复用） |
+| `pack_evidence.py` | 证据链一键打包：产出自述快照（`MANIFEST.md` 逐项注明出处与"当前模式能否复核"） |
 
 **收纳规矩（防止再乱）**
 
-1. 新证据与报告 → `offline/*/reports/`；DoD 要求入库，且**数字必须与正文同代**（E1 教训：语料扩后旧报告会让 README 数字陈旧）。
-2. 一次性产物、外部评估、过时台账 → `_archive/`，git 忽略，不污染根视图。
+1. 新证据与报告 → `offline/*/reports/`；DoD 要求入库，且**数字必须与正文同代**（E1 教训：语料扩后旧报告会让 README 数字陈旧）。**2026-09-18 起由 `offline/provenance.py` 在 CI 强制**——语料变了不重跑评测，`provenance` job 直接转红，不再靠人发现。
+2. 一次性产物、外部评估、过时台账 → `_archive/`，git 忽略，不污染根视图。证据快照产物（`scripts/pack_evidence.py`）也落这里。
 3. 例行数据备份 → `backup/`，交给 `backup.sh` 的 7/14 天策略，勿手工堆积。
 4. 根目录只留四份文档 + 构建入口；**新文档先进 `docs/`**，确实属于必读门面才升到根。
 5. 改架构或口径 → 先更新 ADR / 术语表，再改代码；改完回来同步本地图。
+6. 动语料 → 同批重跑 `build_golden.py` + `evaluate.py`（`provenance --check` 会拦住漏做的那一步）。

@@ -71,12 +71,15 @@ cron（Linux 部署版；本机手动跑同样有效）：
 ## 5. 知识库运维与债务闹钟表
 
 - 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 423 文档 22.3s，live、服务端日志口径；mock 后端 8.0s；live+账户限流最坏 ~6min）。**动语料后 `build_golden.py` 必须与 `evaluate.py` 同批跑**——只改语料不重生成评测集，会让报告与语料悄悄分叉（旧 golden 的 `exact-50012` 就是这样与入库语料不自洽的）。
+- **同代性不必靠记性**（2026-09-18 起）：`cd offline && python provenance.py --check` 当场判定"报告是否仍是当前语料的报告"（内容摘要判据，零凭据零网络），CI 的 `provenance` job 跑的就是它。漏跑评测时它会点名哪个输入变了并给出修复命令：`python eval/build_golden.py && python eval/evaluate.py`；`evaluate.py` 会自动刷新出处登记 `eval/reports/PROVENANCE.json`。
+- **交接/对外给证据**：`python scripts/pack_evidence.py`（加 `--zip` 出压缩包）产出自述快照到 `_archive/evidence/`，入口 `MANIFEST.md` 逐项写明出处与"当前模式下能否复核"。默认**不含**本机运行态证据（`logs/`）；要看运行史用 `--include-local-evidence`——**该档含查询内容与租户标识，别原样对外发**。
 - `scripts/gen_tokens.py` **是红队畸形 token 签发器**（A2-8b/8c 与 demo.sh 预检依赖）——不是遗留脚本，勿删。
 - 旧 `demo_tokens.txt` 体系已死；合法凭据一律 login 换取。
 
 | 债务 | 触发线（到点必须做，未触发不做） | 当下缓解 |
 |---|---|---|
 | 真增量 Ingest | chunks > 2000 或 live 全量重灌 > 10min（`reingest_last` 时间戳可测） | blue/green 原子切流支撑每日任意时刻全量重建；`refuse_rate` 为前置健康信号 |
+| LLM 供应商抽象（`llm/LlmProvider` 接口） | 出现**真实的第二家供应商**需求（mock/live 双模不算），且其检索栈可同规格替代（embedding 维度/rerank 变更需重灌评估，走 ADR-0006 blue/green） | LLM 腿本就 OpenAI 兼容：baseUrl/model 走配置、硬编码仅路径段 `/compatible-mode`，换供应商≈改配置；数据层耦合由 [ADR-0002](docs/adr/0002-dashscope-one-stop-1024-dim.md) 在案（2026-09-19 外部评审"抽接口"建议经核实不采纳，理由见台账） |
 | 中间件 TLS | 过等保/ISO 审查，或中间件跨机/跨 VPC 部署 | 凭据认证 + 127.0.0.1 环回绑定（P3 已落） |
 | 多实例 | 团队 >200 人或持续峰值 QPS > 50 | 单实例虚拟线程（实测 500 并发收敛）；先调 JVM 堆压榨单机 |
 | 外部 IdP | 公司强推统一 SSO / 禁用自建口令 | H2+bcrypt 结构下加 `/auth/login/oidc` 映射入口即可，不侵入校验链 |
