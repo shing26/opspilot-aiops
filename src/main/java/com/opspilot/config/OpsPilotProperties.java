@@ -16,7 +16,9 @@ import org.springframework.validation.annotation.Validated;
  * {@code llm-timeout-seconds=0} 等于每次调用立即超时→熔断常开。约束只挡"会让系统静默走错"
  * 的值；边界值（如 min-relevance=0 表示关闭拒答门控）是合法语义，不挡。
  * 验收：{@code OpsPilotPropertiesValidationTest}（ApplicationContextRunner 断言启动失败
- * 且报错含字段名）+ 活体 {@code mvn spring-boot:run} 带非法参数启动即退出。
+ * 且报错含字段名；正例用全量合法值）＋ 活体启动复验（打包 jar 带
+ * {@code --opspilot.degrade.inflight-threshold=-1} → exit=1 且报错点名该字段；
+ * 真实 yml 合法值启动零校验告警、推进到 Tomcat/H2 才因本机未起 Redis 中止）。
  */
 @Validated
 @ConfigurationProperties(prefix = "opspilot")
