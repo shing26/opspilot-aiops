@@ -33,7 +33,7 @@
 4. **溯源是合同不是装饰**：答案 refs 进 L1/L2 缓存 payload、随 Single-Flight 回放、落 SSE done 帧——引用标号在缓存命中路径与现网生成路径逐字节一致（第四轮 QA 曾把"L2 命中丢 refs"按缺陷修复并入回归锁）。→ `cache/L2SemanticCacheService.java`、A2-3/A2-9 引用断言。
 5. **风暴与故障是设计输入，不是运行时异常**：同指纹 500 并发→1 次 LLM 穿透；过载降纯 ES、LLM 熔断直出预热静态 SOP、冷却到期半开自探（修复见 `e966feb`）——降级是状态机的一等公民，不是 catch 块。→ `storm/SingleFlightRegistry.java`、`resilience/DegradationStateMachine.java`、A2-5/A2-6、`DegradationRecoveryTest`。
 
-> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——121 单测 + A2 十项 + 生成质量门禁 V1–V8（其中 live 五道 V2/V3/V4/V5/V7 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对）+ 越狱/风暴/降级/留痕矩阵。
+> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——131 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V8（其中 live 五道 V2/V3/V4/V5/V7 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对）+ 越狱/风暴/降级/留痕矩阵。
 
 ## 核心指标（实测）
 
@@ -248,6 +248,8 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 
 归档入口是 `MANIFEST.md`：逐条写明**这个数字来自哪个文件、用什么命令产生、在当前模式下能不能复核**，并把产物分成三档——*干净检出即可复核* / *需活体栈* / *需 live key*。本项目的资源约束是双模的（无 key 走 mock、有 key 走 live，同代码路径），所以归档必须自报 `mode`：在 mock 档里，它会把"随附报告是 live 口径、这些指标值在这里复核不出来"直接写在开头，而不是让人拿 mock 快照去核对 live 数字。零凭据、零网络、仅 stdlib，干净检出下一条命令跑通；本机运行态证据（`logs/`，不入库）默认排除，需 `--include-local-evidence` 显式开启（含查询内容与租户标识，会告警）。
 
+**出包前会先自检"随附报告与语料是否同代"**（复用面一判据）：分叉时**默认拒绝出包**，并挡在任何产物落地之前——本档的承诺是"每个数字都能在这里复核"，悄悄打出一份报告已过期的快照，等于把旧结论盖章成现行结论。确实需要留一份过期快照（取证/对比）时加 `--allow-stale`，档内会在 §0 显著标注并写入 `MANIFEST.json`（`same_generation.ok=false`）。CI 从不传该开关，故 CI 永远走拒绝路径。
+
 ## 安全设计
 
 - **凭据零入库**：`DASHSCOPE_API_KEY`/`JWT_SECRET`/`DEMO_PASSWORD`/`H2_DB_PASSWORD` 仅从环境变量读取，`.env` 已 gitignore。
@@ -264,7 +266,7 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 - **知识库零空窗重建（P4）**：blue/green 别名原子切流——staging 灌库 + 计数硬验收 + 单请求换 ES/Qdrant 别名，失败保留旧库在线（`POST /api/v1/admin/reingest`，ADR-0006）；实测在线把 mock 向量集零中断切到 live。
 - **合规审计**：业务请求每请求一行 JSON 落 `logs/audit.jsonl`（谁/何租户/何密级/查了什么/结果最高密级；回放路径另携带 `src_tenant` 命中来源）；鉴权拒绝/登录失败/运维动作同样留痕（`ev=auth|admin|invalid`，原因可辨）——"攻击探测事后不可查"曾是第四轮 QA 立案的 P1，现已补全并接入 A2-10 计数断言。14 天滚动。
 - **成本护栏（P4）**：`/chat/stream` 每用户日配额（Redis INCR，默认 5000/天可 env 覆盖）——防失控循环；评测/检索路径不受限。
-- **CI（P4）**：五个 job——`mvn test`（零 key 零中间件）、面板↔后端字面量契约、`bash -n` 全脚本语法门禁、chunkers 不变量与**跨语言词法护栏**（Python 正则与 Java `EsSearchService.ERROR_CODE` 逐字符比对，防离线/在线漂移导致快路径静默 miss）、以及**报告↔语料同代门闩**（`python provenance.py --check`）。
+- **CI（P4）**：五个 job——`mvn test`（零 key 零中间件）、面板↔后端字面量契约、`bash -n` 全脚本语法门禁、chunkers 不变量与**跨语言词法护栏**（Python 正则与 Java `EsSearchService.ERROR_CODE` 逐字符比对，防离线/在线漂移导致快路径静默 miss）、以及**证据同代门闩**的两面（面一 `provenance.py --check` 报告↔语料、面二 `doc_numbers.py --check` 文档数字↔产物）与一次**干净检出下的证据打包 smoke**。
 - **哈希升级**：缓存 Key 由任务书原 MD5 升级为 SHA-256（安全扫描建议，语义不变）。
 - **命名口径为刻意决策**：缓存存储 JSON 用 Jackson 默认 camelCase（`AnswerPayload`，从不上线），对外 SSE 帧用 snake_case（`SseEvents` 手工构 Map）——两域两制不做统一，理由与成本分析见 `AnswerPayload` Javadoc。
 
@@ -334,14 +336,16 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 | 路径 | 是什么 | 入库 |
 | --- | --- | --- |
 | `src/main/java/com/opspilot/` | 在线面：`gateway`(协议/编排) `retrieval` `llm` `resilience` `auth` `cache` `storm` `metrics` `health` `ingest` `chunk` `config` | ✅ |
-| `src/test/java/` | 单测与集成（121 用例） | ✅ |
+| `src/test/java/` | 单测与集成（131 用例，`@Test` 声明数） | ✅ |
 | `docs/adr/` | 11 项架构决策（每份含否决项与后果）——**改架构先写 ADR** | ✅ |
 | `docs/qa/` | 红队缺陷台账 / 模块复验台账（缺陷与验证的单一事实源） | ✅ |
 | `docs/ops/` | 生产化就绪评估 | ✅ |
+| `LICENSE` | MIT 许可（唯一根级非文档文件；不纳入证据快照，理由见 §许可） | ✅ |
 | `offline/chunkers/` | Python 切分管道（OpenAPI AST / 标题树 / 错误码三切分器 + `build_chunks.py`） | ✅ |
 | `offline/corpus/` | 语料源（openapi / runbooks / postmortems）+ 生成物 `chunks.jsonl` | ✅ |
 | `offline/eval/` | golden dataset、`evaluate.py`（评测并自动刷新出处登记）、评测报告 | ✅ |
-| `offline/provenance.py` | **报告↔语料同代判据**：CI 门闩 `--check` + 出处登记 `--stamp`（内容摘要，非 mtime） | ✅ |
+| `offline/provenance.py` | **报告↔语料同代判据**（面一）：CI 门闩 `--check` + 出处登记 `--stamp`（内容摘要，非 mtime） | ✅ |
+| `offline/doc_numbers.py` | **文档数字↔产物同代判据**（面二）：按 `doc_numbers.json` 每次**现算**产物真值比对文档字面量（不存快照、无 `--stamp`） | ✅ |
 | `offline/load/` | Locust 压测脚本与报告 | ✅ |
 | `offline/tests/` | pytest（切分器不变量 + 告警生产者判定/闸门，**不触网**由 fixture 强制） | ✅ |
 | `offline/requirements-dev.txt` | 开发/验证依赖的**锁定版本**（运行时代码零第三方依赖，全 stdlib） | ✅ |
@@ -371,13 +375,19 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 | `daily_usage.py` | 从审计日志聚合当日用量（cron 友好） |
 | `check_panel_contract.sh` | 面板↔后端字面量契约（CI 零依赖，后端改名即红） |
 | `py.sh` | Python 解释器三档探测（跨平台单点，被多个脚本复用） |
-| `pack_evidence.py` | 证据链一键打包：产出自述快照（`MANIFEST.md` 逐项注明出处与"当前模式能否复核"） |
+| `pack_evidence.py` | 证据链一键打包：产出自述快照（`MANIFEST.md` 逐项注明出处与"当前模式能否复核"）；出包前自检"报告↔语料同代"，分叉即拒绝（`--allow-stale` 可显式放行并留痕） |
 
 **收纳规矩（防止再乱）**
 
-1. 新证据与报告 → `offline/*/reports/`；DoD 要求入库，且**数字必须与正文同代**（E1 教训：语料扩后旧报告会让 README 数字陈旧）。**2026-09-18 起由 `offline/provenance.py` 在 CI 强制**——语料变了不重跑评测，`provenance` job 直接转红，不再靠人发现。
+1. 新证据与报告 → `offline/*/reports/`；DoD 要求入库，且**数字必须与正文同代**（E1 教训：语料扩后旧报告会让 README 数字陈旧）。**2026-09-18 起由 `offline/provenance.py` 在 CI 强制**——语料变了不重跑评测，`provenance` job 直接转红，不再靠人发现。**2026-09-21 补上另一面**：面一只保证"报告↔语料"同代，不保证"人抄进文档的数字"是对的（实测：README 曾写「121 用例」而实际已是 131）。故新增 `offline/doc_numbers.py`：按登记表现算产物真值比对文档字面量，同批进 CI。登记表只收**可从产物确定性派生**的数字——live 实测时长等含波动的读数刻意不登记（会假红的门闩比没有门闩更快被关掉）。
 2. 一次性产物、外部评估、过时台账 → `_archive/`，git 忽略，不污染根视图。证据快照产物（`scripts/pack_evidence.py`）也落这里。
 3. 例行数据备份 → `backup/`，交给 `backup.sh` 的 7/14 天策略，勿手工堆积。
 4. 根目录只留四份文档 + 构建入口；**新文档先进 `docs/`**，确实属于必读门面才升到根。
 5. 改架构或口径 → 先更新 ADR / 术语表，再改代码；改完回来同步本地图。
 6. 动语料 → 同批重跑 `build_golden.py` + `evaluate.py`（`provenance --check` 会拦住漏做的那一步）。
+
+## 许可
+
+[MIT](LICENSE)。选它而不是 Apache-2.0：本仓的表达方式是"证据 + 可复核"，许可只需让人**一眼判得了能不能合法借鉴**；显式专利授权在本项目的能力面（无对外 SDK、无分布式交付物）没有对应场景，多一层条款只是多一层读者成本。
+
+`LICENSE` 刻意**不纳入证据快照**（`scripts/pack_evidence.py` 的 REGISTRY）：快照收录的是"可核验的能力声明"，许可是元数据不是声明，收录它只会改变 `CHECKSUMS.sha256` 的项数而不增加任何可核验信息。

@@ -18,3 +18,6 @@ docker-compose.yml text eol=lf
 # 报告类 JSON 同理（PROVENANCE.json 等）：不做这行，autocrlf 会在每次 git touch 时
 # 把工作区刷成 CRLF 并刷警告；摘要判据本身已行尾归一，这里只是消灭排查噪音。
 *.json      text eol=lf
+# 许可文件（2026-09-21 引入）：它被第三方逐字读、也常被工具/法务比对，
+# 行尾不该随检出平台变化。不做这行时 git 会警告"LF 将被替换为 CRLF"。
+LICENSE     text eol=lf
