@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -176,3 +177,108 @@ def test_checksums_file_is_lf_so_sha256sum_c_works(tmp_path, monkeypatch) -> Non
         r = subprocess.run(["sha256sum", "-c", "CHECKSUMS.sha256"], cwd=archives[0], check=False,
                            capture_output=True, text=True)
         assert r.returncode == 0, r.stdout + r.stderr
+
+
+# ------------------------------------------------- 出包前的同代自检（设计决定 4）
+#
+# 本档对外的承诺是"每个数字都能在这里复核"。悄悄打出一份**报告已过期**的快照，
+# 是最不该发生的一次出包：读者会把旧数字当现行结论（E1 事故正是这么传播的）。
+# 故默认拒绝，放行必须显式 --allow-stale 且在档内留下可审计的痕迹。
+
+def test_same_generation_is_green_on_real_repo() -> None:
+    """正常流程：真实仓库上自检必须通过（否则门闩会拦住正常出包）。"""
+    gen = pe.same_generation()
+    assert gen["ok"] is True, gen
+    assert gen["reason"] == "ok"
+    assert set(gen["digests"]) == set(pe.pv.GATED_INPUTS)
+
+
+def test_same_generation_detects_divergence(monkeypatch) -> None:
+    """判据绑的是**产物摘要**：把登记里的 chunks 摘要改掉，必须判为分叉。"""
+    real = pe.pv.load_provenance()
+    assert real is not None, "本用例依赖仓库内真实存在的 PROVENANCE.json"
+    tampered = dict(real)
+    tampered["chunks"] = dict(real["chunks"], sha256="0" * 64)
+    monkeypatch.setattr(pe.pv, "load_provenance", lambda *a, **k: tampered)
+
+    gen = pe.same_generation()
+    assert gen["ok"] is False
+    assert gen["reason"] == "diverged"
+    assert any("chunks" in d for d in gen["diffs"]), gen["diffs"]
+
+
+def test_same_generation_reports_missing_registry(monkeypatch) -> None:
+    """缺出处登记 → 判为不可判定（不是"默认通过"）。"""
+    monkeypatch.setattr(pe.pv, "load_provenance", lambda *a, **k: None)
+    gen = pe.same_generation()
+    assert gen["ok"] is False
+    assert gen["reason"] == "missing"
+    assert pe.pv.PROVENANCE_REL in gen["detail"]
+
+
+def _tiny_repo(tmp_path, monkeypatch):
+    """把 REPO 指到一个最小仓库，免得拒绝用例去复制整仓。"""
+    (tmp_path / "docs").mkdir(parents=True)
+    (tmp_path / "docs" / "x.md").write_bytes(b"x")
+    monkeypatch.setattr(pe, "REPO", tmp_path)
+    monkeypatch.setattr(pe, "REGISTRY", [("docs/x.md", "人工记录", pe.CLEAN)])
+    return tmp_path
+
+
+_STALE = {"ok": False, "reason": "diverged", "detail": "随附报告与语料已分叉",
+          "diffs": ["chunks: 摘要 aaaa… → bbbb…（lines=423→424）"],
+          "digests": {"chunks": {"sha256": "b" * 64, "counts": {"lines": 424}}}}
+
+
+def test_pack_refuses_when_generation_diverged(tmp_path, monkeypatch, capsys) -> None:
+    """变异 E：报告与语料分叉 → 必须**拒绝出包**，且不留半个归档目录。
+
+    留下目录等于留一份"看起来打好了"的过期快照，而它随时可能被当成成品分发。
+    """
+    root = _tiny_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(pe, "same_generation", lambda: _STALE)
+
+    assert pe.main(["--out", str(root / "out")]) == 1
+    err = capsys.readouterr().err
+    assert "拒绝出包" in err
+    assert "chunks" in err, "拒绝时要指明哪一项分叉了"
+    assert "--allow-stale" in err, "要告诉人怎么在确实需要时放行"
+    assert not (root / "out").exists(), "被拒时不得留下归档目录"
+
+
+def test_pack_allow_stale_marks_archive_as_stale(tmp_path, monkeypatch, capsys) -> None:
+    """显式放行可以出包，但**必须留痕**：MANIFEST 正文显著标注 + JSON 记 ok=false。"""
+    root = _tiny_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(pe, "same_generation", lambda: _STALE)
+
+    assert pe.main(["--out", str(root / "out"), "--allow-stale"]) == 0
+    assert "过期快照" in capsys.readouterr().err
+
+    archive = next((root / "out").iterdir())
+    manifest = (archive / "MANIFEST.md").read_text(encoding="utf-8")
+    assert "同代自检：未通过" in manifest
+    assert "不可作为「当前能力」引用" in manifest
+    assert "chunks: 摘要" in manifest, "差异明细要原样写进档内"
+    data = json.loads((archive / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert data["meta"]["same_generation"]["ok"] is False
+
+
+def test_pack_records_green_selfcheck_in_archive(tmp_path, monkeypatch) -> None:
+    """同代时也如实登记（"通过了"同样是要写下来的结论，否则读者无从判断有没有查过）。"""
+    root = _tiny_repo(tmp_path, monkeypatch)
+    monkeypatch.setattr(pe, "same_generation", lambda: {"ok": True, "reason": "ok",
+                                                       "detail": "随附报告与语料同代",
+                                                       "diffs": [], "digests": {}})
+    assert pe.main(["--out", str(root / "out")]) == 0
+    archive = next((root / "out").iterdir())
+    assert "同代自检：通过" in (archive / "MANIFEST.md").read_text(encoding="utf-8")
+    data = json.loads((archive / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert data["meta"]["same_generation"]["ok"] is True
+
+
+def test_manifest_flags_missing_selfcheck_rather_than_silence(monkeypatch) -> None:
+    """未携带自检结论时要显式说"未记录"——静默缺席会被读成"查过了、没问题"。"""
+    monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+    meta = {"generated_at": "t", "git": {"sha": "0" * 40, "dirty": False, "dirty_paths": []},
+            "mode": "mock", "python": "3.11", "host_os": "linux", "includes_local_evidence": False}
+    assert "同代自检：未记录" in pe.render_manifest(meta, [], [], None)

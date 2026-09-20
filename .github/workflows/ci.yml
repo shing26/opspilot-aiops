@@ -47,6 +47,20 @@ jobs:
       - name: Doc numbers ⟷ artifacts gate
         working-directory: offline
         run: python doc_numbers.py --check
+      # 把 O1 的验收（"干净检出 + mock 一条命令产出完整归档"）从人工一次性变成每次 CI 复现：
+      # 这里同时验证出包不因自检而误拒（分叉时打包器会拒绝出包，正是我们要的行为）。
+      - name: Evidence pack smoke (clean checkout, mock)
+        run: |
+          out="$RUNNER_TEMP/evidence"
+          python scripts/pack_evidence.py --out "$out"
+          archive=$(ls -d "$out"/*/ | head -1)
+          test -f "${archive}MANIFEST.md" || { echo "::error::缺 MANIFEST.md"; exit 1; }
+          test -f "${archive}CHECKSUMS.sha256" || { echo "::error::缺 CHECKSUMS.sha256"; exit 1; }
+          (cd "$archive" && sha256sum -c CHECKSUMS.sha256 > /dev/null) \
+            || { echo "::error::sha256sum -c 失败：归档自身不自洽"; exit 1; }
+          grep -q "同代自检：通过" "${archive}MANIFEST.md" \
+            || { echo "::error::MANIFEST 未登记同代自检结论"; exit 1; }
+          echo "OK: 证据快照自洽（$(wc -l < "${archive}CHECKSUMS.sha256") 项）"
 
   python:
     runs-on: ubuntu-latest

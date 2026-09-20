@@ -22,10 +22,16 @@
 3. **不写入任何凭据**。模式判定只看 `DASHSCOPE_API_KEY` 是否存在（`set/absent`），
    既不打印也不落盘它的值。归档要公开给人看，这条是硬约束。
 
+4. **出包前先自检"随附报告与语料同代"**（复用 `offline/provenance.py` 的判据）。
+   本档对外的全部承诺是"这份快照自洽、每个数字都能在这里复核"；悄悄打出一份
+   **报告已过期**的快照，是最不该发生的一次出包——读者会拿旧数字当现行结论，
+   而 E1 那类事故正是这么传播的。故默认**拒绝**，放行要显式 `--allow-stale`，且档内显著留痕。
+
 用法（任意 cwd）:
   python scripts/pack_evidence.py                 # → _archive/evidence/<时间戳>-<sha>-<mode>/
   python scripts/pack_evidence.py --zip           # 另产同名 .zip
   python scripts/pack_evidence.py --out /tmp/ev   # 指定输出父目录
+  python scripts/pack_evidence.py --allow-stale   # 报告与语料分叉时仍出包（档内会标注）
 零凭据、零网络、仅 stdlib：干净检出下可直接跑（mock 模式）。
 """
 from __future__ import annotations
@@ -42,6 +48,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
+
+# 同代判据在离线侧（`offline/provenance.py`），这里复用同一份实现而不是另写一套：
+# 两套判据会在某次修订后悄悄分叉，而"打包自检"与"CI 门闩"给出不同结论时，
+# 读者无从判断哪个才算数。经 sys.path 正常导入（非 importlib 按路径加载），
+# 这样对它的变异才能传导到本脚本的回归锁里（同 offline/tests 的既有教训）。
+OFFLINE = REPO / "offline"
+if str(OFFLINE) not in sys.path:
+    sys.path.insert(0, str(OFFLINE))
+import provenance as pv  # noqa: E402
 
 # 复核前提的四个等级——MANIFEST 逐条标注，读者据此判断"我现在能不能验这一项"。
 CLEAN = "clean"   # 干净检出即可复核（纯静态产物，无外部依赖）
@@ -121,6 +136,57 @@ def load_provenance() -> dict | None:
         return None
 
 
+def _digests(facts: dict) -> dict:
+    """受门闩约束的三项内容摘要 + 计数，供 MANIFEST.json 留痕（人复核时不用再跑一遍）。"""
+    out: dict[str, dict] = {}
+    for key in pv.GATED_INPUTS:
+        cur = facts.get(key) or {}
+        out[key] = {"sha256": cur.get("sha256"),
+                    "counts": {k: v for k, v in cur.items() if k != "sha256"}}
+    return out
+
+
+def same_generation() -> dict:
+    """出包前的同代自检：随附报告与当前语料是否同代（判据实现见 offline/provenance.py）。
+
+    返回结构化结论而不是布尔值：拒绝出包时要能说清**哪一项**分叉了，
+    放行时也要把这份差异原样写进档内（"显式放行"必须留下可审计的痕迹）。
+    """
+    recorded = pv.load_provenance()
+    current = pv.collect()
+    if recorded is None:
+        return {"ok": False, "reason": "missing", "diffs": [],
+                "detail": f"缺 {pv.PROVENANCE_REL}——无法判定随附报告与语料是否同代",
+                "digests": _digests(current)}
+    diffs = pv.diff(recorded, current)
+    return {
+        "ok": not diffs,
+        "reason": "ok" if not diffs else "diverged",
+        "detail": "随附报告与语料同代" if not diffs else "随附报告与语料已分叉",
+        "recorded_at": recorded.get("generated_at"),
+        "reproduce": recorded.get("reproduce"),
+        "diffs": diffs,
+        "digests": _digests(current),
+    }
+
+
+def same_generation_md(gen: dict) -> str:
+    """§0 里的同代自检段——读者最先要判断的正是"这份快照里的数字是不是现行结论"。"""
+    if gen.get("ok"):
+        return ("**同代自检：通过** —— 随附报告与语料同代（三项内容摘要见 `MANIFEST.json` 的 "
+                "`same_generation.digests`）。判据与 CI 的 `provenance` job 同一份实现，"
+                "可独立复核：\n\n```bash\ncd offline && python provenance.py --check\n```")
+    diffs = "\n".join(f"  - {d}" for d in gen.get("diffs", [])) or "  - （无差异明细）"
+    return ("\n".join([
+        "> ⚠️ **同代自检：未通过——本档是显式放行的过期快照（`--allow-stale`）**",
+        f"> {gen.get('detail', '')}。**报告里的指标数字不是现行结论**，只可用于取证/对比，",
+        "> 不可作为「当前能力」引用。差异：",
+        diffs,
+        "> 修法：`cd offline && python eval/build_golden.py && python eval/evaluate.py`，"
+        "再 `python provenance.py --stamp`，然后不带 `--allow-stale` 重新打包。",
+    ]))
+
+
 def collect(include_local: bool = False) -> tuple[list[dict], list[str]]:
     """按登记表收集存在的产物。返回 (条目列表, 未纳入说明)。
 
@@ -194,6 +260,11 @@ def render_manifest(meta: dict, items: list[dict], skipped: list[str], prov: dic
     L.append("## 0. 本档能复核什么（先读这一段）")
     L.append("")
     L.append(mode_verdict(meta["mode"], prov))
+    L.append("")
+    gen = meta.get("same_generation")
+    L.append(same_generation_md(gen) if gen else
+             "**同代自检：未记录** —— 本档未携带同代自检结论（正常出包必带，见 `--allow-stale` 与 "
+             "`scripts/pack_evidence.py` 的设计决定 4）。")
     L.append("")
     if by_prereq.get(LOCAL):
         L.append("> ⚠️ **本档含本机运行态证据**（`logs/` 下审计与告警运行史，见 §1 末组）："
@@ -283,7 +354,23 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--include-local-evidence", action="store_true",
                     help="纳入 logs/ 下的本机运行态证据（审计/告警运行史）——含查询内容与租户标识，"
                          "默认排除以免误发")
+    ap.add_argument("--allow-stale", action="store_true",
+                    help="随附报告与语料不同代时仍然出包（档内会显著标注为过期快照；CI 从不使用本开关）")
     a = ap.parse_args(argv)
+
+    # 自检挡在**任何产物落地之前**：拒绝时不留半个归档目录，避免"被拒的包"被误当成品分发。
+    gen = same_generation()
+    if not gen["ok"] and not a.allow_stale:
+        print(f"FAIL 拒绝出包：{gen['detail']}", file=sys.stderr)
+        for line in gen["diffs"]:
+            print(f"     {line}", file=sys.stderr)
+        print("     本档的承诺是「每个数字都能在这里复核」；报告过期时出包，"
+              "等于把旧结论盖章成现行结论。", file=sys.stderr)
+        print("     修法：cd offline && python eval/build_golden.py && python eval/evaluate.py，"
+              "再 python provenance.py --stamp", file=sys.stderr)
+        print("     确实要留一份过期快照（例如取证对比）：加 --allow-stale，档内会显著标注。",
+              file=sys.stderr)
+        return 1
 
     mode = detect_mode()
     git = git_facts()
@@ -306,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         "python": sys.version.split()[0],
         "host_os": f"{sys.platform}",
         "includes_local_evidence": a.include_local_evidence,
+        "same_generation": gen,
     }
     prov = load_provenance()
 
@@ -339,9 +427,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"OK   证据快照 → {dest}")
     print(f"     git_sha={git['sha'][:8]}{'（工作区脏）' if git['dirty'] else ''} ｜ mode={mode}"
           f" ｜ {len(copied)} 个产物" + (f" ｜ 跳过 {len(skipped)} 项（见 MANIFEST §2）" if skipped else ""))
+    print(f"     同代自检：{'通过（随附报告与语料同代）' if gen['ok'] else '未通过——本档为过期快照'}")
     print(f"     入口文档 → {dest / 'MANIFEST.md'}")
     if a.zip:
         print(f"     压缩包   → {dest.with_suffix('.zip')}")
+    if not gen["ok"]:
+        print("WARN 本档为显式放行的过期快照（--allow-stale）：报告数字非现行结论，勿作能力引用",
+              file=sys.stderr)
     if a.include_local_evidence:
         print("WARN 本档含本机运行态证据（logs/，含查询内容与租户标识）——勿原样公开分发", file=sys.stderr)
     return 0
