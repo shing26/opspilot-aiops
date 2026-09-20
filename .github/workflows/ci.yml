@@ -1,7 +1,8 @@
 # 一期 CI：零凭据、零中间件即可跑——mvn 单测全 mock/H2-local；Python 侧 chunkers 不变量
 # + 跨语言词法护栏 + 告警生产者判定/闸门（不触网，由 fixture 强制）；bash 侧面板契约
 # 与全脚本语法检查（脚本是运维动作的入口，语法错到用的时候才发现太晚）；
-# 以及"报告↔语料同代"门闩（台账 E1 教训：语料变了不重跑评测，README 数字就悄悄陈旧）。
+# 以及"证据同代"的两个面：面一"报告↔语料"（摘要）+ 面二"文档数字↔产物"（现算），
+# 外加干净检出下跑一次证据打包 smoke（O1 的验收从人工一次性变成每次复现）。
 # live 依赖的 A2/A3 验收不进 CI（需 compose 栈），由本地验收脚本承担。
 name: CI
 on:
@@ -41,6 +42,11 @@ jobs:
       - name: Report ⟷ corpus same-generation gate
         working-directory: offline
         run: python provenance.py --check
+      # 面二：报告与语料同代 ≠ 文档里的数字是对的（人抄错/漏改，面一完全看不见）。
+      # README 曾写「121 用例」而实际已是 131——同一缺陷类在面一上线后又发生了一次。
+      - name: Doc numbers ⟷ artifacts gate
+        working-directory: offline
+        run: python doc_numbers.py --check
 
   python:
     runs-on: ubuntu-latest

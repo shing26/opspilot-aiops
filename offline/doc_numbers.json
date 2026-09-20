@@ -1,0 +1,279 @@
+{
+  "note": "文档数字契约（同代门闩·面二）：每条只记「数字在哪、怎么从产物派生」，不存数值快照，判据每次现算。只登记可从库内产物确定性派生的数字——live 实测时长（如重建 22.3s）、并发实测值与需活体栈的读数含波动，纳入会假红，故刻意不在此表（已知边界，见模块 docstring）。",
+  "entries": [
+    {
+      "id": "java_test_declarations",
+      "unit": "@Test 声明数（src/test；已实测 surefire 执行数同为 131，无参数化展开）",
+      "derive": {
+        "kind": "grep_count",
+        "globs": ["src/test/**/*.java"],
+        "pattern": "^\\s*@Test\\b"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 单测"},
+        {"file": "README.md", "pattern": "单测与集成（(\\d+) 用例"}
+      ]
+    },
+    {
+      "id": "adr_count",
+      "unit": "架构决策记录份数（docs/adr/*.md）",
+      "derive": {"kind": "file_count", "globs": ["docs/adr/*.md"]},
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 项架构决策"}
+      ]
+    },
+    {
+      "id": "chunks_lines",
+      "unit": "切分产物 chunks 行数（offline/corpus/chunks.jsonl）",
+      "derive": {"kind": "jsonl_lines", "path": "offline/corpus/chunks.jsonl"},
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 文档"},
+        {"file": "OPS.md", "pattern": "(\\d+) 文档"},
+        {"file": "DEMO.md", "pattern": "(\\d+) 文档"}
+      ]
+    },
+    {
+      "id": "postmortem_runbook_docs",
+      "unit": "语料篇数：复盘 + Runbook（不含 OpenAPI）",
+      "derive": {
+        "kind": "file_count",
+        "globs": ["offline/corpus/runbooks/*.md", "offline/corpus/postmortems/*.md"]
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 篇复盘/Runbook"}
+      ]
+    },
+    {
+      "id": "golden_samples",
+      "unit": "评测集样本数（offline/eval/golden_dataset.jsonl）",
+      "derive": {"kind": "jsonl_lines", "path": "offline/eval/golden_dataset.jsonl"},
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 样本"}
+      ]
+    },
+    {
+      "id": "golden_exact",
+      "unit": "评测集精确样本数（type=exact）",
+      "derive": {
+        "kind": "jsonl_count_where",
+        "path": "offline/eval/golden_dataset.jsonl",
+        "equals": {"type": "exact"}
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 错误码用例"},
+        {"file": "README.md", "pattern": "(\\d+) 精确码"}
+      ]
+    },
+    {
+      "id": "golden_semantic",
+      "unit": "评测集口语化样本数（type=semantic）",
+      "derive": {
+        "kind": "jsonl_count_where",
+        "path": "offline/eval/golden_dataset.jsonl",
+        "equals": {"type": "semantic"}
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 口语化用例"},
+        {"file": "README.md", "pattern": "(\\d+) 语义"}
+      ]
+    },
+    {
+      "id": "exact_hit1_percent",
+      "unit": "精确符号 Top-1 命中率（hybrid，来自评测报告）",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "modes.hybrid.exact.hit@1"
+      },
+      "format": "percent",
+      "cited_in": [
+        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，34 错误码用例"}
+      ]
+    },
+    {
+      "id": "semantic_hit3_percent",
+      "unit": "语义 Top-3 召回率（hybrid）",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "modes.hybrid.semantic.hit@3"
+      },
+      "format": "percent",
+      "cited_in": [
+        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，25 口语化用例"}
+      ]
+    },
+    {
+      "id": "semantic_hit1_hybrid_percent",
+      "unit": "语义 Top-1 命中率（hybrid）——混合检索的核心卖点数字",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "modes.hybrid.semantic.hit@1"
+      },
+      "format": "percent",
+      "cited_in": [
+        {"file": "README.md", "pattern": "仅 64% → hybrid (\\d+)%"},
+        {"file": "README.md", "pattern": "从 64% 拉到 (\\d+)%"}
+      ]
+    },
+    {
+      "id": "semantic_hit1_es_only_percent",
+      "unit": "语义 Top-1 命中率（纯词法 es_only）——混合检索的对照腿",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "modes.es_only.semantic.hit@1"
+      },
+      "format": "percent",
+      "cited_in": [
+        {"file": "README.md", "pattern": "仅 (\\d+)% → hybrid 88%"},
+        {"file": "README.md", "pattern": "从 (\\d+)% 拉到 88%"}
+      ]
+    },
+    {
+      "id": "semantic_hit3_es_only_percent",
+      "unit": "语义 Top-3 召回率（es_only）——扩语料后漂移的实测值",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "modes.es_only.semantic.hit@3"
+      },
+      "format": "percent",
+      "cited_in": [
+        {"file": "README.md", "pattern": "Hit@3 由 100% 降至 (\\d+)%"}
+      ]
+    },
+    {
+      "id": "semantic_mrr_hybrid",
+      "unit": "语义 MRR（hybrid）",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "modes.hybrid.semantic.mrr"
+      },
+      "format": "decimal3",
+      "cited_in": [
+        {"file": "README.md", "pattern": "语义 MRR (\\d+\\.\\d+)→(\\d+\\.\\d+)", "group": 2}
+      ]
+    },
+    {
+      "id": "semantic_mrr_es_only",
+      "unit": "语义 MRR（es_only）",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "modes.es_only.semantic.mrr"
+      },
+      "format": "decimal3",
+      "cited_in": [
+        {"file": "README.md", "pattern": "语义 MRR (\\d+\\.\\d+)→(\\d+\\.\\d+)", "group": 1}
+      ]
+    },
+    {
+      "id": "jailbreak_cases",
+      "unit": "越狱用例条数（评测报告 jailbreak.cases）",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "jailbreak.cases"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 条越狱用例"},
+        {"file": "README.md", "pattern": "实测 (\\d+) 用例零泄漏"}
+      ]
+    },
+    {
+      "id": "l1_ttft_p99_ms",
+      "unit": "L1 回放服务端 TTFT p99（ms，热点命中口径）",
+      "derive": {
+        "kind": "md_table_row",
+        "path": "offline/load/reports/l1_hit_latency.md",
+        "column": "p99",
+        "row_contains": "服务端 TTFT"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "\\*\\*(\\d+)ms\\*\\* \\| L1 回放"}
+      ]
+    },
+    {
+      "id": "l1_e2e_p99_ms",
+      "unit": "L1 回放客户端端到端 p99（ms，含本机栈开销）",
+      "derive": {
+        "kind": "md_table_row",
+        "path": "offline/load/reports/l1_hit_latency.md",
+        "column": "p99",
+        "row_contains": "客户端端到端"
+      },
+      "format": "decimal1",
+      "cited_in": [
+        {"file": "README.md", "pattern": "端到端 p99=(\\d+\\.\\d+)ms"}
+      ]
+    },
+    {
+      "id": "locust_rps",
+      "unit": "场景 A 吞吐（req/s，Locust 50 并发 30s）",
+      "derive": {
+        "kind": "csv_field",
+        "path": "offline/load/reports/locust_a_stats.csv",
+        "where": {"Name": "Aggregated"},
+        "column": "Requests/s"
+      },
+      "format": "decimal1",
+      "cited_in": [
+        {"file": "README.md", "pattern": "\\*\\*(\\d+\\.\\d+) req/s"}
+      ]
+    },
+    {
+      "id": "locust_requests",
+      "unit": "场景 A 总请求数",
+      "derive": {
+        "kind": "csv_field",
+        "path": "offline/load/reports/locust_a_stats.csv",
+        "where": {"Name": "Aggregated"},
+        "column": "Request Count"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "(\\d+) 请求 0 失败"}
+      ]
+    },
+    {
+      "id": "locust_failures",
+      "unit": "场景 A 失败数",
+      "derive": {
+        "kind": "csv_field",
+        "path": "offline/load/reports/locust_a_stats.csv",
+        "where": {"Name": "Aggregated"},
+        "column": "Failure Count"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "请求 (\\d+) 失败"}
+      ]
+    },
+    {
+      "id": "locust_p50_ms",
+      "unit": "场景 A P50 响应时间（ms）",
+      "derive": {
+        "kind": "csv_field",
+        "path": "offline/load/reports/locust_a_stats.csv",
+        "where": {"Name": "Aggregated"},
+        "column": "50%"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "README.md", "pattern": "P50=(\\d+)ms"}
+      ]
+    }
+  ]
+}
