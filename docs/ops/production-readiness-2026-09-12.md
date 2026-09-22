@@ -148,3 +148,18 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 | O4 LICENSE | **已做** | 新增 MIT `LICENSE`（`Copyright (c) 2026 shing26`；与同批 7 仓中 CodeCompass / truetailor 一致）；README 加目录表一行 + §许可一节（含"为何选 MIT 而非 Apache-2.0"） | `ls LICENSE*` 命中；`grep -c $'\r' LICENSE` = 0（LF 落盘，避免跨平台假红）；README 两处指向。**决定**：`LICENSE` 刻意**不纳入**证据快照 REGISTRY——快照收录"可核验的能力声明"，许可是元数据不是声明，纳入只会改变 `CHECKSUMS.sha256` 项数而不增加可核验信息 |
 
 **本轮明确不做（登记为触发线，不新开票）**：`docs/adr/` 0001–0006 与 0011 无 `状态：` 行（体例统一留到下次新增 ADR 时一并做）；ADR-0006 的旧数字「216 条」（ADR 是历史决策快照，不为数字改历史）；O3 外部监控 adapter（触发线已改写为可判读的三组析取项，见 `OPS.md` §5.1）；不新增 ADR——本轮无"难以反转 + 结果意外"的决策，取舍按本仓范式写进模块 docstring（`provenance.py` 即此形态）。
+
+## 修补记录（2026-09-22：B3 出站超时补齐）
+
+> 触发：《项目提升计划-20260921.md》的 B-1——它是全批**唯一一条「不做有实质风险」**的任务：
+> 标准不合格线字面要求"**所有**外部调用显式设超时"，而本项目只做到一部分。
+> 与 `pm-101` 同族但更重：那条是**超时值过时**（800ms 的 mock 期魔数），这次是**根本没有超时**——
+> 无限等待连"可见的静默降级"都做不到，连 pm-101 那条"降级不可怕、看不见降级才可怕"的兜底都没有。
+
+| 项 | 状态 | 依据 | 验收证据 |
+|---|---|---|---|
+| B3 出站超时补齐 | **已修** | 实测只有 LLM 一路有超时（`LlmClient` 自带 connect 5s + 请求级 `llm-timeout-seconds`），其余三路全靠底层客户端默认值——`RerankClient` / `RestClientConfig` / `EsConfig` / `EmbeddingClient` 四文件 `grep -iE "timeout\|Duration"` **全部零命中**。修法是**两个配置点覆盖四个调用位**：`RerankClient` 与 `EmbeddingClient` 共用 `RestClientConfig` 建的那个 DashScope `RestClient`（一处覆盖两路），`EsConfig` 覆盖 ES。新增 4 个 env 可覆盖键：`dashscope.connect-timeout-ms`(3000) / `dashscope.read-timeout-ms`(15000) / `es.connect-timeout-ms`(3000) / `es.read-timeout-ms`(10000)，全部 `@Min(1)` | `OutboundTimeoutTest` 6 例 + `OpsPilotPropertiesValidationTest` 从 8 例扩到 10 例（新增两个 0 值负例、正例补 3 个绑定断言）；**mvn 139 全绿**（131 + 8）。**变异对照**：摘掉 `RestClientConfig.settings()` 里的 `.withReadTimeout(...)` 一行 → `OutboundTimeoutTest` 6 例中 **4 例当场红**；恢复后全绿。三项本地门禁同绿：`check_panel_contract.sh`、`doc_numbers.py --check`、`provenance.py --check` |
+| 取值口径：socket 兜底必须比业务级预算**松** | **已定** | 检索腿的业务预算是 `retrieval.leg-timeout-ms`（4500ms = embedding 观测 P99 3.7s + 余量）。若 socket 读超时压到同量级，两者会赛跑，最后抛出的是**原始 socket 异常**而不是走业务降级——降级状态机就收不到它该收的信号，`pm-101` 那条"靠 `SearchOutcome` 的 `mode/degraded` 暴露真实执行路径"的可见性兜底会失效。故 15000/10000 是**兜底值不是 SLO**，且刻意留松 | `OutboundTimeoutTest.esSocketTimeoutIsLooserThanTheRetrievalLegBudget` 把这条口径钉成断言（两个 socket 超时都必须 > 4500）；`pm-101` 的防复发教训第 1 条"每个魔数都隐含环境假设，切换后端时逐一重审所有时间/大小/阈值参数"由此落实为**被测试守住的口径**，而不是散文 |
+| 验收口径从 grep 升级为断言 | **已改** | 原验收写的是「`grep -i timeout` 在四个文件中应有命中」。那条只证明**写了字**，证明不了**生效**——把 `.withReadTimeout(...)` 删掉只留注释里的 "timeout"，grep 照样绿（变异对照已实测这条）。故把超时对象抽成 `RestClientConfig.settings()` / `EsConfig.applyTimeouts()` 两个静态方法，**生产路径与测试走同一个函数**，断言改为验"配置值 → 请求工厂设置"的传递链 | 变异对照见上行（摘一行即 4 红）就是这条升级的直接证据。**一处诚实记录**：`RerankClient.java` 与 `EmbeddingClient.java` 两个文件自身 `grep timeout` **仍为 0**——超时落在它们共用的客户端上，不在每个调用方重复配一遍；原验收的"四文件各应有命中"因此没有字面满足，改为"四个调用位都被覆盖"，覆盖性由共用 bean 的单一配置点保证 |
+
+**README 数字同步（本轮的连带改动）**：新增 8 条用例使 `@Test` 声明数 131 → **139**，面二门闩当场报红并点名 `README.md:36` 与 `:339`（期望 139 / 实际 131）——这正是 O2 面二设计要抓的形状，**门闩没有被改宽，改的是文档**。同步处：`README.md` 两处数字、`offline/doc_numbers.json` 里 `java_test_declarations` 的 `unit` 说明文案（"同为 131" → "同为 139"）。修后 `doc_numbers.py --check` 报「21 条文档数字与产物一致（29 处引用全部命中且相符）」。

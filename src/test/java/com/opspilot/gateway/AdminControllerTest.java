@@ -50,7 +50,7 @@ class AdminControllerTest {
         L2SemanticCacheService l2 = mock(L2SemanticCacheService.class);
         OpsPilotProperties props = new OpsPilotProperties(
                 new OpsPilotProperties.DashScope(
-                        "http://x", null, null, 0, null, null, 0, "mock"),
+                        "http://x", null, null, 0, null, null, 0, 3000, 15000, "mock"),
                 null, null, null, null, null, null, null);
         IngestionRunner ingestion = mock(IngestionRunner.class);
         when(ingestion.reingestAsync()).thenReturn(true);

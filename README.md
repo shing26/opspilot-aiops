@@ -33,7 +33,7 @@
 4. **溯源是合同不是装饰**：答案 refs 进 L1/L2 缓存 payload、随 Single-Flight 回放、落 SSE done 帧——引用标号在缓存命中路径与现网生成路径逐字节一致（第四轮 QA 曾把"L2 命中丢 refs"按缺陷修复并入回归锁）。→ `cache/L2SemanticCacheService.java`、A2-3/A2-9 引用断言。
 5. **风暴与故障是设计输入，不是运行时异常**：同指纹 500 并发→1 次 LLM 穿透；过载降纯 ES、LLM 熔断直出预热静态 SOP、冷却到期半开自探（修复见 `e966feb`）——降级是状态机的一等公民，不是 catch 块。→ `storm/SingleFlightRegistry.java`、`resilience/DegradationStateMachine.java`、A2-5/A2-6、`DegradationRecoveryTest`。
 
-> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——131 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V8（其中 live 五道 V2/V3/V4/V5/V7 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对）+ 越狱/风暴/降级/留痕矩阵。
+> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——139 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V8（其中 live 五道 V2/V3/V4/V5/V7 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对）+ 越狱/风暴/降级/留痕矩阵。
 
 ## 核心指标（实测）
 
@@ -336,7 +336,7 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 | 路径 | 是什么 | 入库 |
 | --- | --- | --- |
 | `src/main/java/com/opspilot/` | 在线面：`gateway`(协议/编排) `retrieval` `llm` `resilience` `auth` `cache` `storm` `metrics` `health` `ingest` `chunk` `config` | ✅ |
-| `src/test/java/` | 单测与集成（131 用例，`@Test` 声明数） | ✅ |
+| `src/test/java/` | 单测与集成（139 用例，`@Test` 声明数） | ✅ |
 | `docs/adr/` | 11 项架构决策（每份含否决项与后果）——**改架构先写 ADR** | ✅ |
 | `docs/qa/` | 红队缺陷台账 / 模块复验台账（缺陷与验证的单一事实源） | ✅ |
 | `docs/ops/` | 生产化就绪评估 | ✅ |

@@ -27,7 +27,7 @@ class LlmClientTest {
     @BeforeEach
     void setUp() {
         OpsPilotProperties props = new OpsPilotProperties(
-                new OpsPilotProperties.DashScope("http://x", "k", "e", 1024, "r", "q", 30, "live"),
+                new OpsPilotProperties.DashScope("http://x", "k", "e", 1024, "r", "q", 30, 3000, 15000, "live"),
                 null, null, null, null, null, null, null);
         metrics = mock(OpsMetrics.class);
         client = new LlmClient(props, metrics);

@@ -42,7 +42,11 @@ class OpsPilotPropertiesValidationTest {
     private static final String[] LEGAL_BASELINE = {
             "opspilot.dashscope.embedding-dim=1024",
             "opspilot.dashscope.llm-timeout-seconds=60",
+            "opspilot.dashscope.connect-timeout-ms=3000",
+            "opspilot.dashscope.read-timeout-ms=15000",
             "opspilot.dashscope.mode=auto",
+            "opspilot.es.connect-timeout-ms=3000",
+            "opspilot.es.read-timeout-ms=10000",
             "opspilot.qdrant.grpc-port=6334",
             "opspilot.jwt.ttl-seconds=86400",
             "opspilot.cache.l1-ttl-hours=2",
@@ -87,6 +91,10 @@ class OpsPilotPropertiesValidationTest {
             OpsPilotProperties props = ctx.getBean(OpsPilotProperties.class);
             assertThat(props.degrade().inflightThreshold()).isEqualTo(40);
             assertThat(props.retrieval().minRelevance()).isEqualTo(0.2);
+            // B3：socket 兜底值也走同一条绑定路径，别只验"能启动"
+            assertThat(props.dashscope().connectTimeoutMs()).isEqualTo(3000);
+            assertThat(props.dashscope().readTimeoutMs()).isEqualTo(15000);
+            assertThat(props.es().readTimeoutMs()).isEqualTo(10000);
         });
     }
 
@@ -150,6 +158,23 @@ class OpsPilotPropertiesValidationTest {
         runnerWith("opspilot.qdrant.grpc-port=0").run(ctx -> {
             assertThat(ctx).hasFailed();
             assertThat(ctx.getStartupFailure()).hasStackTraceContaining("grpcPort");
+        });
+    }
+
+    @Test
+    void zeroConnectTimeoutIsRejectedAtStartup() {
+        // B3：0 是"连接建立即超时"→ 每次出站必失败，且失败得像是下游挂了（比不设超时更难查）
+        runnerWith("opspilot.dashscope.connect-timeout-ms=0").run(ctx -> {
+            assertThat(ctx).hasFailed();
+            assertThat(ctx.getStartupFailure()).hasStackTraceContaining("connectTimeoutMs");
+        });
+    }
+
+    @Test
+    void zeroReadTimeoutIsRejectedAtStartup() {
+        runnerWith("opspilot.es.read-timeout-ms=0").run(ctx -> {
+            assertThat(ctx).hasFailed();
+            assertThat(ctx.getStartupFailure()).hasStackTraceContaining("readTimeoutMs");
         });
     }
 }

@@ -33,8 +33,8 @@ class HealthProbeTest {
         when(redisson.<String>getBucket(anyString())).thenReturn(bucket);
         when(bucket.isExists()).thenReturn(false); // 键不存在没关系——没抛异常=连通
         OpsPilotProperties props = new OpsPilotProperties(
-                new OpsPilotProperties.DashScope("http://mock", "", "m", 1024, "m", "m", 30, "mock"),
-                new OpsPilotProperties.Es("http://localhost:9200", "opspilot-chunks-read", "elastic", ""),
+                new OpsPilotProperties.DashScope("http://mock", "", "m", 1024, "m", "m", 30, 3000, 15000, "mock"),
+                new OpsPilotProperties.Es("http://localhost:9200", "opspilot-chunks-read", "elastic", "", 3000, 10000),
                 new OpsPilotProperties.Qdrant("localhost", 6334, "opspilot-vectors-live", "semantic-cache", ""),
                 new OpsPilotProperties.Jwt("secret", 3600), null, null, null, null);
         probe = new HealthProbe(es, qdrant, redisson, props);

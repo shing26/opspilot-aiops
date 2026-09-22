@@ -3,7 +3,7 @@
   "entries": [
     {
       "id": "java_test_declarations",
-      "unit": "@Test 声明数（src/test；已实测 surefire 执行数同为 131，无参数化展开）",
+      "unit": "@Test 声明数（src/test；已实测 surefire 执行数同为 139，无参数化展开）",
       "derive": {
         "kind": "grep_count",
         "globs": ["src/test/**/*.java"],

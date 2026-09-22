@@ -32,11 +32,19 @@ opspilot:
     rerank-model: ${RERANK_MODEL:gte-rerank-v2}   # 旧 gte-rerank 已停授权(403)，v2 为同族直升，min-relevance 分数分布兼容
     llm-model: qwen-plus
     llm-timeout-seconds: 60
+    # B3（2026-09-21 补）：精排与 embedding 共用那个 RestClient 的 socket 兜底。
+    # 必须比 retrieval.leg-timeout-ms（4500）松——同量级会赛跑，抛出的是原始 socket
+    # 异常而不是走业务降级，降级状态机就收不到它该收的信号。
+    connect-timeout-ms: ${DASHSCOPE_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${DASHSCOPE_READ_TIMEOUT_MS:15000}
   es:
     uri: http://${ES_HOST:localhost}:9200
     index: opspilot-chunks-read      # P4：查询侧只认别名（物理 opspilot-chunks-<ts>，reingest 原子换指）
     username: ${ES_USER:elastic}
     password: ${ES_PASSWORD:}        # P3：xpack security 开启后必填；空=本地无认证形态
+    # B3（2026-09-21 补）：socket 兜底，不是 SLO——ES 挂住时不让检索线程无限等
+    connect-timeout-ms: ${ES_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${ES_READ_TIMEOUT_MS:10000}
   qdrant:
     host: ${QDRANT_HOST:localhost}
     grpc-port: 6334

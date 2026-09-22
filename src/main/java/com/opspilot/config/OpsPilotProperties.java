@@ -19,6 +19,15 @@ import org.springframework.validation.annotation.Validated;
  * 且报错含字段名；正例用全量合法值）＋ 活体启动复验（打包 jar 带
  * {@code --opspilot.degrade.inflight-threshold=-1} → exit=1 且报错点名该字段；
  * 真实 yml 合法值启动零校验告警、推进到 Tomcat/H2 才因本机未起 Redis 中止）。
+ *
+ * <p>B3（2026-09-21 补）：{@code connect-timeout-ms} / {@code read-timeout-ms} 是
+ * <b>socket 层的最后一道</b>。此前只有 LLM 一路有显式超时（{@code LlmClient} 自己
+ * connect 5s + 请求级 {@code llm-timeout-seconds}），而精排、embedding、ES 三路全靠
+ * 底层客户端默认值——那些默认值多数是"无限等"，一个卡住的连接会一直占着线程。
+ * <p>取值口径：<b>socket 超时必须比业务级预算松</b>。检索腿的业务预算是
+ * {@code retrieval.leg-timeout-ms}（4500ms，取 embedding 观测 P99 3.7s + 余量），
+ * 若 socket 读超时也压到同一量级，两者会赛跑，最后抛出的是原始 socket 异常而不是
+ * 业务降级——降级状态机就收不到它该收的信号。所以这里是"兜底"不是"SLO"。
  */
 @Validated
 @ConfigurationProperties(prefix = "opspilot")
@@ -35,6 +44,7 @@ public record OpsPilotProperties(
     public record DashScope(String baseUrl, String apiKey, String embeddingModel,
                             @Min(1) int embeddingDim, String rerankModel, String llmModel,
                             @Min(1) int llmTimeoutSeconds,
+                            @Min(1) int connectTimeoutMs, @Min(1) int readTimeoutMs,
                             @Pattern(regexp = "auto|live|mock", flags = Pattern.Flag.CASE_INSENSITIVE,
                                     message = "dashscope.mode 只接受 auto|live|mock（不区分大小写）；" +
                                             "写错会静默退回按 key 判定，故启动期拒绝")
@@ -47,7 +57,8 @@ public record OpsPilotProperties(
         }
     }
 
-    public record Es(String uri, String index, String username, String password) {}
+    public record Es(String uri, String index, String username, String password,
+                     @Min(1) int connectTimeoutMs, @Min(1) int readTimeoutMs) {}
 
     public record Qdrant(String host, @Min(1) @Max(65535) int grpcPort, String collection,
                          String cacheCollection, String apiKey) {}
