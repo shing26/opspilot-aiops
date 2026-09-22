@@ -140,6 +140,35 @@
           </execution>
         </executions>
       </plugin>
+      <!-- B9（2026-09-22 补）：覆盖率产物 + 棘轮。报告绑 test 阶段（本项目 CI 跑的是
+           mvn -B test 而不是 verify），产物落 target/site/jacoco/jacoco.xml；
+           棘轮本身不在这里判定——那件事归 scripts/check_coverage.py，它读产物比门槛
+           并把实测值打出来，比 jacoco:check 只给一句失败更有据可引。
+
+           为什么本机量不到（已定位，不是配置错）：jacoco 的 destFile 会被解析成**绝对路径**
+           （${project.build.directory}/jacoco.exec）。实测本仓目录名 `OpsPilot — AIOps`
+           含长破折号（非 ASCII），该绝对路径经 cmd.exe 传给 -javaagent 时会被写坏，代理
+           静默不落盘。对照矩阵（同一个代理、同一条命令）：相对路径 target/x.exec 写得出、
+           ASCII 绝对路径写得出、含长破折号的绝对路径写不出（且文件没落到别处）。
+           故本机要量覆盖率需把目录改成 ASCII 名；CI 的 runner 路径本就是 ASCII，不受影响。
+           版本显式钉住：spring-boot-starter-parent 的 pluginManagement 并不管理它
+           （不钉会报 'plugin.version is missing' 警告，且版本随 Maven 默认解析漂移）。 -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.15</version>
+        <executions>
+          <execution>
+            <id>jacoco-prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>jacoco-report</id>
+            <phase>test</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

@@ -266,7 +266,7 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 - **知识库零空窗重建（P4）**：blue/green 别名原子切流——staging 灌库 + 计数硬验收 + 单请求换 ES/Qdrant 别名，失败保留旧库在线（`POST /api/v1/admin/reingest`，ADR-0006）；实测在线把 mock 向量集零中断切到 live。
 - **合规审计**：业务请求每请求一行 JSON 落 `logs/audit.jsonl`（谁/何租户/何密级/查了什么/结果最高密级；回放路径另携带 `src_tenant` 命中来源）；鉴权拒绝/登录失败/运维动作同样留痕（`ev=auth|admin|invalid`，原因可辨）——"攻击探测事后不可查"曾是第四轮 QA 立案的 P1，现已补全并接入 A2-10 计数断言。14 天滚动。
 - **成本护栏（P4）**：`/chat/stream` 每用户日配额（Redis INCR，默认 5000/天可 env 覆盖）——防失控循环；评测/检索路径不受限。
-- **CI（P4）**：五个 job——`mvn test`（零 key 零中间件）、面板↔后端字面量契约、`bash -n` 全脚本语法门禁、chunkers 不变量与**跨语言词法护栏**（Python 正则与 Java `EsSearchService.ERROR_CODE` 逐字符比对，防离线/在线漂移导致快路径静默 miss）、以及**证据同代门闩**的两面（面一 `provenance.py --check` 报告↔语料、面二 `doc_numbers.py --check` 文档数字↔产物）与一次**干净检出下的证据打包 smoke**。
+- **CI（P4）**：五个 job——`mvn test`（零 key 零中间件）+ **覆盖率棘轮**（`scripts/check_coverage.py` 读 JaCoCo 产物按 LINE 比门槛，首次实测 47.83%、门槛 46.0；BRANCH 只报不设闸）、面板↔后端字面量契约、`bash -n` 全脚本语法门禁、chunkers 不变量与**跨语言词法护栏**（Python 正则与 Java `EsSearchService.ERROR_CODE` 逐字符比对，防离线/在线漂移导致快路径静默 miss）、以及**证据同代门闩**的两面（面一 `provenance.py --check` 报告↔语料、面二 `doc_numbers.py --check` 文档数字↔产物）与一次**干净检出下的证据打包 smoke**。棘轮是加步骤不加 job（产物就在 `mvn test` 那个 job 里，另起 job 要重跑构建）。**本机量不到覆盖率**：本仓目录名 `OpsPilot — AIOps` 含长破折号，jacoco 的绝对 destFile 经 cmd.exe 传给 `-javaagent` 会被写坏、代理静默不落盘（对照矩阵：相对路径与 ASCII 绝对路径都写得出，含长破折号的写不出）——本机要量需把目录改成 ASCII 名，CI runner 路径本就是 ASCII 不受影响。
 - **哈希升级**：缓存 Key 由任务书原 MD5 升级为 SHA-256（安全扫描建议，语义不变）。
 - **命名口径为刻意决策**：缓存存储 JSON 用 Jackson 默认 camelCase（`AnswerPayload`，从不上线），对外 SSE 帧用 snake_case（`SseEvents` 手工构 Map）——两域两制不做统一，理由与成本分析见 `AnswerPayload` Javadoc。
 

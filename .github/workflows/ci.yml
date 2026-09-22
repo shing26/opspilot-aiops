@@ -22,6 +22,11 @@ jobs:
           cache: maven
       - name: Unit tests
         run: mvn -B test
+      # B9（2026-09-22 补）：覆盖率棘轮。产物由上一步的 jacoco:report 产出（report 绑在
+      # test 阶段，与本 job 跑 mvn test 的形状对齐）。加步骤不加 job——产物就在本 job 里，
+      # 另起 job 要重跑一遍构建；这也是本仓既有的取舍（见 provenance job 的同类注释）。
+      - name: Coverage ratchet (0-token)
+        run: python3 scripts/check_coverage.py
 
   panel-contract:
     runs-on: ubuntu-latest
