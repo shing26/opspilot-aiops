@@ -28,6 +28,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import org.mockito.ArgumentCaptor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +61,8 @@ class ChatOrchestratorTest {
     private HybridSearchService searchService;
     private LlmClient llm;
     private AuditService audit;
+    private PromptAssembler pa;
+    private DegradationStateMachine degrade;
     private com.opspilot.metrics.OpsMetrics metrics;   // 生成质量包：真计数对象，verbatim_masked 可断言
     private ChatOrchestrator orchestrator;
     private ExecutorService vt;
@@ -86,7 +89,7 @@ class ChatOrchestratorTest {
         llm = mock(LlmClient.class);
         // 桩语义：提示词含 leader 检索到的 chunkId → internal 答案（慢，受门控闩锁）；
         // 含 acme chunkId → acme 自己的答案（快）。泄露与否在 sink 帧上一眼可断。
-        PromptAssembler pa = mock(PromptAssembler.class);
+        pa = mock(PromptAssembler.class);
         when(pa.build(anyString(), any())).thenAnswer(inv -> {
             List<ScoredChunk> chunks = inv.getArgument(1);
             return List.of(Map.of("role", "user", "content", chunks.get(0).chunkId()));
@@ -104,7 +107,7 @@ class ChatOrchestratorTest {
             onToken.accept("ACME-OWN-ANSWER");
             return "ACME-OWN-ANSWER";
         });
-        DegradationStateMachine degrade = mock(DegradationStateMachine.class);
+        degrade = mock(DegradationStateMachine.class);
         when(degrade.current()).thenReturn(Level.L0);
         audit = mock(AuditService.class);
         metrics = new com.opspilot.metrics.OpsMetrics();
@@ -172,6 +175,36 @@ class ChatOrchestratorTest {
 
     private static String q() {
         return "50042_PAY_SIGN_INVALID 支付验签批量失败复盘 根因与修复";
+    }
+
+    /**
+     * ADR-0012 的回归锁：L1 的检索侧必须等价于 `es_only` 模式，且 prompt 组装与 L0 同构。
+     *
+     * 为什么锁这个：文档曾把 L1 写成"纯 ES + 缩减 Prompt"，而"缩减 Prompt"从未实现（本轮已撤该
+     * 措辞）。分叉一旦真出现，ADR-0012 登记的降级代价口径立即失真——该口径允许把 L1 的质量数字
+     * 直接引用评测报告里 `es_only` 那一列（88%→64%），前提正是"L1 ≡ es_only 且 prompt 无分叉"。
+     *
+     * 变异验证（改坏必红）：把 runPipeline 里的 `"es_only"` 改成 `"hybrid"` → 断言①必红；
+     * 给 L1 加一条"缩减上下文"的分支 → 断言②必红。
+     */
+    @Test
+    void degradedL1SearchIsIsomorphicToEsOnlyMode() throws Exception {
+        when(degrade.current()).thenReturn(Level.L1);
+        RecordingSink sink = new RecordingSink();
+        orchestrator.submit(req(q()), INTERNAL, sink, "manual");
+        llmGate.countDown();   // 本用例只验检索入参与 prompt 组装，不需要闸锁语义
+        awaitSuccess(sink);
+
+        // ① 检索入参：L1 必须以 es_only 模式检索（而非 hybrid）
+        verify(searchService).search(eq(q()), eq("tenant-internal"), eq(3), eq("es_only"));
+
+        // ② prompt 组装与 L0 同构：收到的就是检索回来的同一批 chunk，不存在"缩减"分支
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ScoredChunk>> chunks = ArgumentCaptor.forClass(List.class);
+        verify(pa).build(eq(q()), chunks.capture());
+        assertEquals(List.of("rb-001::s1"),
+                chunks.getValue().stream().map(ScoredChunk::chunkId).toList(),
+                "L1 的 prompt 上下文必须与 L0 同构（同一批 chunk）——出现分叉则 ADR-0012 的代价口径失真");
     }
 
     /** P0-1 主案：leader(tenant-internal,L3) 在途时，follower(tenant-acme,L3) 绝不可拿到其答案/引用。 */

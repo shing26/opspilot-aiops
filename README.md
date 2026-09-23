@@ -97,7 +97,7 @@ flowchart TD
 stateDiagram-v2
     [*] --> L0
     L0: Level 0 全链路(双路+Rerank+LLM)
-    L1: Level 1 高负载(纯ES+缩减Prompt)
+    L1: Level 1 高负载(纯ES·无Rerank·门控降为零召回级)
     L2: Level 2 熔断(静态SOP直出,零LLM)
     L0 --> L1: inflight超阈 / 向量路超时
     L1 --> L0: 负载恢复
@@ -105,6 +105,8 @@ stateDiagram-v2
     L2 --> L0: 冷却窗口结束
     L1 --> L2: LLM 仍失败
 ```
+
+**降级的代价（如实登记，不只讲好处）**：L1 的检索质量就是 `es_only` 模式的质量——语义 Hit@1 由 88% 退到 64%；更值得说清的是第二项代价：摘除 Rerank 后没有可依的相关性分数，**置信度门控在 L1 退为「零召回级」**，即"不知道就不答"这条主张在降级期是弱化的（不是消失：零召回仍拒答）。为什么不给它补一个阈值：RRF 分数无量纲，照搬 L0 的 0.2 会变成拍脑袋拒答，未标定的阈值比现状更糟。取舍与重开触发线见 [ADR-0012](docs/adr/0012-degradation-cost-semantics.md)。
 
 ## 技术栈
 
