@@ -12,10 +12,14 @@
   V4 防断言语态——无强标识符泛化症状 2 变体 ×3 连跑：假设信号词在 ∧ 无断言式编号锚定
      （软层上限锁法，grill Q3；上限=探针选词，升级触发线见 OPS 债务闹钟表/ADR-0010）
   V7 长日志回归锁——10069 字符粘贴日志：非拒答 ∧ refs≥1 ∧ cache_hit=none（grill Q1）
+  V9 接地一致性——答案里出现的错误码必须都落在本轮 refs 覆盖内（判据见 offline/grounding.py）。
+     这是防幻觉链路的**事后环**：在线三道闸门管的是"没证据就不答"（事前门控 + 通用文本层护栏），
+     本项管的是"答了的内容都有据"——两者互不替代。**零额外 chat 预算**：复用 V2/V4 已产出的
+     答案，不新增实调。
 
 纪律：探针词**绝不进 offline/corpus/**（评测集同形会污染 evaluate 指标，台账 §0 同源）；
 凭据零字面量（口令仅经 localapi 从 DEMO_PASSWORD 环境变量读）；仅本机 http（_local_request 单点环回断言）。
-预算：chat 实调 ≤15 次（5+1+1+6+1），脚本内置闸。
+预算：chat 实调 ≤15 次（5+1+1+6+1），脚本内置闸。V9 不占预算（只用已有答案）。
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import localapi  # noqa: E402
 import console_client  # noqa: E402
+import grounding  # noqa: E402
 
 MAX_OVERLAP_QUOTA = 80          # 与 VerbatimGuard.MAX_OVERLAP_CHARS 同数（单一口径）
 PLACEHOLDER_MARK = "此处原文较长"
@@ -91,10 +96,14 @@ def chat(token: str, query: str) -> dict:
 
 
 # chunks.jsonl 是探针的参考文本源（护栏拦的就是这些授权原文的逐字导出）
+# 同时建错误码索引：V9 的授权来源——答案只看得见 refs 的原文，故 refs 覆盖的 error_codes
+# 即"本轮有据的错误码全集"。
 CHUNKS = {}
+CHUNK_ERROR_CODES = {}
 for _line in io.open(Path(__file__).resolve().parent / "corpus" / "chunks.jsonl", encoding="utf-8"):
     _c = json.loads(_line)
     CHUNKS[_c["chunk_id"]] = _c["text"]
+    CHUNK_ERROR_CODES[_c["chunk_id"]] = set((_c.get("metadata") or {}).get("error_codes") or ())
 
 
 def ref_texts(done: dict) -> list[str]:
@@ -172,7 +181,8 @@ def run_verbatim(token: str, admin_tok: str) -> list:
         masked = PLACEHOLDER_MARK in ans
         if masked:
             masked_variants.append(tag)
-        records.append({"tag": tag, "query": full_q, "answer": ans, "refs": refs})
+        records.append({"tag": tag, "query": full_q, "answer": ans, "refs": refs,
+                        "refs_raw": done.get("refs", []) or []})   # refs_raw：V9 回查错误码用（带 chunkId）
         # 有引用+无长重叠即过：模型被规则 5 说服总结、或出口护栏掩码，两种都算绿。
         # （注：模型偶把规则 2 拒答话术与正文混排，属 prompt 话术观察项，不影响本锁。）
         check(f"V2-{tag}", not leaked,
@@ -254,13 +264,15 @@ HEDGE_RE = re.compile(r"疑似|可能|需先确认|建议先|不排除|常见原
 ASSERT_RE = re.compile(r"(确认为|就是|正是|即为)[^。\n]{0,15}(pm-\d|rb-\d|复盘编号|事故编号)")
 
 
-def run_hypothetical(token: str) -> None:
+def run_hypothetical(token: str) -> list[dict]:
     """V4 语态锁（诚实版）。关键修正：
     - 引擎层「检索置信度不足」拒答=零断言锚定，比假设语态更安全，计为安全通过（violation=False），
       但不计入"已观测到生成"（无法从拒答证实注入生效）；
     - 真生成 与 缓存回放(L1/L2) 分列：回放体是本 build 早前的真实生成物，语态在其上可验，
       但"本轮至少一次现网生成(gen)"才是端到端最硬证据——全无生成则 FAIL 注明(需破 L2 重跑)。
-    过线：每个非拒答 run 均 hedge∧¬assert，且至少观测到一次生成(gen 或 replay)。"""
+    过线：每个非拒答 run 均 hedge∧¬assert，且至少观测到一次生成(gen 或 replay)。
+    返回非拒答答案列表（供 V9 接地判据复用，不额外实调）。"""
+    collected: list[dict] = []
     for tag, q in HYPOTHETICAL_VARIANTS:
         ok_all, fresh, replayed, refused_n, notes = True, 0, 0, 0, []
         for i in range(3):
@@ -273,6 +285,8 @@ def run_hypothetical(token: str) -> None:
                 continue                       # 拒答=安全，不核语态、不算生成证据
             hedge = bool(HEDGE_RE.search(ans))
             bad = bool(ASSERT_RE.search(ans))
+            collected.append({"tag": f"{tag}#{i + 1}", "query": q, "answer": ans,
+                              "refs_raw": r["done"].get("refs", []) or []})
             if cache == "none":
                 fresh += 1
             else:
@@ -287,6 +301,7 @@ def run_hypothetical(token: str) -> None:
               + ("  ← 全无生成，需破 L2 换措辞重跑" if observed == 0 else
                  "  ← 仅回放未现网生成（语态在真答案上已验，端到端现网生成见 mock 单测+run1 同 build 实弹）"
                  if fresh == 0 else ""))
+    return collected
 
 
 # ---------------- V7：长日志回归锁（grill Q1：砍修复、留锁防回退） ----------------
@@ -331,16 +346,50 @@ def run_longlog(token: str) -> None:
           + (" ← L2 命中，未验到检索链路：换个开场模板重跑" if cache in ("L1", "L2") else ""))
 
 
+# ---------------- V9：答案接地一致性（防幻觉的**事后**环；判据与单测见 offline/grounding.py） ----------------
+
+def run_grounding(records: list[dict]) -> None:
+    """核"答案里出现的错误码是否都有据"——复用已产出答案，零额外 chat 预算。
+
+    授权来源：该答案自己的 refs（done 帧带 chunkId）回查语料元数据 error_codes。模型只看得见
+    refs 的原文，故答案中出现而 refs 未覆盖的错误码，都是模型自行引入的——即幻觉候选。
+
+    已知边界（勿当已覆盖）：
+      · 只管**错误码**这一种精确符号。runbook 步骤编号（pm-*/rb-*）不在管辖内，那类由 V4 语态锁
+        与人工评审承担——本项不冒充覆盖了它。
+      · 若 query 自身含语料外的错误码，模型复述用户输入会被计为无据。方向刻意保守（宁可误报）；
+        本组素材（V2 用 50012_DB_TIMEOUT、V4 为无强标识符泛化症状）不触发该情形。
+    """
+    total_codes, ungrounded, samples = 0, set(), []
+    for rec in records:
+        allowed = grounding.ref_error_codes(rec.get("refs_raw"), CHUNK_ERROR_CODES)
+        codes = grounding.error_codes_in(rec["answer"])
+        bad = grounding.ungrounded_error_codes(rec["answer"], allowed)
+        total_codes += len(codes)
+        ungrounded |= bad
+        if bad:
+            samples.append(f"{rec['tag']}:{'/'.join(sorted(bad))}")
+    if not records:
+        check("V9-grounding", False, "无可用答案素材（V2/V4 均未产出非拒答答案）——判据未被行使")
+        return
+    rate = 1.0 if total_codes == 0 else (total_codes - len(ungrounded)) / total_codes
+    check("V9-grounding", not ungrounded,
+          f"答案 {len(records)} 条 / 错误码 {total_codes} 个 / 无据 {len(ungrounded)} 个"
+          f"（接地率 {rate:.0%}）"
+          + ("；无据样例 " + "; ".join(samples[:3]) if samples else "")
+          + ("  ← 本组答案未出现错误码：判据未被行使（非绿，仅不适用）" if total_codes == 0 else ""))
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
     # 分组选择性执行（默认全跑；探针迭代期可 `... V2 V7` 省预算）
-    groups = {a.upper() for a in sys.argv[1:]} or {"V2", "V3", "V4", "V5", "V7"}
+    groups = {a.upper() for a in sys.argv[1:]} or {"V2", "V3", "V4", "V5", "V7", "V9"}
     tokens = localapi.load_tokens()
     l1, l3 = tokens["sre_l1"], tokens["sre_l3"]
-    v2_records = []
+    v2_records, v4_records = [], []
     if "V2" in groups:
         v2_records = run_verbatim(l1, l3)   # P2-4 病灶主体=L1 用户；交叉核对走平台只读面（l3=platform）
     if "V3" in groups:
@@ -351,9 +400,12 @@ def main() -> int:
         else:
             check("V5-replay-hygiene", False, "V5 依赖 V2 素材：请连 V2 一起跑（默认即如此）")
     if "V4" in groups:
-        run_hypothetical(l3)      # 语态与权限无关，用主账号减少变量
+        v4_records = run_hypothetical(l3)   # 语态与权限无关，用主账号减少变量
     if "V7" in groups:
         run_longlog(l3)
+    if "V9" in groups:
+        # 复用 V2/V4 答案（零额外实调）；两组都未跑时素材为空 → 判据未被行使，按 FAIL 报出
+        run_grounding(v2_records + v4_records)
     fails = [n for n, ok, _ in results if not ok]
     print(f"\n== 生成质量包探针 {len(results) - len(fails)}/{len(results)} PASS | chat 实调 {chat_calls} 次 ==")
     if fails:

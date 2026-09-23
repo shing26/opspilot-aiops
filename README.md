@@ -33,7 +33,7 @@
 4. **溯源是合同不是装饰**：答案 refs 进 L1/L2 缓存 payload、随 Single-Flight 回放、落 SSE done 帧——引用标号在缓存命中路径与现网生成路径逐字节一致（第四轮 QA 曾把"L2 命中丢 refs"按缺陷修复并入回归锁）。→ `cache/L2SemanticCacheService.java`、A2-3/A2-9 引用断言。
 5. **风暴与故障是设计输入，不是运行时异常**：同指纹 500 并发→1 次 LLM 穿透；过载降纯 ES、LLM 熔断直出预热静态 SOP、冷却到期半开自探（修复见 `e966feb`）——降级是状态机的一等公民，不是 catch 块。→ `storm/SingleFlightRegistry.java`、`resilience/DegradationStateMachine.java`、A2-5/A2-6、`DegradationRecoveryTest`。
 
-> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——139 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V8（其中 live 五道 V2/V3/V4/V5/V7 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对）+ 越狱/风暴/降级/留痕矩阵。
+> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——139 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V9（其中 live 六道 V2/V3/V4/V5/V7/V9 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对；V9=答案接地一致性，复用 V2/V4 已产出答案故不占 chat 预算）+ 越狱/风暴/降级/留痕矩阵。
 
 ## 核心指标（实测）
 
@@ -351,7 +351,8 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 | `offline/requirements-dev.txt` | 开发/验证依赖的**锁定版本**（运行时代码零第三方依赖，全 stdlib） | ✅ |
 | `offline/localapi.py` | **验收/评测脚本的本机 HTTP 单点**（SSRF 白名单 + token 路径解析）——新增脚本复用它，别再造轮子 | ✅ |
 | `offline/acceptance_a2.py` / `acceptance_a3.py` | A2 机制验收 / A3 综合验收 | ✅ |
-| `offline/qa_gen_quality_probes.py` | 生成质量门禁的 live 五道（V2/V3/V4/V5/V7）+ chat 预算闸；V1/V6/V8 分属 Java 单测、ZSET 用例、文档核对 | ✅ |
+| `offline/qa_gen_quality_probes.py` | 生成质量门禁的 live 六道（V2/V3/V4/V5/V7/V9）+ chat 预算闸；V9 复用 V2/V4 答案故不占预算。V1/V6/V8 分属 Java 单测、ZSET 用例、文档核对 | ✅ |
+| `offline/grounding.py` | **答案接地判据**（V9 的纯函数实现）：答案中的错误码是否都落在本轮 refs 覆盖内——防幻觉链路的**事后**环（前几道管"没证据就不答"，这项管"答了的都有据"）。词法复用 `chunkers/errorcode.py`，不另立副本 | ✅ |
 | `offline/console_client.py` | 控制台演示客户端（SSE 打字机 / 风暴模拟） | ✅ |
 | `offline/alert_producer.py` | **自举告警生产者**（[ADR-0011](docs/adr/0011-self-bootstrapped-alert-source.md)）：读运行态真相面 → 命中即以 `source=alert` 回打自身链路 | ✅ |
 | `scripts/` | 运维与入口脚本，逐个见下表 | ✅ |
