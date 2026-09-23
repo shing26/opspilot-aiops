@@ -346,9 +346,14 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 | `offline/chunkers/` | Python 切分管道（OpenAPI AST / 标题树 / 错误码三切分器 + `build_chunks.py`） | ✅ |
 | `offline/corpus/` | 语料源（openapi / runbooks / postmortems）+ 生成物 `chunks.jsonl` | ✅ |
 | `offline/eval/` | golden dataset、`evaluate.py`（评测并自动刷新出处登记）、评测报告 | ✅ |
+| `offline/eval/gate_matrix.py` | **门控混淆矩阵 + 阈值扫描**：误拒率/漏拒率 + 0.1/0.2/0.3/0.4 四档。走 `/search` 取门控信号，故**一次遍历算完任意阈值**（无需重启网关）且不含 L1/L2 缓存（排除"缓存回放绕过门控"的混淆） | ✅ |
+| `offline/eval/refuse_set.jsonl` | 门控矩阵的"应拒答"半集（幽灵错误码 + 域外提问）；**位于 `corpus/` 之外**（探针词进语料会污染评测指标），其"幽灵码确实不在语料里"的前提由测试现算锁死 | ✅ |
+| `offline/eval/observed_probe.py` | **真实输入探测（G4）**：在系统自己跑出的 query 上测三件**无需真值**的事（零召回率 / 快路径命中率 / 门控拒答率）。query 集不入库，报告只含聚合 | ✅ |
 | `offline/provenance.py` | **报告↔语料同代判据**（面一）：CI 门闩 `--check` + 出处登记 `--stamp`（内容摘要，非 mtime） | ✅ |
 | `offline/doc_numbers.py` | **文档数字↔产物同代判据**（面二）：按 `doc_numbers.json` 每次**现算**产物真值比对文档字面量（不存快照、无 `--stamp`） | ✅ |
 | `offline/load/` | Locust 压测脚本与报告 | ✅ |
+| `offline/load/sweep.py` | **并发-延迟曲线**：扫 25/50/100/200/300/500 六档出 P50/P95/P99 + 失败率 + RPS，标出**首次 L1 触发档**。原始 locust 产物留本地（`.gitignore`），只入汇总报告 | ✅ |
+| `offline/load/cache_savings.py` | **缓存节省账**：受控混合负载 → 命中/未命中延迟差 × 命中率 = 单请求平均节省。归因靠本脚本自己的负载（`hits/total_requests` 的分母含 Single-Flight follower，是浑的） | ✅ |
 | `offline/tests/` | pytest（切分器不变量 + 告警生产者判定/闸门，**不触网**由 fixture 强制） | ✅ |
 | `offline/requirements-dev.txt` | 开发/验证依赖的**锁定版本**（运行时代码零第三方依赖，全 stdlib） | ✅ |
 | `offline/localapi.py` | **验收/评测脚本的本机 HTTP 单点**（SSRF 白名单 + token 路径解析）——新增脚本复用它，别再造轮子 | ✅ |

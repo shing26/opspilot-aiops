@@ -9,7 +9,7 @@
 > **本文件不手写易漂的数字**（用例数、语料数、指标值）：那些由 `offline/doc_numbers.py` 在 CI 守着，
 > 以 README/产物为准——手写的数字必然过期，这正是 2026-09-21 那一轮的教训。
 
-## 现行状态（最后更新 2026-09-23）
+## 现行状态（最后更新 2026-09-24）
 
 | 能力面 | 现行状态 | 依据 / 证据落点 |
 |---|---|---|
@@ -27,11 +27,18 @@
 | O2 同代门闩（两面） | **已修** | 面一「报告↔语料」`offline/provenance.py`；面二「文档数字↔产物」`offline/doc_numbers.py`（每次现算、无 `--stamp`）；两面进 CI |
 | O4 许可证 | **已做**：MIT | 根 `LICENSE`（`.gitattributes` 钉 LF）；理由见 README §许可 |
 | 处置闭环（对目标系统写操作/自愈） | **未覆盖，产品承诺非缺陷**（只读立场 + 人做决定） | 触发线见 `OPS.md` §5 "处置闭环"行 |
-| 复盘 → 知识回灌 | **未覆盖，已入账**（2026-09-23 登记） | 知识库只读、运行期无「结论→语料」写路径；触发线见 `OPS.md` §5.1；谱系表 ④ 行已明示 |
+| 复盘 → 知识回灌 | **未覆盖，已入账**（2026-09-23 登记） | 知识库只读、运行期无「结论→语料」写路径；触发线见 `OPS.md` §5.1；谱系表 ④ 行已明示。**2026-09-24 补：前置入口已建**（答案反馈端点，见下） |
+| 承诺线（SLI/SLO） | **已建**（2026-09-24） | `OPS.md` §11 承诺表（七条 SLI + 核色方式与频次）；可派生数字入门闩面二 |
+| 防幻觉事后环（答案接地 V9） | **已建**（2026-09-24）；**live 数字待补** | `offline/grounding.py`（纯函数）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）；OPS §5.1 已登记其覆盖边界 |
+| 降级代价语义 | **已登记**（2026-09-24） | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)：L1 = 质量降（88%→64%）+ **门控降**（相关性级→零召回级）；同构回归锁 `ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`；重开触发线入 OPS §5 |
+| 分段耗时（审计行 `stage_ms`） | **已建**（2026-09-24） | `retrieval/LegTimings` + `metrics/StageTimings`（八段）；非 chat 路径传 null → 不落字段（"没测"≠"测得为 0"） |
+| 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **脚本已建**（2026-09-24）；**live 数字待补** | `offline/eval/gate_matrix.py`、`offline/load/sweep.py`、`offline/load/cache_savings.py`、`offline/eval/observed_probe.py`。**待补原因**：本机 8081 被非 OpsPilot 进程占用，且 `localapi.BASE` 硬编码 8081 无 env 覆盖口 |
+| 答案反馈入口（人机协同） | **已建**（2026-09-24） | `POST /api/v1/copilot/feedback` → 审计 `ev="feedback"`（按 fingerprint 归档、不占配额）；是"复盘→知识回灌"的前置入口 |
 
 **逐轮修复流水**（细节见横线以下各节）：2026-09-12 五维评估 + H1/H2/H3/M1/M2 → 09-18 证据链 O1/O2 →
 09-19 外部评审核实（2 采纳 2 不采纳）+ P1 类型化 5xx + P2 配置 fail-fast → 09-21 O2 面二 + 打包自检互锁 +
-MIT LICENSE → 09-22 B3 出站超时 + B9 覆盖率棘轮 → 09-23 账外边界「复盘→知识回灌」入账 + 门闩自身两处缺陷修复。
+MIT LICENSE → 09-22 B3 出站超时 + B9 覆盖率棘轮 → 09-23 账外边界「复盘→知识回灌」入账 + 门闩自身两处缺陷修复 →
+**09-24 承诺线 SLI/SLO + 降级代价语义（ADR-0012）+ 分段耗时 + 代价量化四脚本 + 答案反馈入口**。
 
 ---
 
@@ -212,3 +219,28 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 |---|---|---|---|
 | B9 覆盖率棘轮 | **已接**（来源：《项目提升计划-20260921》B-3，照 ShopPilot 已完成的那份做） | jacoco 的 `prepare-agent` + `report` 绑到 **test** 阶段（本项目 CI 跑 `mvn -B test` 而非 `verify`，故 report 不能留在默认的 verify 阶段）→ 产物 `target/site/jacoco/jacoco.xml`；棘轮本身归 `scripts/check_coverage.py`：读产物按 LINE 比门槛并把实测值打出来（比 `jacoco:check` 只给一句失败更有据可引）。CI 里**加步骤不加 job**（产物就在 mvn test 那个 job 里，另起 job 要重跑一遍构建） | 口径：**LINE 设闸、BRANCH 只报不设闸**；门槛 = 首次实测值向下取整再留 1pp。首次实测 **LINE 47.83%（971/2030）/ BRANCH 42.67%（358/839）→ 门槛 46.0**；那 1pp 是抖动余量不是目标值——贴着实测设闸会让合法的防御性分支当场变红，然后这条红就被学会忽略。验证：`python scripts/check_coverage.py` exit 0；**变异对照**把门槛抬到 49.0 → COVERAGE FAIL 且 exit 1，恢复后 exit 0；三项既有门禁复跑全绿（面板契约 / 文档数字 21 条 29 处 / 报告与语料同代），`mvn test` 139 全绿 |
 | 边界：**本机量不到覆盖率** | **登记**（不是缺陷，是环境约束） | 本仓目录名 `OpsPilot — AIOps` 含**长破折号**，jacoco 的 `destFile` 会被解析成绝对路径，该路径经 `cmd.exe` 传给 `-javaagent` 时被写坏、代理静默不落盘（日志只有一句 `Skipping JaCoCo execution due to missing execution data file`） | 对照矩阵已做全：同一个代理同一条命令，**相对路径写得出、ASCII 绝对路径写得出、含长破折号的绝对路径写不出且文件未落到别处**。故 47.83% 是把仓库复制到 ASCII 路径（`D:/OpsPilotAscii`，已删）跑出来的；CI runner 路径本就是 ASCII，不受影响。**本机要常态量覆盖率需把目录改成 ASCII 名**；相对路径配置试过无效（jacoco 内部仍解析成绝对），故未留在 pom 里。另：`jacoco-maven-plugin` 版本显式钉在 **0.8.15**——`spring-boot-starter-parent` 的 `pluginManagement` 不管理它，不钉会报 `plugin.version is missing` 警告且版本随 Maven 默认解析漂移 |
+
+## 修补记录（2026-09-24：承诺线 · 降级代价语义 · 分段耗时 · 代价量化 · 闭环前置）
+
+**本轮的出发点**：对六个维度（需求-架构匹配 / 任务规划 / 上下文工程 / 可观测与评估 / 人机协同 /
+业务闭环）做了一轮评估，逐项定出"该做"与"不该做"。本轮的九项全部来自"该做"那一列——性质是
+**把已有的东西变成可被质证的数字**，不是加深项目。评审时另查实两处**宣称与实现分叉**（见下表）。
+
+| 项 | 状态 | 依据 | 验收证据 |
+|---|---|---|---|
+| **宣称对账：撤「缩减 Prompt」** | **已修**（查实的缺陷） | `CONTEXT.md` 与 `README.md` 都把 L1 写成「纯 ES + 缩减 Prompt」，但 `ChatOrchestrator.runPipeline` 的 L1 分支只切 `mode="es_only"`，prompt 仍走同一个 `PromptAssembler.build` ——**该能力从未实现**，全仓 grep「缩减」只有那两处文档 | `grep -rn 缩减 README.md CONTEXT.md` 零命中；措辞改为 L1 实际做的事（摘向量路 + 摘 Rerank） |
+| **降级代价语义 + 同构锁** | **已登记** | 复核时查出第二处未登记的事实：`HybridSearchService` 在 `noRerank`（含 L1）时把 `topRelevance` 置 1.0，而门控判据是 `!fastPath && topRelevance < minRel` ⇒ **L1 期相关性门控实际失效、只剩零召回拒答**。代码注释承认有意为之，但该后果从未作为"降级代价"进任何文档 | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)（含三条否决项与重开触发线）；OPS §5 补触发线行；`ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`——**变异对照**：L1 分支 mode 由 `es_only` 改 `hybrid` → 该用例当场红，还原复绿 |
+| **承诺线 SLI/SLO** | **已建** | 此前有真计数面板、有实测指标表，但没有一处写明"承诺线"与"多久核一次、怎么核" | `OPS.md` §11：七条 SLI + 核色频次；其中可派生者入门闩（`doc_numbers.json` 新增 `jailbreak_leaked`，并给两条命中率加 OPS 引用位；21 条/29 处 → 22 条/32 处）。**变异对照**：把 §11 的「权限泄漏率」实测值 `**0**` 改成 `**1**` → 门闩当场红并点名 `OPS.md:253`，还原复绿 |
+| **防幻觉事后环（答案接地 V9）** | **已建**（live 数字待补） | 在线三道闸门全在**事前**（门控拒答）或**通用文本层**（逐字导出护栏）⇒ 能保证"没证据就不答"，不能保证"答了的都有据" | `offline/grounding.py`（纯函数，词法复用 `chunkers/errorcode.py` 不另立副本）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）。**变异对照三路**：判据改恒空 → 2 例红；就地编译同串正则副本 → 1 例红；漂移副本 → 7 例红 |
+| **分段耗时（G2）** | **已建** | 此前 `SearchOutcome` 只有 `tookMs` 一个总数——一个 17.5s 的请求答不出时间花在哪 | `retrieval/LegTimings` + `metrics/StageTimings`（八段）落 chat 审计行 `stage_ms`；**落审计行而非 SSE 帧**（SSE 是对外协议面，内部耗时不该泄到那里）。**变异对照**：摘掉 `supply(...)` 的 finally 计时段 → 腿耗时断言当场红（`LegTimings[esMs=0, vectorMs=0, ...]`），还原复绿。**顺带查实一处注释失实**：L2 写入处原注释写"复用检索时已算好的向量"，实际又调了一次 `embedding.embedOne` ——同请求 embed 两次，注释已改如实，成本由 `stage_ms.l2_store` 显式化 |
+| **门控混淆矩阵（D1/D2）** | **脚本已建**（live 数字待补） | 门控此前只有 `low_confidence_refusals` 一个计数，答"拒了多少次"不答"拒对了吗"；误拒（伤可用性）与漏拒（伤可信度）两类都不在计数里 | `offline/eval/gate_matrix.py` + `refuse_set.jsonl`（24 条：12 幽灵错误码 + 12 域外提问，**在 corpus 之外**）。**关键简化**：门控信号 `topRelevance` 在正常路径就等于 `results[0].rerank_score`，而 `/search` 已返回它 ⇒ 一次遍历算完**任意**阈值（无需重启网关）；且 `/search` 不查 L1/L2，排除"缓存回放绕过门控"的混淆。**变异对照**：判据的严格小于改小于等于 → 边界用例红。拒答集的 premise（幽灵码确实不在语料里）由测试**现算语料错误码集合求交**锁死 |
+| **并发曲线（F1）** | **脚本已建**（live 数字待补） | 此前只有 50 与 500 两个孤立档位，中间 100/200/300 空白 ⇒「系统极限在哪」答不出来 | `offline/load/sweep.py` 扫六档出 P50/P95/P99 + 失败率 + RPS 并标出**首次 L1 触发档**；降级档位轮询取运行期间最高档（瞬时采样漏脉冲）；每档前预热。原始 locust 产物入 `.gitignore`，只入汇总报告。**变异对照**：解析由"取 Aggregated 行"改成"取第一行" → 2 例红 |
+| **缓存节省账（E1）** | **脚本已建**（live 数字待补） | 有 `l1/l2_cache_hits` 计数，但没有"命中值多少" | `offline/load/cache_savings.py`：受控混合负载 → 命中/未命中延迟差 × 命中率。归因靠本脚本自己的负载（`hits/total_requests` 的分母含 Single-Flight follower，是浑的）；单侧无样本时不算节省（不编数字） |
+| **答案反馈入口（闭环前置）** | **已建** | 在此之前人**无法**把"答错了"告诉系统——答案对错的唯一人工信号只存在于验收期，而"复盘→知识回灌"（OPS §5.1 在案债务）正缺这个入口 | `POST /api/v1/copilot/feedback` + 审计辅助写入器 `ev="feedback"`（仿 `logAdmin` 先例，零改动 13 参 `log()`）。按 fingerprint 归档（标识"问题"而非"某次生成"）、不占配额（治理信号非成本）。三态锁：未认证/密级<1 → 403 且零审计；未知 fingerprint 接受而非拒绝 |
+| **真实输入探测（G4）** | **脚本已建**（live 数字待补） | 语料/query/评测集全部自产 ⇒ 64%/88% 是在合成输入上测的，系统至今没接触过它无法预测的输入 | `offline/eval/observed_probe.py`：**真实 query 派生不出真值**，故只测三件无需真值的事（零召回率 / 快路径命中率 / 门控拒答率），**不冒充**召回质量。query 集不入库（`logs/` 含查询内容与租户标识），报告只含聚合——该约束由测试做成**结构性保证**（聚合返回里出现任何字符串即红） |
+
+**本轮明确不做**（带理由，防止下一轮重开）：不修 L1 门控降级（RRF 分数无量纲，照搬 0.2 是拍脑袋拒答，已按 ADR-0012 登记 + 立重开触发线）；不加并发限流器（与"过载时降级而非拒绝"打架）；不做任务规划/多步 Agent 循环（无此任务形态，会摧毁定位叙事）；不加 HITL 审批（只读系统没有高危动作可批，属空转）；不引入 Prometheus/OTel（触发线未到）；**不新增 `OpsMetrics` 计数器**（避开面板四层契约面，反馈的可观测性由审计流承担）；不把真实 query 集入库。
+
+**待补**：四份 live 报告（gate_matrix / concurrency_sweep / cache_savings / observed_probe）与探针 V9 的 live 断言。原因：本机 8081 被非 OpsPilot 的 python 进程占用，而 `localapi.BASE` 硬编码 8081、无 env 覆盖口。脚本与纯函数单测已全部落地并过门禁，**未伪造任何数字**。
+
+**门禁终态**：`mvn test` **150 全绿** ｜ `pytest` **112 全绿**（本轮 +23）｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致。本轮**未触碰面板契约面**（未新增计数器），契约复跑绿即证明未误伤。
