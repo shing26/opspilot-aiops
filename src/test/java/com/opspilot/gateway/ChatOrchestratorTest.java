@@ -11,11 +11,13 @@ import com.opspilot.llm.LlmClient;
 import com.opspilot.llm.PromptAssembler;
 import com.opspilot.metrics.AuditService;
 import com.opspilot.metrics.OpsMetrics;
+import com.opspilot.metrics.StageTimings;
 import com.opspilot.resilience.DegradationStateMachine;
 import com.opspilot.resilience.DegradationStateMachine.Level;
 import com.opspilot.resilience.QuotaService;
 import com.opspilot.resilience.SopFallbackService;
 import com.opspilot.retrieval.HybridSearchService;
+import com.opspilot.retrieval.LegTimings;
 import com.opspilot.retrieval.ScoredChunk;
 import com.opspilot.retrieval.SearchOutcome;
 import com.opspilot.storm.FingerprintService;
@@ -54,6 +56,9 @@ class ChatOrchestratorTest {
             new UserContext("sre-full", "platform", 3, "tenant-internal");
     private static final UserContext ACME =
             new UserContext("sre-acme", "sre", 3, "tenant-acme");
+
+    /** G2 分段耗时的检索分腿桩值：四个互不相同的数，便于在审计行断言"原样透传"。 */
+    private static final LegTimings LEGS = new LegTimings(11, 22, 33, 44);
 
     private final CountDownLatch llmGate = new CountDownLatch(1);
 
@@ -127,7 +132,7 @@ class ChatOrchestratorTest {
         ScoredChunk c = new ScoredChunk(chunkId, chunkId.split("::")[0], "runbook", "text",
                 chunkId, "svc", List.of("50042_PAY_SIGN_INVALID"), 3,
                 new ScoredChunk.Scores(1, 1, 1, 1));
-        return new SearchOutcome(List.of(c), "hybrid", true, false, 1.0, 5);
+        return new SearchOutcome(List.of(c), "hybrid", true, false, 1.0, 5, LEGS);
     }
 
     /**
@@ -259,7 +264,7 @@ class ChatOrchestratorTest {
         assertNotNull(sink.error, "外来租户载荷必须走 error 收尾而非回放");
         assertEquals("", sink.answer.toString(), "绊线触发前不得吐出任何内容");
         verify(audit).log(eq(ACME), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
-                eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong(), isNull(), isNull());
+                eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong(), isNull(), isNull(), isNull());
     }
 
     /** 组键口径：tenant 是第一字段——与 L1 key 的 cache:l1:<tenant>:<level>: 同构（权限维度完备）。 */
@@ -277,7 +282,7 @@ class ChatOrchestratorTest {
         // 低置信但有召回：走"检索置信度不足"分支
         when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
                 .thenReturn(new SearchOutcome(
-                        List.of(outcome("rb-001::s1").chunks().get(0)), "hybrid", false, false, 0.12, 5));
+                        List.of(outcome("rb-001::s1").chunks().get(0)), "hybrid", false, false, 0.12, 5, LEGS));
         RecordingSink sink = new RecordingSink();
         orchestrator.submit(req(q()), INTERNAL, sink, "sse");
         awaitSuccess(sink);
@@ -293,7 +298,7 @@ class ChatOrchestratorTest {
                         new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal")),
                 "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse", "manual");
         verify(audit).log(eq(INTERNAL), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
-                eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull());
+                eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull(), isNull());
     }
 
     /**
@@ -310,7 +315,7 @@ class ChatOrchestratorTest {
         llmGate.countDown();                    // setUp 的 internal 桩阻塞在闸门上，本用例无需跨租户计时
         awaitSuccess(sink);
         verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("alert"), anyString(), anyString(),
-                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull());
+                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class));
     }
 
     /** 缺省来源归一（DTO sourceOrDefault）：审计行不得出现 null/空白来源。 */
@@ -323,7 +328,7 @@ class ChatOrchestratorTest {
         llmGate.countDown();
         awaitSuccess(sink);
         verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
-                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull());
+                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class));
     }
 
     /**
@@ -340,7 +345,7 @@ class ChatOrchestratorTest {
                 "复盘 > 根因", "svc", List.of("50012_DB_TIMEOUT"), 3,
                 new ScoredChunk.Scores(1, 1, 1, 1));
         when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
-                .thenReturn(new SearchOutcome(List.of(c), "hybrid", true, false, 1.0, 5));
+                .thenReturn(new SearchOutcome(List.of(c), "hybrid", true, false, 1.0, 5, LEGS));
         // doAnswer 而非 when()：setUp 的 llm 桩是 thenAnswer，when() 再桩会让旧 answer
         // 以 null 实参先执行一次（Mockito 经典坑），旧桩读 msgs.get(0) 直接 NPE。
         org.mockito.Mockito.doAnswer(inv -> {
@@ -369,7 +374,7 @@ class ChatOrchestratorTest {
 
         verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
                 eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(),
-                argThat((Integer n) -> n != null && n >= 1));
+                argThat((Integer n) -> n != null && n >= 1), any(StageTimings.class));
         Object masked = metrics.snapshot().get("verbatim_masked");
         assertTrue(masked instanceof Number && ((Number) masked).longValue() >= 1,
                 "verbatim_masked 计数未进账: " + metrics.snapshot());

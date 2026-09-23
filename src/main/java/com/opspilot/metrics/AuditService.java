@@ -70,10 +70,12 @@ public class AuditService {
      *               普通生成请求传 null 不落字段，避免全量噪音。
      * @param verbatimMasked 出口掩码句数（生成质量包 Q2=C），仅 &gt;0 时携带——"谁试图逐字导出、
      *               被拦了几句"的事后可查面。
+     * @param stages 单请求分段耗时（G2），仅 chat 路径携带（{@code /search}、鉴权、管理面传 null）——
+     *               与 src_tenant/verbatim_masked 同约定：null 即不落字段，避免全量噪音。
      */
     public void log(UserContext user, String kind, String via, String source, String query, String fingerprint,
                     String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs,
-                    String srcTenant, Integer verbatimMasked) {
+                    String srcTenant, Integer verbatimMasked, StageTimings stages) {
         Map<String, Object> ev = new LinkedHashMap<>();
         ev.put("ts", System.currentTimeMillis());
         ev.put("ev", kind);
@@ -91,6 +93,7 @@ public class AuditService {
         ev.put("took_ms", tookMs);
         if (srcTenant != null) ev.put("src_tenant", srcTenant);
         if (verbatimMasked != null) ev.put("verbatim_masked", verbatimMasked);
+        if (stages != null) ev.put("stage_ms", stages.toMap());
         writeEvent(ev);
     }
 

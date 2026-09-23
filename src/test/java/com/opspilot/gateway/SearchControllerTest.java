@@ -40,7 +40,8 @@ class SearchControllerTest {
     @Test
     void validLevelReachesSearchService() {
         when(svc.search(anyString(), anyString(), anyInt(), anyString()))
-                .thenReturn(new SearchOutcome(List.of(), "hybrid", false, false, 1.0, 1));
+                .thenReturn(new SearchOutcome(List.of(), "hybrid", false, false, 1.0, 1,
+                        new com.opspilot.retrieval.LegTimings(1, 2, 3, 4)));
         var resp = controller.search(new SearchController.SearchReq("q", "hybrid"), withUser(1));
         assertEquals("hybrid", resp.get("mode"));
         verify(svc).search("q", "tenant-demo", 1, "hybrid");

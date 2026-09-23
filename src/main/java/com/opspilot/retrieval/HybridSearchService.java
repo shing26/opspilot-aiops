@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.springframework.stereotype.Service;
 import com.opspilot.config.OpsPilotProperties;
 import com.opspilot.llm.RerankClient;
@@ -43,11 +44,15 @@ public class HybridSearchService {
         boolean useEs = !mode.equals("vector_only");
         boolean useVector = mode.equals("hybrid") || mode.equals("vector_only");
 
+        // 分腿耗时必须在**腿内**测：两腿并行发起，围在 joinSafe 外面测到的是"等待时间"，
+        // 会把慢腿的耗时重复计入两条腿（G2 分段耗时）。
+        AtomicLong esMs = new AtomicLong();
+        AtomicLong vecMs = new AtomicLong();
         CompletableFuture<List<ScoredChunk>> esF = useEs
-                ? supply(() -> es.search(query, tenant, authLevel, cfg.esTopK()))
+                ? supply(() -> es.search(query, tenant, authLevel, cfg.esTopK()), esMs)
                 : CompletableFuture.completedFuture(List.of());
         CompletableFuture<List<ScoredChunk>> vecF = useVector
-                ? supply(() -> qdrant.search(query, tenant, authLevel, cfg.qdrantTopK()))
+                ? supply(() -> qdrant.search(query, tenant, authLevel, cfg.qdrantTopK()), vecMs)
                 : CompletableFuture.completedFuture(List.of());
 
         List<ScoredChunk> esRes = joinSafe(esF, cfg.legTimeoutMs());
@@ -62,17 +67,24 @@ public class HybridSearchService {
         boolean fastPath = !codes.isEmpty() && !esRes.isEmpty()
                 && esRes.get(0).errorCodes().contains(codes.get(0));
 
+        long rrfStart = System.nanoTime();
         List<ScoredChunk> fused = RrfFuser.apply(esRes, vecRes, cfg.rrfK());
+        long rrfMs = (System.nanoTime() - rrfStart) / 1_000_000;
+
         // L1 降级 = es_only（手动锁定或向量路超时后仅存 ES），按 spec 摘除 Rerank。
         // 变量按真实语义命名：命中即"本次不调 Rerank"，而非字面"只有 ES"。
         boolean noRerank = mode.equals("es_only") || (degraded && vecRes.isEmpty());
         List<ScoredChunk> top;
         double topRelevance;
+        long rerankMs;
         if (fastPath || noRerank) {
             top = fused.subList(0, Math.min(cfg.finalTopK(), fused.size()));
             topRelevance = 1.0;   // 快路径精确命中 / 降级纯 ES：best-effort 不做 rerank 门控
+            rerankMs = 0;         // 0 = **未调用**，不是"很快"（口径见 LegTimings）
         } else {
+            long rrStart = System.nanoTime();
             RerankResult rr = rerankStage(query, fused, cfg);
+            rerankMs = (System.nanoTime() - rrStart) / 1_000_000;
             top = rr.chunks();
             // rerank 不可用时不门控（避免误杀），置 1.0；正常则用 Top-1 相关度
             topRelevance = rr.applied() && !top.isEmpty() ? top.get(0).rerankScore() : 1.0;
@@ -80,7 +92,8 @@ public class HybridSearchService {
         long tookMs = (System.nanoTime() - t0) / 1_000_000;
         String effectiveMode = degraded ? (esRes.isEmpty() ? "vector_only" : "es_only") : mode;
         if (degraded && !esRes.isEmpty()) metrics.esOnly();
-        return new SearchOutcome(top, effectiveMode, fastPath, degraded, topRelevance, tookMs);
+        LegTimings legs = new LegTimings((int) esMs.get(), (int) vecMs.get(), (int) rrfMs, (int) rerankMs);
+        return new SearchOutcome(top, effectiveMode, fastPath, degraded, topRelevance, tookMs, legs);
     }
 
     private record RerankResult(List<ScoredChunk> chunks, boolean applied) {}
@@ -103,12 +116,16 @@ public class HybridSearchService {
         }
     }
 
-    private CompletableFuture<List<ScoredChunk>> supply(LegCall call) {
+    /** 腿内计时：finally 里记耗时，异常路径也留数（超时腿的耗时正是最该看到的）。 */
+    private CompletableFuture<List<ScoredChunk>> supply(LegCall call, AtomicLong elapsedMs) {
         return CompletableFuture.supplyAsync(() -> {
+            long t = System.nanoTime();
             try {
                 return call.get();
             } catch (Exception e) {
                 throw new RuntimeException(e);
+            } finally {
+                elapsedMs.set((System.nanoTime() - t) / 1_000_000);
             }
         }, vt);
     }

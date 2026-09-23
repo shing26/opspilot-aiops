@@ -58,7 +58,7 @@ public class SearchController {
         audit.log(user, "search", "search-api", "manual", req.query(), null, "none", outcome.mode(),
                 outcome.chunks().isEmpty(),
                 outcome.chunks().stream().mapToInt(c -> c.authLevel()).max().orElse(0),
-                outcome.tookMs(), null, null);
+                outcome.tookMs(), null, null, null);   // 非 chat 路径：不落 stage_ms
         Map<String, Object> resp = new LinkedHashMap<>();
         resp.put("mode", outcome.mode());
         resp.put("fast_path", outcome.fastPath());

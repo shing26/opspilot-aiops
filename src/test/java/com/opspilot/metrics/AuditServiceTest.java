@@ -15,7 +15,7 @@ class AuditServiceTest {
 
     private static void writeN(AuditService svc, int n) {
         for (int i = 0; i < n; i++) {
-            svc.log(U, "chat", "sse", "manual", "q" + i, "fp", "none", "hybrid", false, 1, i, null, null);
+            svc.log(U, "chat", "sse", "manual", "q" + i, "fp", "none", "hybrid", false, 1, i, null, null, null);
         }
     }
 
@@ -86,11 +86,11 @@ class AuditServiceTest {
         AuditService svc = new AuditService();
         org.slf4j.MDC.put("request_id", "abc12345");
         try {
-            svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null);
+            svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null, null);
         } finally {
             org.slf4j.MDC.remove("request_id");
         }
-        svc.log(U, "chat", "sse", "manual", "q2", "fp", "none", "hybrid", false, 1, 2, null, null);
+        svc.log(U, "chat", "sse", "manual", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null);
         var r = svc.recentSince(0, 10);
         assertEquals("abc12345", r.events().get(0).get("request_id"), "MDC 在场→行携带 id");
         assertFalse(r.events().get(1).containsKey("request_id"), "MDC 缺席→无该字段");
@@ -103,11 +103,31 @@ class AuditServiceTest {
     @Test
     void auditRowCarriesSourceAndBlankNormalizesToManual() {
         AuditService svc = new AuditService();
-        svc.log(U, "chat", "sse", "alert", "q", "fp", "none", "hybrid", false, 1, 1, null, null);
-        svc.log(U, "chat", "sse", "   ", "q2", "fp", "none", "hybrid", false, 1, 2, null, null);
+        svc.log(U, "chat", "sse", "alert", "q", "fp", "none", "hybrid", false, 1, 1, null, null, null);
+        svc.log(U, "chat", "sse", "   ", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null);
         var r = svc.recentSince(0, 10);
         assertEquals("alert", r.events().get(0).get("source"), "告警请求必须可在审计中辨识");
         assertEquals("manual", r.events().get(1).get("source"),
                 "空白来源归一为 manual——审计行不留空，避免'没来源'与'人工'两种含义混淆");
+    }
+
+    /**
+     * G2：`stage_ms` 仅在携带时落字段。**null ≠ 全 0**——null 是"非 chat 路径根本没测"
+     * （/search、鉴权、管理面），全 0 是"测了且各段确实为 0"。混同会让运维把"没测"读成"很快"。
+     */
+    @Test
+    void auditRowCarriesStageTimingsOnlyWhenPresent() {
+        AuditService svc = new AuditService();
+        svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null,
+                new StageTimings(100, 11, 22, 33, 0, 40, 50, 60));
+        svc.log(U, "search", "search-api", "manual", "q2", "fp", "none", "hybrid", false, 1, 2,
+                null, null, null);
+        var r = svc.recentSince(0, 10);
+
+        @SuppressWarnings("unchecked")
+        var stages = (java.util.Map<String, Object>) r.events().get(0).get("stage_ms");
+        assertEquals(8, stages.size(), "chat 行必须携带完整 stage_ms: " + stages.keySet());
+        assertEquals(0, stages.get("rerank"), "0 值段仍落字段（未调用≠没测）");
+        assertFalse(r.events().get(1).containsKey("stage_ms"), "非 chat 路径（传 null）不得落该字段");
     }
 }

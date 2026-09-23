@@ -13,6 +13,7 @@ import com.opspilot.llm.PromptAssembler;
 import com.opspilot.llm.VerbatimStreamFilter;
 import com.opspilot.metrics.AuditService;
 import com.opspilot.metrics.OpsMetrics;
+import com.opspilot.metrics.StageTimings;
 import com.opspilot.resilience.DegradationStateMachine;
 import com.opspilot.resilience.DegradationStateMachine.Level;
 import com.opspilot.resilience.QuotaService;
@@ -179,7 +180,8 @@ public class ChatOrchestrator {
             sink.streamInChunks(answer);
             sink.done(t0, sopFirstDeltaNano, List.of());
             audit.log(user, "chat", via, source, query, fp, "none", "sop_fallback", false, user.authLevel(),
-                    (System.nanoTime() - t0) / 1_000_000, null, null);
+                    (System.nanoTime() - t0) / 1_000_000, null, null,
+                    null);   // SOP 直出：检索与 LLM 都未发生，无分段可测（null = 没测，非"测得为 0"）
             return json;
         }
 
@@ -209,7 +211,8 @@ public class ChatOrchestrator {
             sink.done(t0, refusalNano, List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
             audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), true, 0,
-                    (System.nanoTime() - t0) / 1_000_000, null, null);
+                    (System.nanoTime() - t0) / 1_000_000, null, null,
+                    stageTimings(outcome, 0, 0, 0));   // 拒答在 LLM 前 return：llm/l2_store 恒 0（测了且为 0）
             return json;
         }
 
@@ -233,6 +236,7 @@ public class ChatOrchestrator {
                     sink.delta(text);
                 });
         try {
+            long llmStartNano = System.nanoTime();
             llm.streamChat(promptAssembler.build(query, chunks), guard::accept);
             String answer = guard.finish();
             int masked = guard.maskedCount();
@@ -241,13 +245,20 @@ public class ChatOrchestrator {
             AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth, user.tenantId());
             String json = mapper.writeValueAsString(p);
             l1.put(user.tenantId(), user.authLevel(), query, json);
-            // L2 写入：存完整 payload（含 refs），复用检索时已算好的 query 向量
+            // L2 写入：存完整 payload（含 refs）。**注意这里是第二次 embedding 调用**——
+            // 检索腿里那次算出的向量没有被回传复用（腿的返回面只有 chunk 列表），故同一次请求
+            // 会 embed 两次。G2 的 stage_ms.l2_store 把这段成本显式化，供后续决定是否值得回传复用。
+            long l2StartNano = System.nanoTime();
             float[] qv = embedding.embedOne(query);
             l2.store(query, qv, json, maxAuth, user.tenantId());
+            long l2StoreMs = (System.nanoTime() - l2StartNano) / 1_000_000;
             long ftNano = firstTokenNano.get();
+            long llmMs = (System.nanoTime() - llmStartNano) / 1_000_000;
+            long llmTtftMs = ftNano == 0 ? llmMs : (ftNano - llmStartNano) / 1_000_000;
             sink.done(t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
             audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), false, maxAuth,
-                    (System.nanoTime() - t0) / 1_000_000, null, masked > 0 ? masked : null);
+                    (System.nanoTime() - t0) / 1_000_000, null, masked > 0 ? masked : null,
+                    stageTimings(outcome, llmTtftMs, llmMs, l2StoreMs));
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();
@@ -275,7 +286,7 @@ public class ChatOrchestrator {
         if (!user.tenantId().equals(p.tenant())) {
             log.error("shared replay tenant mismatch: payload={} requester={}", p.tenant(), user.tenantId());
             audit.log(user, "chat", via, source, query, fp, "dedup_guard", p.mode(), true, 0,
-                    (System.nanoTime() - t0) / 1_000_000, null, null);
+                    (System.nanoTime() - t0) / 1_000_000, null, null, null);   // 回放路径：无检索/LLM 分段
             sink.error(new IllegalStateException("shared replay tenant mismatch"));
             return;
         }
@@ -286,6 +297,15 @@ public class ChatOrchestrator {
         // src_tenant 随行（QA P1-2"命中来源"）：与 tenant 相等=正常同租户回放；
         // grep 不等即可发现任何新的跨租户共享旁路。
         audit.log(user, "chat", via, source, query, fp, cacheHit + (deduplicated ? "+dedup" : ""),
-                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant(), null);
+                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant(), null,
+                null);   // 回放路径：无检索/LLM 分段
+    }
+
+    /** G2：把检索分腿 + LLM + L2 写入装配成审计行的 stage_ms（口径见 StageTimings）。 */
+    private static StageTimings stageTimings(SearchOutcome outcome, long llmTtftMs, long llmMs, long l2StoreMs) {
+        var legs = outcome.legs();
+        return new StageTimings((int) outcome.tookMs(),
+                legs.esMs(), legs.vectorMs(), legs.rrfMs(), legs.rerankMs(),
+                (int) llmTtftMs, (int) llmMs, (int) l2StoreMs);
     }
 }

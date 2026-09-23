@@ -92,4 +92,46 @@ class HybridSearchServiceTest {
         assertEquals(0.9, out.chunks().get(0).rerankScore(), 1e-9);
         assertEquals(0.9, out.topRelevance(), 1e-9);                    // 门控取 Top-1 相关度
     }
+
+    /**
+     * G2 分段耗时的回归锁：分腿耗时必须在**腿内**测。两腿并行发起，若把计时围在 joinSafe 外面，
+     * 测到的是"等待时间"，会把慢腿的耗时重复计入两条腿——那正是本项要修的可观测缺陷。
+     *
+     * 判据用"桩里 sleep 的下限"而非精确值：耗时天然抖动，断言精确值必然 flaky。
+     * 变异验证（改坏必红）：摘掉 supply(...) 的 finally 计时段（elapsedMs 恒 0）→ 前两条断言必红；
+     * 把 rerankMs 恒置 0 → 第三条断言必红。
+     */
+    @Test
+    void legTimingsAreMeasuredInsideEachLeg() throws Exception {
+        when(es.search(anyString(), anyString(), anyInt(), anyInt())).thenAnswer(inv -> {
+            Thread.sleep(30);
+            return List.of(c("A"), c("B"), c("C"));
+        });
+        when(qdrant.search(anyString(), anyString(), anyInt(), anyInt())).thenAnswer(inv -> {
+            Thread.sleep(60);
+            return List.of();
+        });
+        when(rerank.rerank(anyString(), anyList(), anyInt())).thenAnswer(inv -> {
+            Thread.sleep(40);
+            return List.of(new RerankClient.Ranked(0, 0.9));
+        });
+
+        SearchOutcome out = service().search("数据库连接池耗尽的排查步骤", "tenant-demo", 1, "hybrid");
+        LegTimings legs = out.legs();
+
+        assertTrue(legs.esMs() >= 25, "ES 腿耗时未在腿内采集: " + legs);
+        assertTrue(legs.vectorMs() >= 55, "向量腿耗时未在腿内采集: " + legs);
+        assertTrue(legs.rerankMs() >= 35, "Rerank 耗时未采集: " + legs);
+        // 两腿并行、顺序 join：检索总时长 ≥ 关键路径（慢腿 + RRF + Rerank），**不是四者之和**
+        assertTrue(out.tookMs() >= Math.max(legs.esMs(), legs.vectorMs()) + legs.rerankMs() - 5,
+                "检索总时长应 ≥ 关键路径: took=" + out.tookMs() + " " + legs);
+    }
+
+    /** 快路径 / 降级不调 Rerank：rerankMs 必须是 0——它表示**未调用**，不是"很快"。 */
+    @Test
+    void rerankTimingIsZeroWhenRerankIsSkipped() throws Exception {
+        when(es.search(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of(c("A")));
+        SearchOutcome out = service().search("数据库连接池耗尽的排查步骤", "tenant-demo", 1, "es_only");
+        assertEquals(0, out.legs().rerankMs(), "es_only 未调 Rerank，rerankMs 必须为 0（未调用≠很快）");
+    }
 }
