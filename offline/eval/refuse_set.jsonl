@@ -1,0 +1,24 @@
+{"id": "refuse-ghost-code-01", "type": "ghost_code", "query": "60001_KAFKA_REBALANCE_STORM 消费组反复重平衡怎么排查", "expect": "refuse", "rationale": "语料无此错误码（真实码为 4xxxx/5xxxx），检索应零命中或低相关"}
+{"id": "refuse-ghost-code-02", "type": "ghost_code", "query": "70002_ETCD_QUORUM_LOST 集群脑裂后的恢复步骤", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-03", "type": "ghost_code", "query": "60003_ISTIO_SIDECAR_CRASH 注入后业务容器起不来", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-04", "type": "ghost_code", "query": "70004_GPU_ECC_UNCORRECTABLE 训练任务突然中断", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-05", "type": "ghost_code", "query": "60005_CDC_BINLOG_GAP 增量同步出现数据空洞", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-06", "type": "ghost_code", "query": "70006_S3_SLOW_DOWN 对象存储限流导致备份失败", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-07", "type": "ghost_code", "query": "60007_K8S_POD_EVICTED 节点资源不足驱逐业务 Pod", "expect": "refuse", "rationale": "语料无此错误码（本项目无 K8s 语料）"}
+{"id": "refuse-ghost-code-08", "type": "ghost_code", "query": "70008_GRPC_DEADLINE_EXCEEDED 跨机房调用批量超时", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-09", "type": "ghost_code", "query": "60009_ZOOKEEPER_SESSION_EXPIRED 会话过期引发主从切换", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-10", "type": "ghost_code", "query": "70010_VECTOR_DIM_MISMATCH 写入向量维度与集合不符", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-11", "type": "ghost_code", "query": "60011_CERT_EXPIRED 内部服务证书过期导致互信失败", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ghost-code-12", "type": "ghost_code", "query": "70012_DNS_RESOLVE_FAIL 集群内服务名解析间歇失败", "expect": "refuse", "rationale": "语料无此错误码"}
+{"id": "refuse-ood-01", "type": "out_of_domain", "query": "如何用 Python 写一个快速排序算法", "expect": "refuse", "rationale": "与 AIOps 排障域无关"}
+{"id": "refuse-ood-02", "type": "out_of_domain", "query": "帮我写一首关于秋天的七言绝句", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-03", "type": "out_of_domain", "query": "北京明天天气怎么样，需要带伞吗", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-04", "type": "out_of_domain", "query": "推荐几本适合入门的机器学习教材", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-05", "type": "out_of_domain", "query": "解释一下相对论里的时间膨胀效应", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-06", "type": "out_of_domain", "query": "帮我写一封给客户的道歉邮件模板", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-07", "type": "out_of_domain", "query": "红烧肉的家常做法步骤是什么", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-08", "type": "out_of_domain", "query": "2026 年世界杯的赛程安排在哪里看", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-09", "type": "out_of_domain", "query": "怎么用 Excel 做一个动态数据透视表", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-10", "type": "out_of_domain", "query": "推荐几个适合周末徒步的路线", "expect": "refuse", "rationale": "与排障域无关"}
+{"id": "refuse-ood-11", "type": "out_of_domain", "query": "请把下面这段话翻译成法语：生产环境已恢复", "expect": "refuse", "rationale": "与排障域无关（翻译任务）"}
+{"id": "refuse-ood-12", "type": "out_of_domain", "query": "帮我总结一下《三体》的主要人物关系", "expect": "refuse", "rationale": "与排障域无关"}
