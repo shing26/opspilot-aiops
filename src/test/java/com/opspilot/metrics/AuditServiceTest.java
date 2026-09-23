@@ -130,4 +130,31 @@ class AuditServiceTest {
         assertEquals(0, stages.get("rerank"), "0 值段仍落字段（未调用≠没测）");
         assertFalse(r.events().get(1).containsKey("stage_ms"), "非 chat 路径（传 null）不得落该字段");
     }
+
+    /**
+     * 反馈事件（闭环前置）：`ev="feedback"` 必须带着**身份三元组 + fingerprint + verdict** 落盘。
+     *
+     * 为什么锁：反馈是"人 → 系统"的唯一人工信号入口，也是"复盘→知识回灌"在案债务的前置。
+     * 若它落盘时丢了 fp 或 verdict，收下来的就是一堆无法归因的行——债务链断在这里而无人察觉。
+     */
+    @Test
+    void feedbackEventCarriesIdentityFingerprintAndVerdict() {
+        AuditService svc = new AuditService();
+        svc.logFeedback(U, "fp-abc123", "down", "错误码是编的");
+        svc.logFeedback(U, "fp-nonote", "up", null);          // 无 note：不得落 note 字段
+        svc.logFeedback(U, "fp-blank", "down", "   ");        // 空白 note：同"无 note"处理
+
+        var r = svc.recentSince(0, 10);
+        var first = r.events().get(0);
+        assertEquals("feedback", first.get("ev"));
+        assertEquals("sre-x", first.get("sub"));
+        assertEquals("tenant-demo", first.get("tenant"));
+        assertEquals(1, first.get("level"));
+        assertEquals("fp-abc123", first.get("fp"));
+        assertEquals("down", first.get("verdict"));
+        assertEquals("错误码是编的", first.get("note"));
+
+        assertFalse(r.events().get(1).containsKey("note"), "无 note 不落字段");
+        assertFalse(r.events().get(2).containsKey("note"), "空白 note 归一为不落字段");
+    }
 }

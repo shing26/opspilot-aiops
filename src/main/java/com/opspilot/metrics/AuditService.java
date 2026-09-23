@@ -142,6 +142,35 @@ public class AuditService {
         writeEvent(ev);
     }
 
+    /**
+     * 答案反馈留痕（闭环前置）：人把"这个答案不对"告诉系统的落点。
+     *
+     * 为什么用**辅助写入器**而不扩展上面那条 13 参 `log()`：那条方法的纪律是"新增字段一律加参"，
+     * 但反馈是**另一种事件**——它没有 cache_hit / mode / took_ms / max_level 可言，硬塞进去会让
+     * 那条记录长出一排无意义的默认值。本方法属 `logAuthDenied`/`logAdmin`/`logInvalid` 同一族：
+     * 独立 schema 的辅助写入器，共用 `writeEvent` 这唯一出口（故同样自动获得 seq 与 request_id）。
+     *
+     * 为什么按 fingerprint 归档：见 {@code FeedbackRequest} 的类注释——它标识"问题"而非"某次生成"，
+     * 而"复盘→知识回灌"要沉淀的正是知识（问题）而非生成。
+     *
+     * @param verdict `up` | `down`（DTO 侧 @Pattern 已收口）
+     * @param note    可选补充说明，落盘前再截 200 字（DTO 已限长，这里是纵深防御）
+     */
+    public void logFeedback(UserContext user, String fingerprint, String verdict, String note) {
+        Map<String, Object> ev = new LinkedHashMap<>();
+        ev.put("ts", System.currentTimeMillis());
+        ev.put("ev", "feedback");
+        ev.put("sub", user == null ? "" : user.sub());
+        ev.put("tenant", user == null ? "" : user.tenantId());
+        ev.put("level", user == null ? 0 : user.authLevel());
+        ev.put("fp", fingerprint);
+        ev.put("verdict", verdict);
+        if (note != null && !note.isBlank()) {
+            ev.put("note", note.substring(0, Math.min(200, note.length())));
+        }
+        writeEvent(ev);
+    }
+
     private void writeEvent(Map<String, Object> ev) {
         try {
             // H2：请求级关联 id 来自 MDC（同步面=filter 注入；编排面=虚拟线程任务内重挂），
