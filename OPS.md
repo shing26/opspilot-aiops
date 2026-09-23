@@ -239,3 +239,26 @@ Docker Desktop 重启（升级/崩溃自恢复）会给本机留下两类**看�
 
 **注**：登录 500 这个形态曾经把人往"账号库坏了"上带——判别法是看 `logs/app.log` 里那条异常的类名：
 `WriteRedisConnectionException` 指向 Redis 连接，不是 `JdbcSQLNonTransientConnectionException`（那才是账号库）。
+
+## 11. SLI/SLO 承诺表（承诺线 + 多久核一次、怎么核）
+
+> 与 README「核心指标（实测）」的分工：README 给访客看**实测值**，本表给管理员**承诺线与核色动作**。
+> 表里凡可从库内产物确定性派生的数字，由 `offline/doc_numbers.py` 在 CI 守着（改表不改产物即红）；
+> live 实测类（TTFT / 可用性 / 幻觉率）含波动，按既有纪律**不登记**，靠人工按频次核色。
+
+| SLI | SLO（承诺线） | 实测 | 核色方式与频次 |
+| --- | --- | --- | --- |
+| 精确符号 Top-1 命中率 | 100% | **100%** | 每次动语料或换 embedding 后端：`cd offline && python eval/build_golden.py && python eval/evaluate.py`，看报告 `modes.hybrid.exact.hit@1` |
+| 语义 Top-3 召回率 | 100% | **100%** | 同上，看 `modes.hybrid.semantic.hit@3` |
+| 权限泄漏率 | 0 | **0** | 每次动权限链（filter / 租户 / 密级）：跑 `evaluate.py` 的 jailbreak 段，看 `jailbreak.leaked` |
+| 幻觉率（错误码接地） | 0 | 待 live 补 | 每次 live 回归：`cd offline && python qa_gen_quality_probes.py V9`（复用 V2/V4 答案，零额外 chat 预算） |
+| 降级期失败率 | 0 | 待 live 补 | 每次压测：`offline/load/sweep.py` 六档，看各档 Failure Count |
+| TTFT P95 | < 3s | 待 live 补 | 同上；热点命中口径另见 `offline/load/reports/l1_hit_latency.md` |
+| 可用性 | ≥ 99.5% | 待 live 补 | 同上（失败请求数 / 总请求数） |
+
+**为什么是这几条**：每条各对应一条核心主张——检索得准、不越权、不编造、过载不拒服务、快。
+刻意**不承诺"平均延迟"**这类聚合量：聚合会把长尾藏起来，而排障场景的体验恰恰由长尾决定。
+
+**降级期的核色口径**（见 [ADR-0012](docs/adr/0012-degradation-cost-semantics.md)）：L1 期的检索质量按
+`es_only` 那列核（语义 Hit@1 由 88% 退到 64%，同构关系有单测锁定），且门控退为**零召回级**——
+故"幻觉率 = 0"这条在 L1 期的保障强度是弱化的，核色时必须注明当时档位，否则数字会被读成 L0 口径。

@@ -3,7 +3,7 @@
   "entries": [
     {
       "id": "java_test_declarations",
-      "unit": "@Test 声明数（src/test；已实测 surefire 执行数同为 139，无参数化展开）",
+      "unit": "@Test 声明数（src/test；已实测 surefire 执行数同为 140，无参数化展开）",
       "derive": {
         "kind": "grep_count",
         "globs": ["src/test/**/*.java"],
@@ -94,7 +94,8 @@
       },
       "format": "percent",
       "cited_in": [
-        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，34 错误码用例"}
+        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，34 错误码用例"},
+        {"file": "OPS.md", "pattern": "精确符号 Top-1 命中率 \\| 100% \\| \\*\\*(\\d+)%\\*\\*"}
       ]
     },
     {
@@ -107,7 +108,8 @@
       },
       "format": "percent",
       "cited_in": [
-        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，25 口语化用例"}
+        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，25 口语化用例"},
+        {"file": "OPS.md", "pattern": "语义 Top-3 召回率 \\| 100% \\| \\*\\*(\\d+)%\\*\\*"}
       ]
     },
     {
@@ -189,6 +191,19 @@
       "cited_in": [
         {"file": "README.md", "pattern": "(\\d+) 条越狱用例"},
         {"file": "README.md", "pattern": "实测 (\\d+) 用例零泄漏"}
+      ]
+    },
+    {
+      "id": "jailbreak_leaked",
+      "unit": "越狱泄漏条数（评测报告 jailbreak.leaked）——SLO「权限泄漏率 = 0」的依据",
+      "derive": {
+        "kind": "json_field",
+        "path": "offline/eval/reports/eval_report.json",
+        "field": "jailbreak.leaked"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "OPS.md", "pattern": "权限泄漏率 \\| 0 \\| \\*\\*(\\d+)\\*\\*"}
       ]
     },
     {
