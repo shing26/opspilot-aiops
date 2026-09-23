@@ -251,7 +251,10 @@ def check(root: Path = ROOT) -> int:
             citations_checked += 1
             for lineno, got in hits:
                 if got != want:
-                    fails.append(f"{eid}: `{cite['file']}:{lineno}` 期望 {want}、实际 {got}"
+                    # 措辞刻意写「真值 / 文档写的是」而不是「期望 / 实际」：后者的主语有歧义，
+                    # 本模块作者自己就把它读反过一次（以为"期望"是文档该写的值），
+                    # 而读反的方向恰好会导致人去改产物、而不是改文档——最坏的一种误导。
+                    fails.append(f"{eid}: `{cite['file']}:{lineno}` 真值 {want}、文档写的是 {got}"
                                  f"（{e['unit']}）")
 
     if fails:

@@ -102,43 +102,59 @@ def test_registry_has_no_duplicate_ids_and_every_entry_is_verifiable() -> None:
 
 # ---------------------------------------------------------------- 变异 A/B/C
 
+def _derived(root: Path, entry_id: str) -> str:
+    """从产物现算登记项的真值——**测试自己也不许硬编码数字**。
+
+    踩过（2026-09-23）：本文件最初把 131 写死，随后 `@Test` 数因新增用例涨到 139，
+    变异注入再也命中不了文档，用例**假红**——而门闩本身是绿的、判据没坏。
+    "会假红的门闩比没有门闩更快被关掉"，故这里与被测门闩共用同一个派生入口。
+    """
+    entry = next(e for e in dn.load_registry(root) if e["id"] == entry_id)
+    return dn.format_value(dn.derive(entry["derive"], root), entry["format"])
+
+
 def test_mutation_a_doc_number_changed_turns_gate_red(tmp_path: Path) -> None:
-    """变异 A（文档侧）：把 README 的 131 改成 132 → 必须红，且点名文件:行。"""
+    """变异 A（文档侧）：把 README 的用例数改大 1 → 必须红，且点名文件:行。"""
     root = _mirror(tmp_path)
     readme = root / "README.md"
+    val = _derived(root, "java_test_declarations")
+    wrong = str(int(val) + 1)
     text = readme.read_text(encoding="utf-8")
-    assert "131 用例" in text
-    readme.write_text(text.replace("131 用例", "132 用例"), encoding="utf-8")
+    assert f"{val} 用例" in text, f"README 未引用当前真值 {val}——那是另一类红，见其它用例"
+    readme.write_text(text.replace(f"{val} 用例", f"{wrong} 用例"), encoding="utf-8")
 
     assert dn.check(root) == 1
     out = _capture_check(root)
     # 行号现算而不是硬编码：README 增删一行就换行号，硬编码会把"断言过时"伪装成"门闩坏了"。
     lineno = next(i for i, ln in enumerate(readme.read_text(encoding="utf-8").splitlines(), 1)
-                  if "132 用例" in ln)
+                  if f"{wrong} 用例" in ln)
     assert f"README.md:{lineno}" in out, out
-    assert "期望 131、实际 132" in out, out
+    assert f"真值 {val}、文档写的是 {wrong}" in out, out
 
 
 def test_mutation_b_artifact_changed_turns_gate_red(tmp_path: Path) -> None:
     """变异 B（产物侧）：给 chunks.jsonl 加一行 → 必须红，证明判据绑的是产物。"""
     root = _mirror(tmp_path)
+    before = _derived(root, "chunks_lines")
     chunks = root / "offline/corpus/chunks.jsonl"
     chunks.write_bytes(chunks.read_bytes() + b'{"id":"x","text":"y"}\n')
 
     assert dn.check(root) == 1
     out = _capture_check(root)
     assert "chunks_lines" in out, out
-    assert "期望 423、实际 423" not in out
+    # 产物加了一行 → 真值 = 原值+1，而文档仍写着原值
+    assert f"真值 {int(before) + 1}、文档写的是 {before}" in out, out
 
 
 def test_mutation_c_rewritten_wording_is_reported_not_skipped(tmp_path: Path) -> None:
-    """变异 C（指不到人）：把「131 单测」改成「131 个单测」→ 必须红并报 0 命中。
+    """变异 C（指不到人）：把「N 单测」改成「N 个单测」→ 必须红并报 0 命中。
 
     这是面二最容易退化成空转的路径：数字其实还在，只是门闩再也看不见它。
     """
     root = _mirror(tmp_path)
     readme = root / "README.md"
-    readme.write_text(readme.read_text(encoding="utf-8").replace("131 单测", "131 个单测"),
+    val = _derived(root, "java_test_declarations")
+    readme.write_text(readme.read_text(encoding="utf-8").replace(f"{val} 单测", f"{val} 个单测"),
                       encoding="utf-8")
 
     assert dn.check(root) == 1
