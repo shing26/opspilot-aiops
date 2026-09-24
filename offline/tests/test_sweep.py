@@ -78,6 +78,95 @@ def test_degradation_rank_is_ordered():
     """档位排序用于取"运行期间最高档"——顺序错了会把 L1 判成没降级。"""
     assert sweep.LEVEL_RANK["L0"] < sweep.LEVEL_RANK["L1"] < sweep.LEVEL_RANK["L2"]
 
+# ---------------------------------------------------------------- 失败明细
+
+def test_parse_failures_csv_separates_connection_from_app_errors(tmp_path):
+    """失败**性质**必须可与计数分开看：`HTTP 0`=连接层（容量极限），`HTTP 5xx`=应用层（缺陷）。"""
+    p = tmp_path / "lvl_200_failures.csv"
+    p.write_text("Method,Name,Error,Occurrences,First Seen,Last Seen\n"
+                 "POST,/api/v1/copilot/chat/stream,\"CatchResponseError('HTTP 0')\",3715,t0,t1\n"
+                 "POST,/api/v1/copilot/chat/stream,\"CatchResponseError('HTTP 500')\",7,t0,t1\n",
+                 encoding="utf-8")
+    got = sweep.parse_failures_csv(p)
+    assert len(got) == 2
+    assert got[0]["occurrences"] == 3715 and "HTTP 0" in got[0]["error"]
+    assert "HTTP 500" in got[1]["error"]
+
+
+def test_parse_failures_csv_empty_and_missing(tmp_path):
+    """无失败时 locust 仍会写表头——必须返回空列表而不是一条假记录。"""
+    p = tmp_path / "f.csv"
+    p.write_text("Method,Name,Error,Occurrences,First Seen,Last Seen\n", encoding="utf-8")
+    assert sweep.parse_failures_csv(p) == []
+    assert sweep.parse_failures_csv(tmp_path / "nope.csv") == []
+
+
+# ---------------------------------------------------------------- 实到并发
+
+def test_parse_max_users_reads_history(tmp_path):
+    """实到并发取自 stats_history 的 User Count 列——它是判断"标签是否等于事实"的唯一依据。"""
+    p = tmp_path / "h.csv"
+    p.write_text("Timestamp,User Count,Total RPS\n1,10,1\n2,200,5\n3,290,9\n", encoding="utf-8")
+    assert sweep.parse_max_users(p) == 290
+
+
+def test_parse_max_users_missing_or_empty(tmp_path):
+    assert sweep.parse_max_users(tmp_path / "nope.csv") is None
+    p = tmp_path / "e.csv"
+    p.write_text("", encoding="utf-8")
+    assert sweep.parse_max_users(p) is None
+
+
+def test_ramp_rate_reaches_target_within_ramp_seconds():
+    """ramp 速率必须按档位自适应：固定 `-r 10` + 30s 只能爬到 300 用户，
+    于是「u=500」那档实到只有 290——报告标签与事实不符（实测踩过）。"""
+    ramp = 5
+    for level in (25, 50, 100, 200, 300, 500):
+        rate = max(1, round(level / ramp))
+        assert rate * ramp >= level, f"u={level} 在 {ramp}s 内爬不到目标（rate={rate}）"
+
+
+# ---------------------------------------------------------------- locust 退出码语义
+
+def _fake_run(stats_path, returncode):
+    def _run(cmd, **kw):
+        if stats_path is not None:
+            stats_path.parent.mkdir(parents=True, exist_ok=True)
+            stats_path.write_text("Type,Name\n,Aggregated\n", encoding="utf-8")
+        return type("P", (), {"returncode": returncode})()
+    return _run
+
+
+def test_locust_command_disables_failure_exit_code(tmp_path, monkeypatch):
+    """**核心修复的锁**：必须带 `--exit-code-on-error 0`。
+
+    locust 默认在任何失败时以 1 退出，而本脚本测的就是失败率——失败是**被测量的量**。
+    首版用 check=True 把 u=200 的连接层失败当致命错，整个 sweep 崩在那档、连拐点数据一起丢。
+    变异验证：去掉该 flag 或改回 check=True → 本用例必红。
+    """
+    seen = {}
+
+    def _run(cmd, **kw):
+        seen["cmd"] = cmd
+        seen["check"] = kw.get("check")
+        (tmp_path / "lvl_9_stats.csv").write_text("Type,Name\n,Aggregated\n", encoding="utf-8")
+        return type("P", (), {"returncode": 1})()
+
+    monkeypatch.setattr(sweep, "RAW", tmp_path)
+    monkeypatch.setattr(sweep.subprocess, "run", _run)
+    sweep._run_locust(9, "1s", 1)
+    assert "--exit-code-on-error" in seen["cmd"]
+    assert seen["cmd"][seen["cmd"].index("--exit-code-on-error") + 1] == "0"
+    assert seen["check"] is False, "不得用 check=True——失败是数据不是错误"
+
+
+def test_locust_real_crash_still_raises(tmp_path, monkeypatch):
+    """真崩（参数错/依赖缺 ⇒ 无 stats.csv）仍必须报错——不能把"没产出"也吞掉。"""
+    monkeypatch.setattr(sweep, "RAW", tmp_path)
+    monkeypatch.setattr(sweep.subprocess, "run", _fake_run(None, 2))
+    with pytest.raises(RuntimeError, match="未产出 stats.csv"):
+        sweep._run_locust(9, "1s", 1)
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

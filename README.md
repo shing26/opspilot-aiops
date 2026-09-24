@@ -380,6 +380,7 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 | `user_admin.sh` | 账号生命周期 CLI：`add` / `disable` / `passwd` / `backup` |
 | `seed_demo_users.sh` | 幂等初始化四个账号：三演示角色（含跨租户矩阵靶）+ 告警主体 `sre-watcher` |
 | `gen_tokens.py` | 生成红队畸形 token 样本（合法账号走 login，不预签 token） |
+| `check_upstream.py` | **核色前置**：DashScope 三路（LLM / embedding / rerank）探活，全通过才 exit 0——降级会静默掩盖上游故障，故核色前必跑 |
 | `daily_usage.py` | 从审计日志聚合当日用量（cron 友好） |
 | `check_panel_contract.sh` | 面板↔后端字面量契约（CI 零依赖，后端改名即红） |
 | `py.sh` | Python 解释器三档探测（跨平台单点，被多个脚本复用） |

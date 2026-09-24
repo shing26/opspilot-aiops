@@ -256,7 +256,21 @@ Docker Desktop 重启（升级/崩溃自恢复）会给本机留下两类**看�
 | TTFT P95 | < 3s | 待 live 补 | 同上；热点命中口径另见 `offline/load/reports/l1_hit_latency.md` |
 | 可用性 | ≥ 99.5% | 待 live 补 | 同上（失败请求数 / 总请求数） |
 
-**已有随附产物的 SLI**（核色时直接看产物，不靠记忆）：门控的误拒/漏拒率与阈值扫描 → `offline/eval/reports/gate_matrix.md`；真实输入上的零召回率与快路径命中率 → `offline/eval/reports/observed_probe.md`；热点命中延迟 → `offline/load/reports/l1_hit_latency.md`。表内"待 live 补"的几项属**生成面**指标，本机账户可用时按右侧命令补跑。
+**核色前置（每次核色前先跑，不通过就别开始）**：
+
+```bash
+set -a; . ./.env; set +a          # 让 DASHSCOPE_API_KEY 进入环境
+python scripts/check_upstream.py  # 三路（LLM / embedding / rerank）全通过才 exit 0
+```
+
+**为什么这一步不是可选自检**：本系统的降级设计会**静默掩盖**上游故障，两条路径都返回 HTTP 200
+且都不报错——embedding 断 → 向量腿 `degraded` → 检索退化为 `es_only`；LLM 连续失败达阈 → 熔断 L2
+→ 全部请求直出静态 SOP。**只有 `mode` 字段才看得出**。于是核色会在一个已经降级的系统上跑完，
+产出一整套看似正常、实则无效的数字。2026-09-24 真踩过：`cache_savings` 首跑报出"命中率 0.0%"，
+看着像"缓存无效"，实际是 26 条请求全走了 L2 SOP 兜底（该路径按设计不写 L1）——该报告已作废。
+账户欠费时三路返回 `code=Arrearage`，脚本会点名到该 code 并以非 0 退出。
+
+**已有随附产物的 SLI**（核色时直接看产物，不靠记忆）：门控的误拒/漏拒率与阈值扫描 → `offline/eval/reports/gate_matrix.md`；真实输入上的零召回率与快路径命中率 → `offline/eval/reports/observed_probe.md`；热点命中延迟 → `offline/load/reports/l1_hit_latency.md`。表内"待 live 补"的几项属**生成面**指标，三路探活通过后按右侧命令补跑。
 
 **为什么是这几条**：每条各对应一条核心主张——检索得准、不越权、不编造、过载不拒服务、快。
 刻意**不承诺"平均延迟"**这类聚合量：聚合会把长尾藏起来，而排障场景的体验恰恰由长尾决定。

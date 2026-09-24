@@ -1,0 +1,37 @@
+{
+  "measured_at": "2026-09-25T03:37:00+08:00",
+  "subject": "sre-full",
+  "workload": {
+    "hot": 20,
+    "cold": 5,
+    "total": 25
+  },
+  "cache_hit_distribution": {
+    "L1": 20,
+    "L2": 1,
+    "none": 4
+  },
+  "hit_rate": 0.84,
+  "hit_ttft_ms": {
+    "n": 21,
+    "mean": 18.95,
+    "p50": 8.0,
+    "p95": 10.0
+  },
+  "miss_ttft_ms": {
+    "n": 4,
+    "mean": 977.5,
+    "p50": 833.0,
+    "p95": 1276.0
+  },
+  "saved_ms_per_request": 693.0,
+  "global_counters_delta": {
+    "total_requests": 26,
+    "llm_calls": 4,
+    "l1_cache_hits": 21,
+    "l2_cache_hits": 1,
+    "dedup_aggregated": 20,
+    "low_confidence_refusals": 0
+  },
+  "note": "命中率与延迟差均取自**本脚本自己的负载**（可归因）；global_counters_delta 是全系统口径（含他人流量与 Single-Flight follower），仅作交叉核对，不可用来算命中率——total_requests 含 follower，hits/total 会把去重流量当成 miss。节省账用服务端 TTFT 做差；客户端端到端含本机栈开销，不参与。"
+}

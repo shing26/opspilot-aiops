@@ -67,6 +67,54 @@ def parse_stats_csv(path: Path) -> dict:
     raise ValueError(f"{path} 里没有 Aggregated 行")
 
 
+def parse_max_users(path: Path) -> int | None:
+    """取该档**实际达到**的最大并发用户数（locust `_stats_history.csv` 的 User Count 列）。
+
+    为什么必须记它：`-r`（每秒启动用户数）× 时长 才是并发上限。首版固定 `-r 10` + 30s ⇒ **最多只能爬到
+    300 用户**，于是"u=500"那一档实际只跑到 290——报告上却写着 500，属**标签与事实不符**。
+    记下真值后，读者能自行判断高并发档是否为"够得着"的档。
+    """
+    if not path.exists():
+        return None
+    with path.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        return None
+    col = next((c for c in rows[0] if "User Count" in c), None)
+    if col is None:
+        return None
+    vals = []
+    for r in rows:
+        try:
+            vals.append(int(float(r[col])))
+        except (TypeError, ValueError):
+            continue
+    return max(vals) if vals else None
+
+
+def parse_failures_csv(path: Path) -> list[dict]:
+    """取该档的失败明细（纯函数，可离线单测）。返回 [{error, occurrences}]，空文件返回 []。
+
+    为什么要单列失败**性质**：`HTTP 0` 是**连接层**失败（未拿到任何响应：连接被拒/重置/超时），
+    与 `HTTP 5xx`（应用层错误）是完全不同的结论——前者指向容量/连接栈极限，后者指向应用缺陷。
+    只看 failure_rate 会把两者混成一个"失败率"。
+    """
+    out: list[dict] = []
+    if not path.exists():
+        return out
+    with path.open(encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            err = (row.get("Error") or "").strip()
+            if not err:
+                continue
+            try:
+                n = int(float(row.get("Occurrences") or 0))
+            except ValueError:
+                n = 0
+            out.append({"error": err, "occurrences": n})
+    return out
+
+
 def failure_rate(stats: dict) -> float | None:
     """失败率 = 失败数 / 总请求数。总数为 0 时返回 None（不编 0%）。"""
     n = stats.get("requests") or 0
@@ -75,18 +123,30 @@ def failure_rate(stats: dict) -> float | None:
     return (stats.get("failures") or 0) / n
 
 
-def _degradation_level(token: str) -> tuple[str, bool]:
+def _degradation_snapshot(token: str) -> tuple[str, bool, int]:
+    """一次 /admin/state 采样 → (档位, 是否人工锁定, 当前在途请求数)。"""
     st = localapi.get_json("/api/v1/admin/state", token)
-    d = ((st.get("runtime") or {}).get("degradation") or {})
-    return str(d.get("level") or "L0"), bool(d.get("manual"))
+    rt = st.get("runtime") or {}
+    d = rt.get("degradation") or {}
+    try:
+        inflight = int(rt.get("inflight") or 0)
+    except (TypeError, ValueError):
+        inflight = 0
+    return str(d.get("level") or "L0"), bool(d.get("manual")), inflight
 
 
 class LevelSampler:
-    """运行期间轮询降级档位，记最高档（瞬时采样会漏脉冲）。"""
+    """运行期间轮询降级档位与在途数，取各自最高值。
+
+    为什么连**在途数**一起采：L1 的触发条件是"在途请求数 ≥ inflight-threshold"，
+    只看"档位未变"答不出"为什么没触发"。采到最大在途后即可直接对照阈值——是"没到阈值"
+    还是"到了阈值却没触发"，两者结论完全不同。
+    """
 
     def __init__(self, token: str, interval: float = 1.0):
         self.token, self.interval = token, interval
         self.worst = "L0"
+        self.max_inflight = 0
         self.manual_seen = False
         self._stop = threading.Event()
         self._t: threading.Thread | None = None
@@ -94,9 +154,10 @@ class LevelSampler:
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                lvl, manual = _degradation_level(self.token)
+                lvl, manual, inflight = _degradation_snapshot(self.token)
                 if LEVEL_RANK.get(lvl, 0) > LEVEL_RANK.get(self.worst, 0):
                     self.worst = lvl
+                self.max_inflight = max(self.max_inflight, inflight)
                 self.manual_seen = self.manual_seen or manual
             except Exception:
                 pass
@@ -116,13 +177,21 @@ class LevelSampler:
 def _run_locust(level: int, duration: str, rate: int) -> Path:
     RAW.mkdir(parents=True, exist_ok=True)
     prefix = RAW / f"lvl_{level}"
+    # `--exit-code-on-error 0`：locust 默认在有**任何失败**时以 1 退出，而本脚本测的就是失败率，
+    # 失败是**被测量的量、不是错误**。首版用 check=True 把"u=200 出现连接层失败"当致命错处理，
+    # 结果整个 sweep 崩在那档、连拐点数据一起丢掉（2026-09-24 实测踩到）。
     cmd = [sys.executable, "-m", "locust", "-f", str(LOAD / "locustfile.py"), "--headless",
            "-u", str(level), "-r", str(rate), "-t", duration, "--csv", str(prefix),
-           "--only-summary"]
+           "--only-summary", "--exit-code-on-error", "0"]
     env = dict(os.environ)
-    subprocess.run(cmd, check=True, cwd=str(LOAD), env=env,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return prefix.with_name(prefix.name + "_stats.csv")
+    proc = subprocess.run(cmd, check=False, cwd=str(LOAD), env=env,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    stats_csv = prefix.with_name(prefix.name + "_stats.csv")
+    if not stats_csv.exists():
+        # 真崩（参数错/依赖缺）才会走到这里——此时才该报错，且带上退出码供定位
+        raise RuntimeError(f"locust 在 u={level} 未产出 stats.csv（退出码 {proc.returncode}）——"
+                           f"按真实错误排查，勿当成「该档有失败」")
+    return stats_csv
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -130,7 +199,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--levels", default=",".join(str(x) for x in DEFAULT_LEVELS),
                     help="逗号分隔的并发档位（默认 25,50,100,200,300,500）")
     ap.add_argument("--duration", default="30s", help="每档时长（默认 30s）")
-    ap.add_argument("--rate", type=int, default=10, help="每秒启动用户数（默认 10）")
+    ap.add_argument("--ramp-seconds", type=int, default=5,
+                    help="爬到目标并发用几秒（默认 5）；ramp 速率 = 档位/该值。"
+                         "**不要用固定速率**：固定 -r 10 + 30s 只能爬到 300 用户，高档位会跑不到（实测踩过）")
     ap.add_argument("--user", default=localapi.DEFAULT_EVAL_USER,
                     help=f"主体（默认 {localapi.DEFAULT_EVAL_USER}）——必须是真实用户名，不是 load_tokens 的键名")
     a = ap.parse_args(argv)
@@ -139,7 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     token = localapi.login(a.user)
     state = localapi.get_json("/api/v1/admin/state", token)
     backend = (state.get("metrics") or {}).get("backend") or {}
-    inflight_threshold = ((state.get("runtime") or {}).get("degradation") or {}).get("threshold")
+    # 注意口径：/state 的 runtime.degradation.threshold 是 **LLM 熔断失败阈值**（并非 inflight 阈值）。
+    # inflight 阈值（默认 40）**未由 /state 暴露**，故本脚本不臆造它——改采"在途峰值"直接对照。
+    llm_failure_threshold = ((state.get("runtime") or {}).get("degradation") or {}).get("threshold")
     quota_limit = ((state.get("runtime") or {}).get("quota") or {}).get("limit")
 
     # 预热：冷启动会把 JIT/连接建立记成"低并发更慢"，污染曲线
@@ -149,24 +222,32 @@ def main(argv: list[str] | None = None) -> int:
     points = []
     first_l1 = None
     for lv in levels:
+        # ramp 速率按档位自适应：保证在 --ramp-seconds 内爬到目标，高档位才"够得着"
+        rate = max(1, round(lv / max(1, a.ramp_seconds)))
         with LevelSampler(token) as s:
-            stats_csv = _run_locust(lv, a.duration, a.rate)
-            worst, manual = s.worst, s.manual_seen
+            stats_csv = _run_locust(lv, a.duration, rate)
+            worst, manual, max_inflight = s.worst, s.manual_seen, s.max_inflight
         st = parse_stats_csv(stats_csv)
-        pt = {"level": lv, "degradation_worst": worst, "manual_lock_seen": manual,
-              "failure_rate": failure_rate(st), **st}
+        fails = parse_failures_csv(stats_csv.with_name(stats_csv.name.replace("_stats.csv", "_failures.csv")))
+        max_users = parse_max_users(stats_csv.with_name(
+            stats_csv.name.replace("_stats.csv", "_stats_history.csv")))
+        pt = {"level": lv, "ramp_rate": rate, "max_users": max_users,
+              "degradation_worst": worst, "manual_lock_seen": manual, "max_inflight": max_inflight,
+              "failure_rate": failure_rate(st), "failure_detail": fails, **st}
         points.append(pt)
         if first_l1 is None and LEVEL_RANK.get(worst, 0) >= 1:
             first_l1 = lv
-        print(f"  u={lv}: rps={st['rps']} p50={st['p50_ms']} p99={st['p99_ms']} "
-              f"fail={pt['failure_rate']} worst={worst}")
+        print(f"  u={lv}(r={rate}, 实到 {max_users}, 在途峰值 {max_inflight}): rps={st['rps']} "
+              f"p50={st['p50_ms']} p99={st['p99_ms']} fail={pt['failure_rate']} "
+              f"worst={worst} detail={fails}")
 
     out = {
         "measured_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "subject": a.user,
         "backend": backend,
-        "inflight_threshold": inflight_threshold,
+        "llm_failure_threshold": llm_failure_threshold,
         "quota_limit": quota_limit,
+        "ramp_seconds": a.ramp_seconds,
         "duration_per_level": a.duration,
         "points": points,
         "first_degraded_level": first_l1,
@@ -177,7 +258,12 @@ def main(argv: list[str] | None = None) -> int:
                  "**配额口径须一并读**：六档合计请求数远超默认配额（5000/天/主体），故本轮的网关是以"
                  "抬高的 OPSPILOT_QUOTA_DAILY_LIMIT 启动的——本报告记录的 quota_limit 即当时真值；"
                  "曲线测的是延迟/吞吐，不是配额护栏，配额耗尽后 locust 会把 429 记成失败使曲线失真，"
-                 "故抬高并披露。各档 failure_rate 即该档是否被 429 污染的判据。"),
+                 "故抬高并披露。各档 failure_rate 即该档是否被 429 污染的判据。"
+                 "**实到并发必须看**：`-r` × 时长为并发上限，固定 ramp 速率会让高档位爬不到目标"
+                 "（曾出现「u=500 实到只有 290」，标签与事实不符）；本脚本按 `档位/ramp-seconds` "
+                 "自适应 ramp 并逐档记录实到值。**失败要分性质**：`HTTP 0` 是连接层（容量/本地栈极限），"
+                 "`HTTP 5xx` 才是应用缺陷；且连接层失败可能**非单调**（本地临时端口耗尽等粘性资源"
+                 "会让相邻档出现「低档失败、高档反而干净」），故单看某一档的失败率不足以下结论。"),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
     (REPORTS / "concurrency_sweep.json").write_text(
@@ -192,19 +278,28 @@ def main(argv: list[str] | None = None) -> int:
     md = [
         "# 并发-延迟曲线（拐点与首次降级档）",
         "",
-        f"> 实测时间：{out['measured_at']} ｜ 主体 `{a.user}` ｜ 每档 {a.duration} ｜ "
-        f"inflight 降级阈值 {inflight_threshold} ｜ 当日配额上限 {quota_limit}",
+        f"> 实测时间：{out['measured_at']} ｜ 主体 `{a.user}` ｜ 每档 {a.duration}（ramp {a.ramp_seconds}s） ｜ "
+        f"LLM 熔断失败阈值 {llm_failure_threshold}（inflight 阈值未由 /state 暴露，故以在途峰值对照） ｜ "
+        f"当日配额上限 {quota_limit}",
         f"> 后端：embedding={backend.get('embedding')} / rerank={backend.get('rerank')} / "
         f"llm={backend.get('llm')}",
-        f"> **首次降级档**：{'未触发（六档全 L0）' if first_l1 is None else f'u={first_l1}'}",
+        f"> **首次降级档**：{'未触发（各档全程 L0）' if first_l1 is None else f'u={first_l1}'}",
         "",
-        "| 并发 | RPS | P50 (ms) | P95 (ms) | P99 (ms) | 失败率 | 期间最高档 |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| 目标并发 | 实到并发 | 在途峰值 | RPS | P50 (ms) | P95 (ms) | P99 (ms) | 失败率 | 期间最高档 |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for p in points:
         lock = "（人工锁定）" if p["manual_lock_seen"] else ""
-        md.append(f"| {p['level']} | {f(p['rps'])} | {f(p['p50_ms'])} | {f(p['p95_ms'])} | "
-                  f"{f(p['p99_ms'])} | {fpct(p['failure_rate'])} | {p['degradation_worst']}{lock} |")
+        short = "" if p.get("max_users") is None or p["max_users"] >= p["level"] else " ⚠️未达"
+        md.append(f"| {p['level']} | {p.get('max_users')}{short} | {p.get('max_inflight')} | "
+                  f"{f(p['rps'])} | {f(p['p50_ms'])} | {f(p['p95_ms'])} | {f(p['p99_ms'])} | "
+                  f"{fpct(p['failure_rate'])} | {p['degradation_worst']}{lock} |")
+    failing = [p for p in points if p.get("failure_detail")]
+    if failing:
+        md += ["", "**失败明细（区分连接层与应用层——前者指向容量极限，后者指向应用缺陷）**：", ""]
+        for p in failing:
+            md.append(f"- u={p['level']}：" + "；".join(
+                f"`{d['error']}` ×{d['occurrences']}" for d in p["failure_detail"]))
     md += ["", out["note"], "",
            f"复现：`cd offline && python load/sweep.py --levels {a.levels} --duration {a.duration}`"
            "（需活体栈 + `.env` + live key；每档真实调用 LLM，有 token 成本）。"]

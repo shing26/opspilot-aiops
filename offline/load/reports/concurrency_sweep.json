@@ -1,0 +1,134 @@
+{
+  "measured_at": "2026-09-25T04:02:16+08:00",
+  "subject": "sre-full",
+  "backend": {
+    "rerank": "dashscope:gte-rerank-v2",
+    "llm": "dashscope:qwen-plus",
+    "embedding": "dashscope:text-embedding-v3"
+  },
+  "llm_failure_threshold": 3,
+  "quota_limit": 300000,
+  "ramp_seconds": 5,
+  "duration_per_level": "20s",
+  "points": [
+    {
+      "level": 25,
+      "ramp_rate": 5,
+      "max_users": 25,
+      "degradation_worst": "L0",
+      "manual_lock_seen": false,
+      "max_inflight": 4,
+      "failure_rate": 0.0,
+      "failure_detail": [],
+      "requests": 2751,
+      "failures": 0,
+      "rps": 134.2814005206639,
+      "p50_ms": 23.0,
+      "p95_ms": 78.0,
+      "p99_ms": 280.0,
+      "max_ms": 507.18750001396984
+    },
+    {
+      "level": 50,
+      "ramp_rate": 10,
+      "max_users": 50,
+      "degradation_worst": "L0",
+      "manual_lock_seen": false,
+      "max_inflight": 9,
+      "failure_rate": 0.0,
+      "failure_detail": [],
+      "requests": 4476,
+      "failures": 0,
+      "rps": 218.57581984598372,
+      "p50_ms": 54.0,
+      "p95_ms": 120.0,
+      "p99_ms": 150.0,
+      "max_ms": 504.94850001996383
+    },
+    {
+      "level": 100,
+      "ramp_rate": 20,
+      "max_users": 100,
+      "degradation_worst": "L0",
+      "manual_lock_seen": false,
+      "max_inflight": 11,
+      "failure_rate": 0.0,
+      "failure_detail": [],
+      "requests": 5462,
+      "failures": 0,
+      "rps": 277.16163357486664,
+      "p50_ms": 97.0,
+      "p95_ms": 750.0,
+      "p99_ms": 990.0,
+      "max_ms": 1303.937099990435
+    },
+    {
+      "level": 200,
+      "ramp_rate": 40,
+      "max_users": 200,
+      "degradation_worst": "L0",
+      "manual_lock_seen": false,
+      "max_inflight": 11,
+      "failure_rate": 0.09817269795772125,
+      "failure_detail": [
+        {
+          "error": "CatchResponseError('HTTP 0')",
+          "occurrences": 548
+        }
+      ],
+      "requests": 5582,
+      "failures": 548,
+      "rps": 282.2070058092014,
+      "p50_ms": 99.0,
+      "p95_ms": 3500.0,
+      "p99_ms": 4000.0,
+      "max_ms": 4350.596099975519
+    },
+    {
+      "level": 300,
+      "ramp_rate": 60,
+      "max_users": 300,
+      "degradation_worst": "L0",
+      "manual_lock_seen": false,
+      "max_inflight": 0,
+      "failure_rate": 0.994745691467003,
+      "failure_detail": [
+        {
+          "error": "CatchResponseError('HTTP 0')",
+          "occurrences": 4733
+        }
+      ],
+      "requests": 4758,
+      "failures": 4733,
+      "rps": 237.73641927098845,
+      "p50_ms": 120.0,
+      "p95_ms": 6800.0,
+      "p99_ms": 10000.0,
+      "max_ms": 10497.342000016943
+    },
+    {
+      "level": 500,
+      "ramp_rate": 100,
+      "max_users": 500,
+      "degradation_worst": "L0",
+      "manual_lock_seen": false,
+      "max_inflight": 11,
+      "failure_rate": 0.9185045158580131,
+      "failure_detail": [
+        {
+          "error": "CatchResponseError('HTTP 0')",
+          "occurrences": 4373
+        }
+      ],
+      "requests": 4761,
+      "failures": 4373,
+      "rps": 232.73838931658105,
+      "p50_ms": 120.0,
+      "p95_ms": 8900.0,
+      "p99_ms": 14000.0,
+      "max_ms": 15711.65850001853
+    }
+  ],
+  "first_degraded_level": null,
+  "note": "后端必须 live：曲线形状依赖真实 embedding/rerank 延迟，mock 是词法代理、曲线偏平。降级档位取每档运行期间的**最高**档（轮询 1s，瞬时采样会漏脉冲）；manual_lock_seen=true 表示该档期间存在人工锁定，其档位不纯由负载导致。原始 locust 产物在 load/_sweep_raw/（不入库），本报告是唯一入库的汇总。**配额口径须一并读**：六档合计请求数远超默认配额（5000/天/主体），故本轮的网关是以抬高的 OPSPILOT_QUOTA_DAILY_LIMIT 启动的——本报告记录的 quota_limit 即当时真值；曲线测的是延迟/吞吐，不是配额护栏，配额耗尽后 locust 会把 429 记成失败使曲线失真，故抬高并披露。各档 failure_rate 即该档是否被 429 污染的判据。**实到并发必须看**：`-r` × 时长为并发上限，固定 ramp 速率会让高档位爬不到目标（曾出现「u=500 实到只有 290」，标签与事实不符）；本脚本按 `档位/ramp-seconds` 自适应 ramp 并逐档记录实到值。**失败要分性质**：`HTTP 0` 是连接层（容量/本地栈极限），`HTTP 5xx` 才是应用缺陷；且连接层失败可能**非单调**（本地临时端口耗尽等粘性资源会让相邻档出现「低档失败、高档反而干净」），故单看某一档的失败率不足以下结论。"
+}

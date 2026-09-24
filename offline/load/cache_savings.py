@@ -38,7 +38,18 @@ import localapi  # noqa: E402
 
 REPORTS = Path(__file__).resolve().parent / "reports"
 HOT_QUERY = "50012_DB_TIMEOUT 下单超时怎么排查"
-COLD_QUERY = "连接池耗尽时的应急扩容步骤与风险"
+
+# 冷 query 池：**必须落在语料内且能过门控**，否则"未命中组"测到的是拒答而不是生成。
+# 2026-09-24 首版用的是无错误码的泛化问句，结果 5 条冷 query 全被置信度门控拒掉
+# （实测 `low_confidence_refusals=5`、`llm_calls=0`），于是"单请求平均节省"是拿**拒答**
+# 当基线算出来的——拒答本身很便宜，这个数字会显著低估真实节省。改用含精确错误码的问句：
+# 精确符号 → 快路径命中 → 豁免门控 → 真调 LLM，这才是"未命中"该有的样子。
+COLD_QUERIES = [
+    "50013_DB_DEADLOCK 库存扣减死锁的排查步骤",
+    "50021_REDIS_TIMEOUT 购物车 Redis 超时怎么处理",
+    "50031_MQ_CONSUME_LAG 支付回调积压如何定位",
+    "50051_ES_INDEX_MISSING 索引缺失导致检索为空",
+]
 
 
 def pct(values: list[float], p: float) -> float:
@@ -59,8 +70,12 @@ def stats(values: list[float]) -> dict:
 
 def _counters(token: str) -> dict:
     m = (localapi.get_json("/api/v1/admin/state", token).get("metrics") or {})
+    # 含 low_confidence_refusals 与 llm_calls：这两项是**判读"未命中组"性质的证据**——
+    # 若 refusals 增量 == 冷 query 条数 而 llm_calls 为 0，说明那组全是拒答，
+    # 此时"节省"是拿拒答当基线算的、会低估真实节省（2026-09-24 首版即此坑）。
     return {k: int(m.get(k) or 0) for k in
-            ("total_requests", "llm_calls", "l1_cache_hits", "l2_cache_hits", "dedup_aggregated")}
+            ("total_requests", "llm_calls", "l1_cache_hits", "l2_cache_hits",
+             "dedup_aggregated", "low_confidence_refusals")}
 
 
 def _one(token: str, query: str) -> tuple[str, float]:
@@ -95,9 +110,10 @@ def main(argv: list[str] | None = None) -> int:
     for _ in range(a.hot):
         hit, ttft = _one(token, HOT_QUERY)
         by_group.setdefault(hit, []).append(ttft)
-    for _ in range(a.cold):
+    for i in range(a.cold):
         # 随机尾注避免撞 L2；仍被判命中就按实际分组计，不假装
-        hit, ttft = _one(token, f"{COLD_QUERY}（工单 {secrets.token_hex(4)}）")
+        base = COLD_QUERIES[i % len(COLD_QUERIES)]
+        hit, ttft = _one(token, f"{base}（工单 {secrets.token_hex(4)}）")
         by_group.setdefault(hit, []).append(ttft)
 
     after = _counters(token)

@@ -32,7 +32,7 @@
 | 防幻觉事后环（答案接地 V9） | **已建**（2026-09-24）；**live 数字待补** | `offline/grounding.py`（纯函数）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）；OPS §5.1 已登记其覆盖边界 |
 | 降级代价语义 | **已登记**（2026-09-24） | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)：L1 = 质量降（88%→64%）+ **门控降**（相关性级→零召回级）；同构回归锁 `ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`；重开触发线入 OPS §5 |
 | 分段耗时（审计行 `stage_ms`） | **已建**（2026-09-24） | `retrieval/LegTimings` + `metrics/StageTimings`（八段）；非 chat 路径传 null → 不落字段（"没测"≠"测得为 0"） |
-| 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **两项已出数、两项待补**（2026-09-24 补跑） | **已出数**：`offline/eval/reports/gate_matrix.{json,md}`、`offline/eval/reports/observed_probe.{json,md}`——两项都只走 `/search`（不触 LLM），故不受下述账户问题影响。**待补**：`concurrency_sweep`、`cache_savings`（+ 探针 V9 的 live 断言）——**原因已实证并定位到环境**：DashScope 账户欠费，`qwen-plus` 直连返回 HTTP 400 `code=Arrearage`；embedding 与 rerank 仍可用，故检索面正常、生成面全断。触发即停，未伪造数字 |
+| 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **四项全部出数**（2026-09-24 补跑，欠费解除后完成） | `offline/eval/reports/gate_matrix.{json,md}`、`offline/eval/reports/observed_probe.{json,md}`、`offline/load/reports/concurrency_sweep.{json,md}`、`offline/load/reports/cache_savings.{json,md}`。**探针 V9 的 live 断言已通过**（接地率 100%）。**核色前置**：`python scripts/check_upstream.py`（三路探活，全通过才 exit 0）——降级会静默掩盖上游故障，故已写成每次核色的第一步（见 `OPS.md` §11） |
 | 答案反馈入口（人机协同） | **已建**（2026-09-24） | `POST /api/v1/copilot/feedback` → 审计 `ev="feedback"`（按 fingerprint 归档、不占配额）；是"复盘→知识回灌"的前置入口 |
 
 **逐轮修复流水**（细节见横线以下各节）：2026-09-12 五维评估 + H1/H2/H3/M1/M2 → 09-18 证据链 O1/O2 →
@@ -298,3 +298,41 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 ### 门禁终态
 
 `pytest` **123 全绿**（本轮 112 → 123，+11：`test_localapi.py` 6 例 + `test_observed_probe.py` 增 5 例）｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致 ｜ Java 未改动（150 全绿不变）。本轮新增两条 live 报告入库，另加两处代码修复与五处自身缺陷修复。
+
+## 修补记录（2026-09-25：欠费解除后补跑剩余三项 + 核色前置脚本）
+
+**转折**：上一节记录的四项里有两项（+探针 V9）被 DashScope 欠费阻断。此后重新探活发现**三路全部恢复 200**（欠费解除），故把剩余三项补跑完成——**四份报告现已全部出数**。
+
+### 补跑结果（全部 live，三路探活通过后开跑）
+
+| 报告 | 关键数字 | 解读 |
+|---|---|---|
+| `offline/load/reports/cache_savings.{json,md}` | 命中率 **84.0%**（L1 20 / L2 1 / miss 4）；命中 p50 **8ms**、未命中 p50 **833ms**；**单请求平均节省 693ms** | 交叉核对显示 `llm_calls=4`、`low_confidence_refusals=0` ⇒ 未命中组是**真生成**（此前首版那条 528ms 的"节省"是拿**拒答**当基线算的，见下"自身缺陷"） |
+| `concurrency_sweep.{json,md}` | 六档：25/50/100/200 全程 **0 失败**、RPS 峰值 **282**（u=200）；u=300 失败率 **99.5%**、u=500 **91.9%**；失败全部是 `HTTP 0`（**连接层**，无一条 5xx） | **拐点在 200→300 之间**。吞吐在 ~230–282 rps 平台化 |
+| 探针 V9 live 断言 | **11 条答案 / 15 个错误码 / 无据 0 个（接地率 100%）**；V2 5/5、V4 2/2，合计 9/9 PASS | A1（幻觉事后环）至此真正闭环：清单 A1 要求的"每次 live 回归强制断言的幻觉率"有了实测值 0 |
+
+### 本轮最重要的发现：降级状态机在压测中**从未有机会触发**
+
+`sweep.py` 记录了每档的**在途峰值**（`/admin/state` 的 `runtime.inflight`），六档分别是 **4 / 9 / 11 / 11 / 0 / 11**——而 L1 的触发条件是**在途 ≥ 40**。同时各档 `degradation` 全程 `L0`、失败**全部**是连接层 `HTTP 0`（无应用 5xx）。
+
+由此得到两条必须一起读的结论：
+1. **这份曲线刻画的是连接层、不是应用自身容量。** 连接在 200→300 之间先垮，其压力从未传递到应用的在途计数上。
+2. **"过载时降级而非拒绝"这条核心主张，在本机这一栈上没有机会生效**——不是它失效，而是本机栈先以另一种方式失败了。这与 README 里"500 并发同指纹 → LLM 仅 1 次"（风暴场景，全量去重、请求极快）并不矛盾，但**两者测的是不同的东西**，引用时不可混用。
+
+**未收敛**：连接层失败的具体成因未隔离（候选：本机 Windows 回环/TIME_WAIT 端口耗尽、Tomcat accept 队列）。要定论需 Linux 运行或调高 Tomcat 连接上限后复测。**在途阈值 40 未由 `/admin/state` 暴露**，故脚本不臆造它、改以"在途峰值"直接对照（早先把 `degradation.threshold`(=LLM 熔断失败阈值 3) 标成"inflight 阈值"是错的，已修正）。
+
+### 核色前置脚本（把"别在降级态上核色"变成机制）
+
+新增 `scripts/check_upstream.py` + `offline/tests/test_check_upstream.py`（9 例，假 opener 注入不触网）。三路（LLM / embedding / rerank）全通过才 exit 0；任一路被拒即非 0 退出并**点名到 `code=Arrearage` 这类具体 code**，而不是只报"HTTP 400"。已写进 `OPS.md` §11 作为核色第一步，并在 `README` 脚本一览登记。**为什么必须机制化**：降级会静默掩盖上游故障（embedding 断→检索退 `es_only`；LLM 断→熔断直出 SOP，两者 HTTP 均 200，只有 `mode` 字段才看得出），人眼不会注意到。**变异验证**：`all_ok` 放水成 `any(...)` → 2 例红。
+
+### 本轮修掉的自身缺陷（3 处，均已加锁）
+
+| # | 缺陷 | 后果 | 修法与锁 |
+|---|---|---|---|
+| 1 | `cache_savings` 的冷 query 用的是**无错误码的泛化问句** | 5 条冷 query 全被置信度门控拒掉（实测 `low_confidence_refusals=5`、`llm_calls=0`），于是"单请求平均节省 528ms"是拿**拒答**当基线算的——拒答本身很便宜，该数字显著低估真实节省 | 冷 query 改用含**精确错误码**的问句（快路径命中 → 豁免门控 → 真调 LLM）；并把 `low_confidence_refusals` 纳入交叉核对，使"未命中组是不是真生成"**可被读者自行验证**。重跑后 `llm_calls=4`、refusals=0、节省 693ms |
+| 2 | `sweep.py` 用固定 `-r 10` + 30s | **并发上限 = ramp × 时长 = 300**，于是"u=500"那档实际只跑到 **290**，报告标签与事实不符（且首跑因此拿到的"u=500 零失败"是假象） | 改为按 `档位 / --ramp-seconds` 自适应 ramp；并逐档记录**实到并发**（读 `_stats_history.csv` 的 User Count），未达标打 ⚠️。**变异**：去掉自适应 → 测试红 |
+| 3 | `sweep.py` 用 `subprocess.run(check=True)` | locust 默认在有**任何失败**时以 1 退出，而本脚本测的就是失败率——首跑把"u=200 出现连接层失败"当致命错，**整个 sweep 崩在那档、连拐点数据一起丢掉** | 加 `--exit-code-on-error 0` + `check=False`，改为"stats.csv 不存在才报错"（真崩仍能定位）。**变异**：去掉该 flag → 测试红 |
+
+### 门禁终态
+
+`pytest` **123 → 139 全绿**（本轮 +16：`test_check_upstream.py` 新增 9 例、`test_sweep.py` 由 5 例增至 12 例）｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致 ｜ Java 未改动（150）。
