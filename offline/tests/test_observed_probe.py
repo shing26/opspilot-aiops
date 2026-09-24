@@ -88,7 +88,7 @@ def test_collect_queries_dedupes_and_prefers_latest(tmp_path):
         {"ev": "chat", "q": "旧问题", "source": "manual"},       # 重复：跳过
         {"ev": "chat", "q": "   ", "source": "manual"},          # 空白：跳过
     ])
-    got = op.collect_queries(log, None, max_n=10)
+    got = op.collect_queries([log], max_n=10)
     assert [g["query"] for g in got] == ["旧问题", "新问题"], "从最新往回取且去重"
     assert {g["source"] for g in got} == {"manual", "alert"}
 
@@ -96,18 +96,85 @@ def test_collect_queries_dedupes_and_prefers_latest(tmp_path):
 def test_collect_queries_respects_max(tmp_path):
     log = _write_audit(tmp_path / "audit.jsonl",
                        [{"ev": "chat", "q": f"q{i}", "source": "manual"} for i in range(10)])
-    assert len(op.collect_queries(log, None, max_n=3)) == 3
+    assert len(op.collect_queries([log], max_n=3)) == 3
+
+
+def test_collect_queries_spans_multiple_audit_shards(tmp_path):
+    """**关键**：logback 按天滚动，当前那份只含今天——只读当前文件会让样本在每次滚动后
+    凭空缩小，最后缩成"本轮自己跑的测试 query"（自指）。故必须能跨分片取样本。
+
+    这里模拟：分片一（旧）有 2 条，分片二（新）有 1 条，按给定顺序（新在前）扫描。
+    """
+    old = _write_audit(tmp_path / "audit.2026-09-17.jsonl",
+                       [{"ev": "chat", "q": "旧A", "source": "alert"}])
+    new = _write_audit(tmp_path / "audit.jsonl",
+                       [{"ev": "chat", "q": "新C", "source": "manual"}])
+    got = op.collect_queries([new, old], max_n=10)
+    assert [g["query"] for g in got] == ["新C", "旧A"], "新分片在前、跨分片续取"
+    assert {g["source"] for g in got} == {"manual", "alert"}
+
+
+def test_collect_queries_stops_at_max_across_shards(tmp_path):
+    a = _write_audit(tmp_path / "audit.a.jsonl", [{"ev": "chat", "q": f"a{i}", "source": "manual"} for i in range(5)])
+    b = _write_audit(tmp_path / "audit.b.jsonl", [{"ev": "chat", "q": f"b{i}", "source": "manual"} for i in range(5)])
+    got = op.collect_queries([a, b], max_n=3)
+    # 片内从最新往回取（末行最先），取够 max_n 即止、不继续扫后续分片
+    assert [g["query"] for g in got] == ["a4", "a3", "a2"]
+
+
+def test_audit_files_is_newest_first_and_excludes_non_jsonl(tmp_path, monkeypatch):
+    """分片枚举：只认 audit*.jsonl，且**新→旧**（当前文件在最前）。
+
+    为什么必须锁顺序：字典序把 `audit.2026-09-10` 排在 `audit.jsonl` **之前**，若照字典序升序扫描，
+    取样会从**最老**的分片开始——那些分片的语料早被 blue/green 重建换掉了（变异验证：
+    去掉 reverse → 本用例必红，且样本会悄悄退化成"最早那天的 query"）。
+    """
+    (tmp_path / "audit.2026-09-17.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "audit.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "audit.2026-09-17.jsonl.gz").write_text("", encoding="utf-8")
+    (tmp_path / "app.log").write_text("", encoding="utf-8")
+    monkeypatch.setattr(op, "LOGS", tmp_path)
+    assert [p.name for p in op.audit_files()] == ["audit.jsonl", "audit.2026-09-17.jsonl"]
+
+
+def test_collect_queries_records_contributing_shard(tmp_path):
+    """每条样本必须记下**来自分片**——报告要如实交代取样落在哪几片，
+    只列候选分片会让人误以为全都参与了取样（曾如此）。"""
+    p = _write_audit(tmp_path / "audit.2026-09-17.jsonl",
+                     [{"ev": "chat", "q": "来自十七号", "source": "manual"}])
+    got = op.collect_queries([p], max_n=10)
+    assert got[0]["shard"] == "audit.2026-09-17.jsonl"
+
+
+def test_prefer_source_puts_alerts_first(tmp_path):
+    """`--include-alerts` 的语义必须**真的起作用**：把 source=alert 的样本排到最前。
+
+    为什么单列一条：本脚本首版把该 flag 实现成"去读 alert-producer.jsonl"，而那份**没有 query
+    字段**——flag 看似存在、实际什么都没做（属"宣称了却不发挥作用"）。故这里锁住它真会改变取样。
+    变异验证：把 prefer_source 实现去掉（直接截断）→ 本用例必红。
+    """
+    p = _write_audit(tmp_path / "audit.jsonl", [
+        {"ev": "chat", "q": "人工1", "source": "manual"},
+        {"ev": "chat", "q": "告警1", "source": "alert"},
+        {"ev": "chat", "q": "人工2", "source": "manual"},
+    ])
+    # 不带偏好：片内从最新往回取 → 人工2, 告警1, 人工1
+    assert [q["query"] for q in op.collect_queries([p], max_n=3)] == ["人工2", "告警1", "人工1"]
+    # 带偏好：告警1 提到最前，其余保持原序
+    got = op.collect_queries([p], max_n=3, prefer_source="alert")
+    assert [q["query"] for q in got] == ["告警1", "人工2", "人工1"]
+    assert got[0]["source"] == "alert"
 
 
 def test_collect_queries_missing_log_returns_empty(tmp_path):
-    assert op.collect_queries(tmp_path / "nope.jsonl", None, max_n=10) == []
+    assert op.collect_queries([tmp_path / "nope.jsonl"], max_n=10) == []
 
 
 def test_collect_queries_tolerates_malformed_lines(tmp_path):
     """审计行可能被轮转截断——坏行跳过，不能让整轮探测失败。"""
     p = tmp_path / "audit.jsonl"
     p.write_text('{"ev":"chat","q":"好行","source":"manual"}\n{坏行\n', encoding="utf-8")
-    got = op.collect_queries(p, None, max_n=10)
+    got = op.collect_queries([p], max_n=10)
     assert [g["query"] for g in got] == ["好行"]
 
 

@@ -256,6 +256,8 @@ Docker Desktop 重启（升级/崩溃自恢复）会给本机留下两类**看�
 | TTFT P95 | < 3s | 待 live 补 | 同上；热点命中口径另见 `offline/load/reports/l1_hit_latency.md` |
 | 可用性 | ≥ 99.5% | 待 live 补 | 同上（失败请求数 / 总请求数） |
 
+**已有随附产物的 SLI**（核色时直接看产物，不靠记忆）：门控的误拒/漏拒率与阈值扫描 → `offline/eval/reports/gate_matrix.md`；真实输入上的零召回率与快路径命中率 → `offline/eval/reports/observed_probe.md`；热点命中延迟 → `offline/load/reports/l1_hit_latency.md`。表内"待 live 补"的几项属**生成面**指标，本机账户可用时按右侧命令补跑。
+
 **为什么是这几条**：每条各对应一条核心主张——检索得准、不越权、不编造、过载不拒服务、快。
 刻意**不承诺"平均延迟"**这类聚合量：聚合会把长尾藏起来，而排障场景的体验恰恰由长尾决定。
 

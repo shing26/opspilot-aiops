@@ -131,7 +131,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="逗号分隔的并发档位（默认 25,50,100,200,300,500）")
     ap.add_argument("--duration", default="30s", help="每档时长（默认 30s）")
     ap.add_argument("--rate", type=int, default=10, help="每秒启动用户数（默认 10）")
-    ap.add_argument("--user", default="sre-l3", help="主体（默认 sre-l3）")
+    ap.add_argument("--user", default=localapi.DEFAULT_EVAL_USER,
+                    help=f"主体（默认 {localapi.DEFAULT_EVAL_USER}）——必须是真实用户名，不是 load_tokens 的键名")
     a = ap.parse_args(argv)
     levels = [int(x) for x in a.levels.split(",")]
 
@@ -139,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     state = localapi.get_json("/api/v1/admin/state", token)
     backend = (state.get("metrics") or {}).get("backend") or {}
     inflight_threshold = ((state.get("runtime") or {}).get("degradation") or {}).get("threshold")
+    quota_limit = ((state.get("runtime") or {}).get("quota") or {}).get("limit")
 
     # 预热：冷启动会把 JIT/连接建立记成"低并发更慢"，污染曲线
     localapi.stream_chat({"query": "50012_DB_TIMEOUT 预热", "source": "manual", "service": "",
@@ -164,13 +166,18 @@ def main(argv: list[str] | None = None) -> int:
         "subject": a.user,
         "backend": backend,
         "inflight_threshold": inflight_threshold,
+        "quota_limit": quota_limit,
         "duration_per_level": a.duration,
         "points": points,
         "first_degraded_level": first_l1,
         "note": ("后端必须 live：曲线形状依赖真实 embedding/rerank 延迟，mock 是词法代理、曲线偏平。"
                  "降级档位取每档运行期间的**最高**档（轮询 1s，瞬时采样会漏脉冲）；manual_lock_seen=true "
                  "表示该档期间存在人工锁定，其档位不纯由负载导致。原始 locust 产物在 "
-                 "load/_sweep_raw/（不入库），本报告是唯一入库的汇总。"),
+                 "load/_sweep_raw/（不入库），本报告是唯一入库的汇总。"
+                 "**配额口径须一并读**：六档合计请求数远超默认配额（5000/天/主体），故本轮的网关是以"
+                 "抬高的 OPSPILOT_QUOTA_DAILY_LIMIT 启动的——本报告记录的 quota_limit 即当时真值；"
+                 "曲线测的是延迟/吞吐，不是配额护栏，配额耗尽后 locust 会把 429 记成失败使曲线失真，"
+                 "故抬高并披露。各档 failure_rate 即该档是否被 429 污染的判据。"),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
     (REPORTS / "concurrency_sweep.json").write_text(
@@ -186,7 +193,7 @@ def main(argv: list[str] | None = None) -> int:
         "# 并发-延迟曲线（拐点与首次降级档）",
         "",
         f"> 实测时间：{out['measured_at']} ｜ 主体 `{a.user}` ｜ 每档 {a.duration} ｜ "
-        f"inflight 降级阈值 {inflight_threshold}",
+        f"inflight 降级阈值 {inflight_threshold} ｜ 当日配额上限 {quota_limit}",
         f"> 后端：embedding={backend.get('embedding')} / rerank={backend.get('rerank')} / "
         f"llm={backend.get('llm')}",
         f"> **首次降级档**：{'未触发（六档全 L0）' if first_l1 is None else f'u={first_l1}'}",

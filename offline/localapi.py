@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import socket
 import time
 import urllib.error
@@ -16,12 +17,33 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
-BASE = "http://localhost:8081"
+
+def _resolve_base(env) -> str:
+    """解析服务基址。抽成纯函数是为了可单测——模块级常量无法在不 reload 的情况下验证。
+
+    为什么可配置（2026-09-24 补）：此前 BASE 硬编码 8081，而 `console_client` 早有
+    `OPSPILOT_BASE` 覆盖口，两者不对称。本机 8081 被无关进程占用时，所有基于 localapi 的
+    验收/评测脚本（acceptance_a2/a3、evaluate、四个 live 测量脚本、alert_producer…）都**无法**
+    改指到别的端口，整条 live 验证链就此卡死。补上覆盖口后，端口冲突不再等于验证不可做。
+
+    安全性不受影响：覆盖口只改**默认值**，`assert_local` 仍是唯一执行点（逐请求校验 scheme、
+    环回白名单、解析后 IP、拒 userinfo）。把 base 指到非环回地址一样会被拒。
+    """
+    return str(env.get("OPSPILOT_BASE", "http://localhost:8081")).rstrip("/")
+
+
+BASE = _resolve_base(os.environ)
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _TOKENS = Path(__file__).resolve().parent.parent / "scripts" / "redteam_tokens.txt"
 
 # 合法账号名 → 登录用户名（P2 起口令登录，token 不再落盘）。口令只从 DEMO_PASSWORD 环境变量读。
 ACCOUNTS = {"sre_l1": "sre-limited", "sre_l3": "sre-full", "sre_acme": "sre-acme"}
+
+# 验收/评测脚本 `--user` 的默认主体（单一事实源）。
+# 为什么要有这个常量：`ACCOUNTS` 的**键**（sre_l3）是内部别名，不是真实用户名——曾有两个脚本
+# 直接把键当成用户名传进 login()，跑起来必然 401 并触发登录失败锁定（真实用户名是 sre-full）。
+# 由 test_localapi.py 现算 seed_demo_users.sh 的播种集合来锁死它，防同类误用复发。
+DEFAULT_EVAL_USER = ACCOUNTS["sre_l3"]
 
 
 def assert_local(url: str) -> str:

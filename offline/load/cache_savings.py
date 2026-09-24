@@ -81,7 +81,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="缓存节省账实测")
     ap.add_argument("--hot", type=int, default=20, help="热 query 回放次数（默认 20）")
     ap.add_argument("--cold", type=int, default=5, help="冷 query 次数（默认 5；每条真调 LLM）")
-    ap.add_argument("--user", default="sre-full", help="主体（默认 sre-full）")
+    ap.add_argument("--user", default=localapi.DEFAULT_EVAL_USER,
+                    help=f"主体（默认 {localapi.DEFAULT_EVAL_USER}）——必须是真实用户名，不是 load_tokens 的键名")
     a = ap.parse_args(argv)
 
     token = localapi.login(a.user)

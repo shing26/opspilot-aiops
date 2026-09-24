@@ -5,7 +5,8 @@
 为什么需要它：语料、query、评测集全部由本项目自己生成——`build_golden.py` 的注释自陈语义查询
 "与语料主题词重叠，mock 词法向量可召回"。这是循环论证风险：64%/88% 是在**合成输入**上测的，
 而系统至今没接触过它无法预测的输入。本脚本把"真实输入"这一面变成可测量的：从运行史
-（`logs/audit.jsonl` 的真实 query + 自举告警生产者发的告警 query）取样本，测三件**不需要
+（`logs/audit*.jsonl` **全部分片**里的真实 query + 自举告警生产者发的告警 query）取样本，
+测三件**不需要
 ground truth** 的事：
 
   1. **零召回率**——检索一条都没召回的比例（无需真值，只看 `results` 是否为空）；
@@ -22,7 +23,7 @@ ground truth** 的事：
 - **报告只入聚合**：`reports/observed_probe.{json,md}` 只有计数与比率，**绝不含 query 文本**。
 - **与合成集分开统计**：本报告的数字**不得**并入 README 的 64%/88%——那是合成集的数，两者口径不同。
 
-用法（离线目录，需活体栈 + `.env` + 本机 `logs/audit.jsonl`）:
+用法（离线目录，需活体栈 + `.env` + 本机 `logs/` 运行史）:
   python eval/observed_probe.py
   python eval/observed_probe.py --max 200 --include-alerts
 """
@@ -43,46 +44,60 @@ import grounding  # noqa: E402   # 错误码词法单一事实源
 EVAL = Path(__file__).resolve().parent
 REPORTS = EVAL / "reports"
 REPO = EVAL.parent.parent
-AUDIT_LOG = REPO / "logs" / "audit.jsonl"
-ALERT_LOG = REPO / "logs" / "alert-producer.jsonl"
+LOGS = REPO / "logs"
 DEFAULT_MIN_RELEVANCE = 0.2   # 与 application.yml 的 MIN_RELEVANCE 默认值同源
 
 
-def collect_queries(audit_path: Path, alert_path: Path | None, max_n: int) -> list[dict]:
-    """从运行史取去重后的真实 query。返回 [{query, source}]——**只在本机内存里流转，不落盘**。"""
+def audit_files() -> list[Path]:
+    """按**新→旧**返回运行史的所有审计分片（`logs/audit*.jsonl`）。
+
+    为什么是 glob 而不是单个 `audit.jsonl`：logback 按天滚动（maxHistory=14），**当前那份只含今天**。
+    只读当前文件会让样本在每次滚动后凭空缩小——而且缩到"今天"，读到的就全是本轮自己跑的测试
+    query，正是本脚本要避免的自指。运行史的价值在历史分片里。
+
+    为什么 reverse：名字含日期，字典序即时间序；而当前文件 `audit.jsonl` 字典序**大于**任何
+    `audit.<日期>.jsonl`，故降序排列正好把当前文件排在最前。取样本要**从最近往回**取——
+    近期 query 才反映当前语料状态（早期分片的语料早已被 blue/green 重建换掉）。
+    """
+    return sorted((p for p in LOGS.glob("audit*.jsonl") if p.is_file()),
+                  key=lambda p: p.name, reverse=True)
+
+
+def collect_queries(audit_paths: list[Path], max_n: int,
+                    prefer_source: str | None = None) -> list[dict]:
+    """从运行史取去重后的真实 query。返回 [{query, source, shard}]——**只在本机内存里流转，不落盘**。
+
+    audit_paths 按给定顺序（新的在前）扫描；每条查询记下来源分片，以便报告如实交代**取样实际
+    落在哪些分片**（只列候选分片会让人误以为全都参与了取样——曾如此）。
+
+    `prefer_source`：把该来源的样本排到最前（各组内部保持"新→旧"）。用于 `--include-alerts`
+    ——自举告警的 query 本来就在审计流里（`source=alert`），故"纳入告警样本"的正确做法是在审计行里
+    优先取它们，而**不是**去读 `alert-producer.jsonl`（那份记的是告警元数据，**没有 query 字段**，
+    读了等于什么也没做——本脚本首版就是那样，属"宣称了却不起作用的机制"）。
+    """
     seen: set[str] = set()
-    out: list[dict] = []
-    if not audit_path.exists():
-        return out
-    lines = audit_path.read_text(encoding="utf-8", errors="replace").splitlines()
-    for line in reversed(lines):                      # 从最新往回取
-        if len(out) >= max_n:
-            break
-        try:
-            ev = json.loads(line)
-        except ValueError:
+    rows: list[dict] = []
+    for audit_path in audit_paths:
+        if not audit_path.exists():
             continue
-        if ev.get("ev") != "chat":
-            continue
-        q = (ev.get("q") or "").strip()
-        if not q or q in seen:
-            continue
-        seen.add(q)
-        out.append({"query": q, "source": ev.get("source") or "manual"})
-    if alert_path and alert_path.exists():
-        for line in reversed(alert_path.read_text(encoding="utf-8", errors="replace").splitlines()):
-            if len(out) >= max_n:
-                break
+        lines = audit_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line in reversed(lines):                  # 片内从最新往回取
             try:
                 ev = json.loads(line)
             except ValueError:
                 continue
-            q = (ev.get("query") or ev.get("q") or "").strip()
+            if ev.get("ev") != "chat":
+                continue
+            q = (ev.get("q") or "").strip()
             if not q or q in seen:
                 continue
             seen.add(q)
-            out.append({"query": q, "source": "alert"})
-    return out
+            rows.append({"query": q, "source": ev.get("source") or "manual",
+                         "shard": audit_path.name})
+    if prefer_source:
+        pick = [r for r in rows if r["source"] == prefer_source]
+        rows = pick + [r for r in rows if r["source"] != prefer_source]
+    return rows[:max_n]
 
 
 def summarize(rows: list[dict], threshold: float = DEFAULT_MIN_RELEVANCE) -> dict:
@@ -124,14 +139,20 @@ def _probe(query: str, token: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="真实输入探测（无真值口径）")
     ap.add_argument("--max", type=int, default=100, help="最多取多少条真实 query（默认 100）")
-    ap.add_argument("--include-alerts", action="store_true", help="并入自举告警生产者的 query")
+    ap.add_argument("--include-alerts", action="store_true",
+                    help="优先取自举告警（source=alert）的样本，再补人工 query"
+                         "（告警 query 本就在审计流里；alert-producer.jsonl 无 query 字段，不读它）")
     ap.add_argument("--threshold", type=float, default=DEFAULT_MIN_RELEVANCE, help="门控阈值（默认 0.2）")
-    ap.add_argument("--user", default="sre-l3", help="主体（默认 sre-l3）")
+    ap.add_argument("--user", default=localapi.DEFAULT_EVAL_USER,
+                    help=f"主体（默认 {localapi.DEFAULT_EVAL_USER}）——必须是真实用户名，不是 load_tokens 的键名")
+    ap.add_argument("--audit-log", default=None,
+                    help="逗号分隔的审计分片路径（默认自动取 logs/audit*.jsonl 全部，按名排序）")
     a = ap.parse_args(argv)
 
-    queries = collect_queries(AUDIT_LOG, ALERT_LOG if a.include_alerts else None, a.max)
+    paths = ([Path(p) for p in a.audit_log.split(",")] if a.audit_log else audit_files())
+    queries = collect_queries(paths, a.max, prefer_source="alert" if a.include_alerts else None)
     if not queries:
-        print(f"运行史里没有可用的真实 query（{AUDIT_LOG} 不存在或为空）——"
+        print(f"运行史里没有可用的真实 query（已扫 {[p.name for p in paths] or '（无分片）'}）——"
               f"先让系统跑一段（含自举告警源），再来测。", file=sys.stderr)
         return 2
 
@@ -142,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
     out = {
         "measured_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "subject": a.user,
-        "source_log": str(AUDIT_LOG.relative_to(REPO)),
+        "candidate_shards": [p.name for p in paths],
+        "contributing_shards": sorted({q["shard"] for q in queries}),
         "includes_alert_producer": bool(a.include_alerts),
         "source_breakdown": {s: sum(1 for q in queries if q["source"] == s)
                              for s in sorted({q["source"] for q in queries})},
@@ -162,8 +184,10 @@ def main(argv: list[str] | None = None) -> int:
     md = [
         "# 真实输入探测（无真值口径，与合成集分开）",
         "",
-        f"> 实测时间：{out['measured_at']} ｜ 主体 `{a.user}` ｜ 来源 `{out['source_log']}`"
+        f"> 实测时间：{out['measured_at']} ｜ 主体 `{a.user}`"
         f"{' + 自举告警' if a.include_alerts else ''}",
+        f"> 取样**实际落在**：{out['contributing_shards']}"
+        f"（候选分片 {len(out['candidate_shards'])} 片；按新→旧扫描，取够即止）",
         f"> 来源构成：{out['source_breakdown']} ｜ 门控阈值 {agg['threshold']}",
         "",
         "| 指标 | 值 | 说明 |",
@@ -177,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         out["note"],
         "",
         "复现：`cd offline && python eval/observed_probe.py --include-alerts`"
-        "（需活体栈 + `.env` + 本机 `logs/audit.jsonl`；/search 不调 LLM，零 token 成本）。",
+        "（需活体栈 + `.env` + 本机 `logs/` 运行史；/search 不调 LLM，零 token 成本且配额豁免）。",
     ]
     (REPORTS / "observed_probe.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     print(f"OK 样本 {agg['samples']} 零召回率={r(agg['zero_recall_rate'])} "

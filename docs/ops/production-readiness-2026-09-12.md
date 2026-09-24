@@ -32,7 +32,7 @@
 | 防幻觉事后环（答案接地 V9） | **已建**（2026-09-24）；**live 数字待补** | `offline/grounding.py`（纯函数）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）；OPS §5.1 已登记其覆盖边界 |
 | 降级代价语义 | **已登记**（2026-09-24） | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)：L1 = 质量降（88%→64%）+ **门控降**（相关性级→零召回级）；同构回归锁 `ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`；重开触发线入 OPS §5 |
 | 分段耗时（审计行 `stage_ms`） | **已建**（2026-09-24） | `retrieval/LegTimings` + `metrics/StageTimings`（八段）；非 chat 路径传 null → 不落字段（"没测"≠"测得为 0"） |
-| 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **脚本已建**（2026-09-24）；**live 数字待补** | `offline/eval/gate_matrix.py`、`offline/load/sweep.py`、`offline/load/cache_savings.py`、`offline/eval/observed_probe.py`。**待补原因**：本机 8081 被非 OpsPilot 进程占用，且 `localapi.BASE` 硬编码 8081 无 env 覆盖口 |
+| 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **两项已出数、两项待补**（2026-09-24 补跑） | **已出数**：`offline/eval/reports/gate_matrix.{json,md}`、`offline/eval/reports/observed_probe.{json,md}`——两项都只走 `/search`（不触 LLM），故不受下述账户问题影响。**待补**：`concurrency_sweep`、`cache_savings`（+ 探针 V9 的 live 断言）——**原因已实证并定位到环境**：DashScope 账户欠费，`qwen-plus` 直连返回 HTTP 400 `code=Arrearage`；embedding 与 rerank 仍可用，故检索面正常、生成面全断。触发即停，未伪造数字 |
 | 答案反馈入口（人机协同） | **已建**（2026-09-24） | `POST /api/v1/copilot/feedback` → 审计 `ev="feedback"`（按 fingerprint 归档、不占配额）；是"复盘→知识回灌"的前置入口 |
 
 **逐轮修复流水**（细节见横线以下各节）：2026-09-12 五维评估 + H1/H2/H3/M1/M2 → 09-18 证据链 O1/O2 →
@@ -244,3 +244,57 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 **待补**：四份 live 报告（gate_matrix / concurrency_sweep / cache_savings / observed_probe）与探针 V9 的 live 断言。原因：本机 8081 被非 OpsPilot 的 python 进程占用，而 `localapi.BASE` 硬编码 8081、无 env 覆盖口。脚本与纯函数单测已全部落地并过门禁，**未伪造任何数字**。
 
 **门禁终态**：`mvn test` **150 全绿** ｜ `pytest` **112 全绿**（本轮 +23）｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致。本轮**未触碰面板契约面**（未新增计数器），契约复跑绿即证明未误伤。
+
+## 修补记录（2026-09-24 续：补跑 live 报告——两项出数、两项被上游账户阻断）
+
+**目标**：把上一节登记的"四份 live 报告待补"真跑出来。**结果：2 份拿到真数字，2 份被上游账户问题阻断（未伪造）**。
+
+### 起栈（宿主裸进程，避开 8081 冲突）
+
+本机 8081 被一个与本项目无关的 python 进程占用，且 `offline/localapi.py` 的 `BASE` 当时**硬编码** 8081——即仓内已登记的那处不对称（`console_client` 早有 `OPSPILOT_BASE`，`localapi` 没有），它使"端口被占"直接等于"整条 live 验证链不可做"。本轮按 grill 裁定**加覆盖口而不动那个未知进程**：
+
+| 步骤 | 做法 | 实测结果 |
+|---|---|---|
+| 加环境覆盖口 | `localapi._resolve_base(env)` 纯函数 + `BASE = _resolve_base(os.environ)`；**`assert_local` 一行未动**（仍是唯一执行点：scheme/环回白名单/解析后 IP/拒 userinfo，故覆盖口不削弱 SSRF 防线） | `OPSPILOT_BASE=http://localhost:8099` 实测生效；非法主机仍被拒（有测试锁） |
+| 端口 | `SERVER_PORT=8099`（8099 空闲） | 启动日志 `quota=100000/day`，`/actuator/health` 200 |
+| 依赖 | 宿主侧 ES 401 @83ms ⇒ Docker 端口代理**健康**，无需 `OPS.md` §10 的 restart 顺序 | redis `reachable` / qdrant 423 pts / es 423 docs，全 UP |
+| 账号库 | `.env` **无** `H2_DB_PASSWORD`（`application.yml` 默认空）——曾担心打不开 | `user_admin.sh list` 正常：4 账号齐、enabled、库完好，无需密码 |
+| 配额 | 六档合计约 2 万请求 > 默认 5000/天 ⇒ `OPSPILOT_QUOTA_DAILY_LIMIT=100000` 启动，并要求 `sweep.py` 把当时配额值写进报告 | `sweep.py` 已加 `quota_limit` 字段与口径注 |
+| 索引 | 未带 `--opspilot.ingest` | ES `opspilot-chunks-20260916205334` 423 docs；Qdrant `opspilot-vectors-20260916205334` 存在 |
+
+### 已出数的两份（都只走 `/search`，不触 LLM）
+
+| 报告 | 关键数字 | 解读 |
+|---|---|---|
+| `offline/eval/reports/gate_matrix.{json,md}` | 阈值 0.1/0.2/0.3/0.4 下：误拒率 **0.0% / 6.8% / 16.9% / 23.7%**；漏拒率 **58.3% / 8.3% / 0.0% / 0.0%**；各档零召回误拒均为 **0** | **当前阈值 0.2 正好在拐点上**：从 0.1 抬到 0.2，漏拒率从 58.3% 骤降到 8.3% 而误拒率只到 6.8%；再抬到 0.3 只多换来 8.3% 的漏拒改善，代价是误拒率翻 2.5 倍。零召回误拒恒为 0 说明那 4 条误拒是**真的低相关 golden query**，不是检索失败 |
+| `offline/eval/reports/observed_probe.{json,md}` | 真实 query 100 条（95 人工 + 5 自举告警）：零召回率 **0.0%**、快路径命中率 **95.7%**（45/47）、门控拒答率 **20.0%** | 真实输入上检索从不空手而归；含精确错误码的真实 query 里 95.7% 走通快路径（即"压 TTFT"的设计在真实流量上确实生效）。门控拒答率 20% 高于 golden 集的误拒率 6.8%，但两者口径不同（真实样本含无真值的噪声 query，**不能**读成"误拒 20%"） |
+
+**口径提示**：`observed_probe` 的数字**不得并入** README 的 64%/88%——那是合成集，这是真实输入，两者不同源。
+
+### 两项被阻断（附实证，非推断）
+
+| 报告 | 状态 | 阻断原因（实证） |
+|---|---|---|
+| `concurrency_sweep`（六档并发曲线） | **未出数** | 见下"上游账户" |
+| `cache_savings`（缓存节省账） | **未出数**（首跑产物已**丢弃**） | 首跑得到 `命中率 0.0% / 全 26 条 cache_hit=none @ ~106ms`，看似"缓存无效"。查计数发现真相：`dedup_aggregated=20`、`sop_fallbacks=26`——26 条全部走了 **L2 SOP 兜底**（不写 L1，设计如此），故那个 0% 是**降级兜底的产物、不是缓存的性质**。该报告已删除，未入库 |
+| 探针 V9 live 断言 | **未跑** | V9 复用 V2/V4 的生成答案，而生成面全断 ⇒ 会得到"无可用答案素材"的 FAIL，属误导性记录，故不跑 |
+
+**上游账户问题的实证链**（不是猜的）：① 网关日志 `stream error: LlmHttpException: LLM HTTP 400` ×3 → 连续失败达阈 3 → 熔断 L2 60s（`sop_fallbacks=26`）；② 直接对 DashScope 打一发最小 chat 请求，返回 `{"error":{"message":"Access denied, please make sure your account is in good standing...","code":"Arrearage"}}`——**账户欠费**；③ 而 embedding/rerank 仍可用：同一时段 384 条 `/search` 审计行里 **383 条 mode=hybrid**（仅 1 条 degraded），故**检索面健康、生成面全断**。这与 2026-09-13 那次是同一环境问题。
+
+**结论**：机器、栈、端口、配额、账号库、索引全部就绪且已验证；**唯一卡点是 DashScope 账户欠费**。充值后两条命令即可补齐：`python load/sweep.py`、`python load/cache_savings.py`（外加 `qa_gen_quality_probes.py V2 V4 V9`）。
+
+### 途中修掉的本轮自身缺陷（5 处，均已加锁）
+
+| # | 缺陷 | 后果 | 修法与锁 |
+|---|---|---|---|
+| 1 | `observed_probe.py` / `sweep.py` 的 `--user` 默认值是 `sre-l3` | `sre-l3` 只是 `load_tokens` 的**键名**，不是真实用户名（真名 `sre-full`）⇒ 照默认跑必然 401，且 5 次失败会**锁住账号 15 分钟** | 引入单一常量 `localapi.DEFAULT_EVAL_USER`，四个测量脚本统一引用；测试**现算 `seed_demo_users.sh` 的播种集合**断言常量在其中，另加 AST 锁禁止硬编码字面量。**变异**：还原成 `sre-l3` → 2 例红；某脚本写回字面量 → AST 锁红 |
+| 2 | 两处 docstring 称"每次 `/search` 消耗 1 次当日配额" | 实际 `/search` **配额豁免**（配额只挂 `/chat/stream` 与 `/v1/chat/completions`）——宣称失实 | 改为"零 token 成本且配额豁免" |
+| 3 | `observed_probe` 只读 `logs/audit.jsonl` | logback **按天滚动**，当前那份只含今天 ⇒ 每次滚动后样本凭空缩小，最后缩成"本轮自己跑的测试 query"（自指） | 改为扫全部分片；**变异**：去掉逆序 → 顺序测试红 |
+| 4 | 分片扫描是**字典序升序**（最老在前） | `audit.2026-09-10` 字典序小于 `audit.jsonl`，故从**最老**分片取样——那些分片的语料早被 blue/green 换掉。首跑因此拿的是 09-10 时代的 query（快路径命中率 83.6%），改后为 95.7%，**数字确实变了** | 改逆序（新→旧，当前文件在最前） |
+| 5 | 报告只列**候选**分片 | 会让人以为 8 片全都参与了取样 | 每条样本记 `shard`，报告改列**实际贡献**分片（本轮落在 09-11～09-17 五片） |
+
+另有一处**非本轮引入**但造成实质卡点的：`--include-alerts` 去读 `logs/alert-producer.jsonl`，而那份记的是告警元数据、**没有 query 字段**⇒ 该 flag 空转（"宣称了却不生效"）。已改为在审计流里优先取 `source=alert` 的样本（告警 query 本就在审计里，09-17 分片有 513 条），并加测试锁"该 flag 确实会改变取样"。**变异**：把 flag 变成空转 → 测试红。
+
+### 门禁终态
+
+`pytest` **123 全绿**（本轮 112 → 123，+11：`test_localapi.py` 6 例 + `test_observed_probe.py` 增 5 例）｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致 ｜ Java 未改动（150 全绿不变）。本轮新增两条 live 报告入库，另加两处代码修复与五处自身缺陷修复。

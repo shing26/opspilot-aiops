@@ -1,0 +1,60 @@
+{
+  "measured_at": "2026-09-24T16:07:35+08:00",
+  "subject": "sre-full",
+  "mode": "hybrid",
+  "samples": {
+    "answer_expected": 59,
+    "refuse_expected": 24
+  },
+  "matrix": [
+    {
+      "threshold": 0.1,
+      "correct_refusals": 10,
+      "missed_refusals": 14,
+      "false_refusals": 0,
+      "correct_answers": 59,
+      "missed_refusal_rate": 0.5833333333333334,
+      "false_refusal_rate": 0.0,
+      "zero_recall_among_false_refusals": 0,
+      "n_refuse_samples": 24,
+      "n_answer_samples": 59
+    },
+    {
+      "threshold": 0.2,
+      "correct_refusals": 22,
+      "missed_refusals": 2,
+      "false_refusals": 4,
+      "correct_answers": 55,
+      "missed_refusal_rate": 0.08333333333333333,
+      "false_refusal_rate": 0.06779661016949153,
+      "zero_recall_among_false_refusals": 0,
+      "n_refuse_samples": 24,
+      "n_answer_samples": 59
+    },
+    {
+      "threshold": 0.3,
+      "correct_refusals": 24,
+      "missed_refusals": 0,
+      "false_refusals": 10,
+      "correct_answers": 49,
+      "missed_refusal_rate": 0.0,
+      "false_refusal_rate": 0.1694915254237288,
+      "zero_recall_among_false_refusals": 0,
+      "n_refuse_samples": 24,
+      "n_answer_samples": 59
+    },
+    {
+      "threshold": 0.4,
+      "correct_refusals": 24,
+      "missed_refusals": 0,
+      "false_refusals": 14,
+      "correct_answers": 45,
+      "missed_refusal_rate": 0.0,
+      "false_refusal_rate": 0.23728813559322035,
+      "zero_recall_among_false_refusals": 0,
+      "n_refuse_samples": 24,
+      "n_answer_samples": 59
+    }
+  ],
+  "note": "门控判据 = chunks.isEmpty() || (!fastPath && topRelevance < minRel)，与 ChatOrchestrator 同构；走 /search 故不含 L1/L2 缓存（排除'缓存回放绕过门控'的混淆）。误拒伤可用性、漏拒伤可信度，两者方向相反，须一起看。zero_recall_among_false_refusals 单列：零召回导致的误拒属检索问题，不是阈值标定问题。"
+}

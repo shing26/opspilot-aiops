@@ -1,0 +1,37 @@
+{
+  "measured_at": "2026-09-24T16:22:26+08:00",
+  "subject": "sre-full",
+  "candidate_shards": [
+    "audit.jsonl",
+    "audit.2026-09-17.jsonl",
+    "audit.2026-09-16.jsonl",
+    "audit.2026-09-14.jsonl",
+    "audit.2026-09-13.jsonl",
+    "audit.2026-09-12.jsonl",
+    "audit.2026-09-11.jsonl",
+    "audit.2026-09-10.jsonl"
+  ],
+  "contributing_shards": [
+    "audit.2026-09-11.jsonl",
+    "audit.2026-09-12.jsonl",
+    "audit.2026-09-13.jsonl",
+    "audit.2026-09-16.jsonl",
+    "audit.2026-09-17.jsonl"
+  ],
+  "includes_alert_producer": true,
+  "source_breakdown": {
+    "alert": 5,
+    "manual": 95
+  },
+  "aggregate": {
+    "samples": 100,
+    "zero_recall": 0,
+    "zero_recall_rate": 0.0,
+    "with_code": 47,
+    "fast_path_hits": 45,
+    "fast_path_hit_rate": 0.9574468085106383,
+    "gate_refusal_rate": 0.2,
+    "threshold": 0.2
+  },
+  "note": "**无真值口径**：真实 query 派生不出期望 chunk_id（合成集的真值是从语料派生的），故本报告只报无需真值即可测的三项（零召回率 / 快路径命中率 / 门控拒答率），**不冒充**召回质量。**不得并入** README 的 64%/88%——那是合成集的数，口径不同。query 集不入库（logs/ 含查询内容与租户标识）；本报告只含聚合计数。"
+}

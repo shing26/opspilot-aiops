@@ -319,8 +319,8 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 - [CONTEXT.md](CONTEXT.md) — 领域术语表
 - [docs/adr/](docs/adr/) — 12 项架构决策记录（每份含否决项与后果）
 - [docs/qa/](docs/qa/) — 红队缺陷台账（三 Persona 测评 / 模块独立+集成验证 / 自举告警闭环验收）
-- [offline/eval/reports/](offline/eval/reports/) — 评测报告
-- [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML
+- [offline/eval/reports/](offline/eval/reports/) — 评测报告（`eval_report`、门控混淆矩阵 `gate_matrix`、真实输入探测 `observed_probe`）
+- [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML、L1 回放延迟 `l1_hit_latency`
 
 ## 目录与文档地图
 

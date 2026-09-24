@@ -25,7 +25,8 @@
 `fast_path` 命中会豁免门控，故含真实错误码的精确 query 天然不参与相关性门控——矩阵里会体现为
 "应作答且作答"，那不是门控的功劳，是快路径的。
 
-用法（离线目录，需活体栈 + `.env`；/search 不调 LLM，零 token 成本，但每次消耗 1 次当日配额）:
+用法（离线目录，需活体栈 + `.env`；/search 不调 LLM，故**零 token 成本且配额豁免**——
+配额只挂 /chat/stream 与 /v1/chat/completions，检索面是评测路径）:
   python eval/gate_matrix.py
   python eval/gate_matrix.py --thresholds 0.1,0.2,0.3,0.4,0.5
 """
@@ -118,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="门控混淆矩阵 + 阈值扫描")
     ap.add_argument("--thresholds", default=",".join(str(t) for t in DEFAULT_THRESHOLDS),
                     help="逗号分隔的阈值列表（默认 0.1,0.2,0.3,0.4）")
-    ap.add_argument("--user", default="sre-full", help="主体（默认 sre-full）")
+    ap.add_argument("--user", default=localapi.DEFAULT_EVAL_USER,
+                    help=f"主体（默认 {localapi.DEFAULT_EVAL_USER}）——必须是真实用户名，不是 load_tokens 的键名")
     a = ap.parse_args(argv)
     thresholds = [float(x) for x in a.thresholds.split(",")]
 
@@ -164,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
                   f"{m['zero_recall_among_false_refusals']} |")
     md += ["", out["note"], "",
            "复现：`cd offline && python eval/gate_matrix.py`（需活体栈 + `.env`；/search 不调 LLM，"
-           "零 token 成本，但每次消耗 1 次当日配额）。"]
+           "故零 token 成本且**配额豁免**——配额只挂 /chat/stream 与 /v1/chat/completions）。"]
     (REPORTS / "gate_matrix.md").write_text("\n".join(md) + "\n", encoding="utf-8")
     cur = next((m for m in matrix if abs(m["threshold"] - 0.2) < 1e-9), None)
     if cur:
