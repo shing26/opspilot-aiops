@@ -210,9 +210,11 @@ def main(argv: list[str] | None = None) -> int:
     token = localapi.login(a.user)
     state = localapi.get_json("/api/v1/admin/state", token)
     backend = (state.get("metrics") or {}).get("backend") or {}
-    # 注意口径：/state 的 runtime.degradation.threshold 是 **LLM 熔断失败阈值**（并非 inflight 阈值）。
-    # inflight 阈值（默认 40）**未由 /state 暴露**，故本脚本不臆造它——改采"在途峰值"直接对照。
-    llm_failure_threshold = ((state.get("runtime") or {}).get("degradation") or {}).get("threshold")
+    # 两个阈值现在都由 /state 按名暴露（曾只有一个笼统的 "threshold"，导致外部把它误标成
+    # inflight 阈值——本脚本就踩过，故改为按名取值、并双双写进报告）。
+    _deg = ((state.get("runtime") or {}).get("degradation") or {})
+    llm_failure_threshold = _deg.get("llm_failure_threshold")
+    inflight_threshold = _deg.get("inflight_threshold")
     quota_limit = ((state.get("runtime") or {}).get("quota") or {}).get("limit")
 
     # 预热：冷启动会把 JIT/连接建立记成"低并发更慢"，污染曲线
@@ -246,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         "subject": a.user,
         "backend": backend,
         "llm_failure_threshold": llm_failure_threshold,
+        "inflight_threshold": inflight_threshold,
         "quota_limit": quota_limit,
         "ramp_seconds": a.ramp_seconds,
         "duration_per_level": a.duration,
@@ -279,11 +282,14 @@ def main(argv: list[str] | None = None) -> int:
         "# 并发-延迟曲线（拐点与首次降级档）",
         "",
         f"> 实测时间：{out['measured_at']} ｜ 主体 `{a.user}` ｜ 每档 {a.duration}（ramp {a.ramp_seconds}s） ｜ "
-        f"LLM 熔断失败阈值 {llm_failure_threshold}（inflight 阈值未由 /state 暴露，故以在途峰值对照） ｜ "
+        f"在途降级阈值 {inflight_threshold}（L1 触发线） ｜ LLM 熔断失败阈值 {llm_failure_threshold}（L2 触发） ｜ "
         f"当日配额上限 {quota_limit}",
         f"> 后端：embedding={backend.get('embedding')} / rerank={backend.get('rerank')} / "
         f"llm={backend.get('llm')}",
-        f"> **首次降级档**：{'未触发（各档全程 L0）' if first_l1 is None else f'u={first_l1}'}",
+        f"> **首次降级档**：{'未触发（各档全程 L0）' if first_l1 is None else f'u={first_l1}'}"
+        + (f"；各档在途峰值最高 {max((p.get('max_inflight') or 0) for p in points)}，"
+           f"对照 L1 触发线 {inflight_threshold}——**未触发的原因由此可读**"
+           if first_l1 is None and points else ""),
         "",
         "| 目标并发 | 实到并发 | 在途峰值 | RPS | P50 (ms) | P95 (ms) | P99 (ms) | 失败率 | 期间最高档 |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",

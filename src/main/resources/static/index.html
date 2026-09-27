@@ -174,7 +174,8 @@ function renderState(s) {
   const d = s.runtime.degradation;
   $('deg').innerHTML = ['L0', 'L1', 'L2'].map(l =>
     '<span class="lamp"><span class="dot ' + (d.level === l ? 'UP' : '') + '"></span>' + l + '</span>'
-  ).join('') + '<span class="lamp">熔断 K/' + d.threshold + ' = <b>' + d.failures + '</b></span>' +
+  ).join('') + '<span class="lamp">熔断 K/' + d.llm_failure_threshold + ' = <b>' + d.failures + '</b></span>' +
+    '<span class="lamp">在途 <b>' + s.runtime.inflight + '</b>/' + d.inflight_threshold + '</span>' +
     (d.cooldown_s > 0 ? '<span class="lamp">冷却 <b>' + d.cooldown_s + 's</b></span>' : '') +
     (d.manual ? '<span class="chip">MANUAL LOCK</span>' : '');
   const q = s.runtime.quota;

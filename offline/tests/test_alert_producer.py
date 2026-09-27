@@ -37,8 +37,9 @@ def _state(metrics=None, health=None, degradation=None, quota=None, inflight=0) 
     return {
         "metrics": metrics or {},
         "health": health or {c: {"status": "UP"} for c in ("redis", "qdrant", "es")},
-        "runtime": {"degradation": degradation or {"level": "L0", "failures": 0, "threshold": 3,
-                                                   "cooldown_s": 0},
+        "runtime": {"degradation": degradation or {"level": "L0", "failures": 0,
+                                                   "llm_failure_threshold": 3,
+                                                   "inflight_threshold": 40, "cooldown_s": 0},
                     "quota": quota or {"limit": 5000, "used": 0, "sub": "sre-watcher"},
                     "inflight": inflight},
     }
@@ -92,10 +93,10 @@ def test_dependency_down_is_per_component():
 
 def test_degrade_triggers_on_level_and_on_cooldown():
     quiet = {k: 0 for k in ap.METRIC_KEYS}
-    l1 = ap.detect(_state(degradation={"level": "L1", "failures": 1, "threshold": 3, "cooldown_s": 0}), quiet)
+    l1 = ap.detect(_state(degradation={"level": "L1", "failures": 1, "llm_failure_threshold": 3, "cooldown_s": 0}), quiet)
     assert [a["rule"] for a in l1] == ["degrade"]
     # 熔断冷却期档位显示 L0 但 cooldown>0（半开前）同样必须报——只看 level 会漏
-    cool = ap.detect(_state(degradation={"level": "L0", "failures": 0, "threshold": 3, "cooldown_s": 42}), quiet)
+    cool = ap.detect(_state(degradation={"level": "L0", "failures": 0, "llm_failure_threshold": 3, "cooldown_s": 42}), quiet)
     assert [a["rule"] for a in cool] == ["degrade"] and "42" in cool[0]["query"]
 
 

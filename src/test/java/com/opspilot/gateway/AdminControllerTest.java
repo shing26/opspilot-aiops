@@ -145,7 +145,11 @@ class AdminControllerTest {
         var rt = (Map<String, Object>) s.get("runtime");
         assertThatKeysPresent(rt, "inflight", "sf_groups", "sf_keys_top", "degradation", "quota", "reingest");
         var deg = (Map<String, Object>) rt.get("degradation");
-        assertThatKeysPresent(deg, "level", "manual", "failures", "cooldown_s");
+        // 两个阈值必须**成对**暴露：只给一个笼统的 threshold，会让外部把 L2 的阈值误当 L1 触发线
+        assertThatKeysPresent(deg, "level", "manual", "failures", "cooldown_s",
+                "llm_failure_threshold", "inflight_threshold");
+        assertEquals(3, deg.get("llm_failure_threshold"), "LLM 熔断失败阈值（L2 触发）");
+        assertEquals(40, deg.get("inflight_threshold"), "在途降级阈值（L1 触发）");
         // 复用 metrics 的装配源：backend 三元组必须在 metrics 子块内
         var mx = (Map<String, Object>) s.get("metrics");
         assertTrue(mx.containsKey("backend") && mx.containsKey("degradation_level"));

@@ -175,11 +175,17 @@ public class AdminController {
         runtime.put("inflight", degrade.inflightValue());
         runtime.put("sf_groups", singleFlight.inFlightGroups());
         runtime.put("sf_keys_top", singleFlight.peekKeys(8));
+        // 两个阈值 = 两个**不同**的触发条件，键名必须各自说清：曾只暴露一个笼统的 "threshold"，
+        // 外部脚本据此把它误标成 inflight 阈值——口径含糊会直接变成错误结论，故改名并双双暴露。
+        //   在途数达 inflight_threshold → L1（高负载）；LLM 连续失败达 llm_failure_threshold → L2（熔断）。
         runtime.put("degradation", Map.of(
                 "level", degrade.current().name(),
                 "manual", degrade.isManual(),
                 "failures", degrade.llmConsecutiveFailures(),
-                "threshold", props.degrade() == null ? 3 : props.degrade().llmFailureThreshold(),
+                "llm_failure_threshold",
+                props.degrade() == null ? 3 : props.degrade().llmFailureThreshold(),
+                "inflight_threshold",
+                props.degrade() == null ? 40 : props.degrade().inflightThreshold(),
                 "cooldown_s", degrade.l2CooldownRemainingSeconds()));
         runtime.put("quota", Map.of(
                 "sub", u.sub(), "used", quota.usedToday(u.sub()), "limit", quota.dailyLimit()));

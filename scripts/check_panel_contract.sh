@@ -43,7 +43,8 @@ for k in inflight sf_groups sf_keys_top degradation quota reingest; do
 done
 
 # 面板侧消费声明（与 Java 对照的反向字面量存在性）
-for k in sf_groups sf_keys_top cooldown_s manual failures threshold used limit busy last; do
+# 两个阈值键名各自单列：删掉任一个面板消费点即红——它们是"离 L1/L2 还有多远"的唯一可见面。
+for k in sf_groups sf_keys_top cooldown_s manual failures llm_failure_threshold inflight_threshold used limit busy last; do
   grep -qF "$k" "$HTML" || { echo "FAIL: 面板缺少对运行态键的消费: $k"; fail=1; }
 done
 

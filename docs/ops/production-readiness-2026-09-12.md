@@ -29,7 +29,7 @@
 | 处置闭环（对目标系统写操作/自愈） | **未覆盖，产品承诺非缺陷**（只读立场 + 人做决定） | 触发线见 `OPS.md` §5 "处置闭环"行 |
 | 复盘 → 知识回灌 | **未覆盖，已入账**（2026-09-23 登记） | 知识库只读、运行期无「结论→语料」写路径；触发线见 `OPS.md` §5.1；谱系表 ④ 行已明示。**2026-09-24 补：前置入口已建**（答案反馈端点，见下） |
 | 承诺线（SLI/SLO） | **已建**（2026-09-24） | `OPS.md` §11 承诺表（七条 SLI + 核色方式与频次）；可派生数字入门闩面二 |
-| 防幻觉事后环（答案接地 V9） | **已建**（2026-09-24）；**live 数字待补** | `offline/grounding.py`（纯函数）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）；OPS §5.1 已登记其覆盖边界 |
+| 防幻觉事后环（答案接地 V9） | **已建，且 live 已验**（2026-09-25） | `offline/grounding.py`（纯函数）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）。**live 断言实测：11 条答案 / 15 个错误码 / 无据 0（接地率 100%）**，同批 V2 5/5、V4 2/2。OPS §5.1 已登记其覆盖边界 |
 | 降级代价语义 | **已登记**（2026-09-24） | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)：L1 = 质量降（88%→64%）+ **门控降**（相关性级→零召回级）；同构回归锁 `ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`；重开触发线入 OPS §5 |
 | 分段耗时（审计行 `stage_ms`） | **已建**（2026-09-24） | `retrieval/LegTimings` + `metrics/StageTimings`（八段）；非 chat 路径传 null → 不落字段（"没测"≠"测得为 0"） |
 | 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **四项全部出数**（2026-09-24 补跑，欠费解除后完成） | `offline/eval/reports/gate_matrix.{json,md}`、`offline/eval/reports/observed_probe.{json,md}`、`offline/load/reports/concurrency_sweep.{json,md}`、`offline/load/reports/cache_savings.{json,md}`。**探针 V9 的 live 断言已通过**（接地率 100%）。**核色前置**：`python scripts/check_upstream.py`（三路探活，全通过才 exit 0）——降级会静默掩盖上游故障，故已写成每次核色的第一步（见 `OPS.md` §11） |
@@ -336,3 +336,20 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 ### 门禁终态
 
 `pytest` **123 → 139 全绿**（本轮 +16：`test_check_upstream.py` 新增 9 例、`test_sweep.py` 由 5 例增至 12 例）｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致 ｜ Java 未改动（150）。
+
+## 修补记录（2026-09-25 续：清理上一节自曝的缺陷）
+
+上一节末尾列了 6 条"卡点或缺陷"。本轮逐条处置：**4 条修掉、1 条登记触发线、1 条被环境阻断**。
+
+| # | 项 | 处置 | 依据 / 证据 |
+|---|---|---|---|
+| 1 | 台账「现行状态」中「防幻觉事后环 V9」仍写 *live 数字待补* | **已修** | V9 的 live 断言已于本轮实测通过（接地率 100%），该行改为「已建，且 live 已验」并写入实测值。这是该表**第三次**出现同类过期（前两次：README「121 用例」实测 131；「检索面正常」实为三路全断）——每次都是**事实已变、表未跟**，故该表只写"已做到什么"、不写易漂数值的纪律需要人工纪律兜底 |
+| 2 | `/admin/state` 未暴露 inflight 阈值（40），只暴露了一个笼统的 `threshold` | **已修**（改名 + 补键 + 上面板） | 键名分开：`llm_failure_threshold`（3，L2 触发）+ `inflight_threshold`（40，L1 触发）；面板降级块新增「在途 X/40」一灯（此前运维看不到自己离 L1 还有多远）。**影响面 6 处**（Java 装配 / 面板 / 契约脚本字面量 / AdminControllerTest / `alert_producer.py` / `sweep.py`），逐处同步；`sweep.py` 因此可直接引用真阈值而非手写注释 |
+| 3 | 「过载时降级而非拒绝」在实测负载范围内从未被行使 | **已修**（把边界写进 README） | `README.md` 降级段新增一段：六档压测下在途峰值最高 11 « 触发线 40 ⇒ 降级全程未触发；u≥300 的失败全是连接层 `HTTP 0`。并明确「500 并发同指纹 → LLM 1 次」是**风暴场景**的数、与这条曲线**不可互相推广**。成因未收敛如实标注 |
+| 6 | L2 写入重复 embed | **登记触发线**（不现在修） | 写入 `OPS.md` §5：触发线 = ①embedding 调用成本成瓶颈，或 ②`stage_ms.l2_store` 占比 >10%。**并区分两件事**：原注释"复用检索时已算好的向量"是**宣称失实**（真缺陷，已于上一轮改为如实描述）；重复 embed 本身是**已知开销**（实测 232ms / 10.2s），修法要向 Qdrant 腿返回面回传向量、接口面有改动，按纪律挂起不预防施工 |
+| 4 | 反馈端点只有单测、无 live 实测 | **被阻断**（未修） | 需要活体栈，而本轮期间 **Docker Desktop 引擎退出**（`docker` API 报 daemon not running、9200/6337/6333/6334 全部不再 LISTENING；非本项目所为，我只停过自己起的 Java 网关）。Docker 恢复后一条命令即可补：`set -a; . ./.env; set +a; export OPSPILOT_BASE=…; python -c "import localapi; localapi.post_json('/api/v1/copilot/feedback', {...}, token)"`（三态：未认证 403／合法 200／未知 fp 200） |
+| 5 | 9 笔未推、本轮从未过 CI | **待你决定** | 推送是对外动作，未经指示不做。代码面已自查 CI 可行性（新测试读的是**已入库**的 `seed_demo_users.sh` 与 `locust_a_stats.csv`、`check_upstream` 用假 opener 不触网），但**未验证**——本项目有「本机绿≠CI 绿」前科（2026-09-16） |
+
+**一次差点误报的自我纠错**（值得记）：我用 `bash scripts/x.sh | tail -3; echo $?` 读面板契约的退出码，得到 0，一度以为"该门闩能打印 FAIL 却在 CI 里永远绿"。实际是 **`$?` 取的是管道末端 `tail` 的退出码**，不是脚本的；脚本末尾本就有 `exit $fail`。改用 `> file 2>&1; echo $?` 复测得 **1**，确认门闩有效。**教训：管道之后的 `$?` 不是被管道命令的退出码**——门闩自身的"是否会红"必须用不经过管道的方式验证。
+
+**门禁终态**：`mvn test` **150 全绿**（含改后的 `AdminControllerTest` 断言两个阈值）｜ `pytest` **139 全绿** ｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致（**变异验证**：删掉面板的 `inflight_threshold` 消费点 → 契约 FAIL 且 exit 1，已还原）。

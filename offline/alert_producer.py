@@ -128,7 +128,7 @@ def detect(state: dict, d: dict) -> list[dict]:
     if level in ("L1", "L2") or _num(deg.get("cooldown_s")) > 0:
         out.append({"rule": "degrade", "service": "opspilot-gateway",
                     "query": QUERIES["degrade"].format(level=_safe_detail(level), failures=_num(deg.get("failures")),
-                                                       threshold=_num(deg.get("threshold")),
+                                                       threshold=_num(deg.get("llm_failure_threshold")),
                                                        cooldown=_num(deg.get("cooldown_s")),
                                                        inflight=_num(rt.get("inflight")))})
 
