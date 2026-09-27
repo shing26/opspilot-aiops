@@ -384,3 +384,23 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 ### 门禁终态
 
 `mvn test` **150 → 152 全绿**（+2 指纹锁）｜ `pytest` **139 全绿** ｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK（**本轮它又抓出一次用例数漂移 150→152**，已按产物真值改 README）｜ 面板契约四层一致。
+
+### 收口：推送与 CI 首验（2026-09-27）
+
+上一节末尾把"11 笔未推 ⇒ 本轮从未过 CI"记为唯一剩余开项。已按 OPS §6 三道门闩先检后推：
+
+| §6 门闩 | 结果 |
+|---|---|
+| 全历史 JWT 形扫描（`git grep eyJhbGciOi... $(git rev-list --all)`） | **空输出**（通过） |
+| 待推 diff 的凭据形状扫描（JWT / `sk-` / `AKIA` / PEM 头） | **0 命中** |
+| `.env` 实际值是否泄漏进待推 diff（逐个值比对，只报键名不打印值） | 8 个值**零命中** |
+
+**推送路径（值得记，因为不是默认那条）**：`github.com` 直连与走本机代理（端口 31180/31181 **仍在监听**）**都不可达**，HTTPS push 返回 500；而 `example.com`、`api.github.com` 均 200 ⇒ 不是断网，是**该域不可达**。`~/.ssh/config` 已把 `github.com` 映射到 `ssh.github.com:443`，SSH 认证通过（`Hi shing26!`），故用**会话级 URL 重写**推送、不动持久配置：
+
+```bash
+git -c url."git@github.com:".insteadOf="https://github.com/" push origin main
+```
+
+**结果**：`49db4ed..c7e64d3` 推送成功，本地与 origin 同步。CI run **36318228339 —— success**，五 job 全绿：`panel-contract` 5s ｜ `provenance` 7s ｜ `python` 14s ｜ `java` 33s ｜ `shell` 4s。注解只有早已在案的 Node20 弃用提醒（非失败）。
+
+**这条为什么重要**：本项目有「本机绿≠CI 绿」前科（2026-09-16：单测真发 HTTP，本机有网关故绿、CI 无网关即红）。本轮新增 16 个 Python 测试 + 2 个 Java 测试并改了 /state 契约，**从未在 CI 跑过**——现在跑了，首验即过，没有出现"本机绿≠CI 绿"。
