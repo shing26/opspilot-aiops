@@ -47,4 +47,27 @@ class FingerprintServiceTest {
                     "第 " + i + " 个错误码应在占位-掩码-还原后存活");
         }
     }
+
+    /**
+     * 指纹是**对外形状契约**：它同时是 L1 缓存键的组分、SSE meta 的回传值、以及反馈端点归档
+     * "问题"的键。实现取 SHA-256 摘要的**前 128 位**（32 位小写十六进制）——若有人去掉
+     * `substring(0, 32)`，指纹会变成 64 位：不报错、但 L1 键与已归档的反馈全部对不上。
+     *
+     * 变异验证：去掉 `substring(0, 32)` → 本用例必红（长度断言）；改成大写十六进制 → 亦必红。
+     */
+    @Test
+    void fingerprintShapeIsLockedToThirtyTwoLowercaseHex() {
+        String fp = svc.fingerprint("order-service", "prod", "error code 50012_DB_TIMEOUT");
+        assertEquals(32, fp.length(), "指纹是 SHA-256 的前 128 位（32 位十六进制），不是 64 位: " + fp);
+        assertTrue(fp.matches("[0-9a-f]{32}"), "只允许小写十六进制: " + fp);
+        // 同输入必须可重放（指纹是缓存键，长度或取值漂移都会静默打断命中）
+        assertEquals(fp, svc.fingerprint("order-service", "prod", "error code 50012_DB_TIMEOUT"));
+    }
+
+    /** 分隔符参与摘要：service/env 边界若被拼串吃掉，不同 (service,env) 组合会撞同一指纹。 */
+    @Test
+    void serviceAndEnvBoundariesAreNotCollapsible() {
+        assertNotEquals(svc.fingerprint("a", "bc", "m"), svc.fingerprint("ab", "c", "m"),
+                "`|` 分隔符必须参与摘要，否则 service/env 边界可被拼接抹平");
+    }
 }

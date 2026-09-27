@@ -33,7 +33,7 @@
 | 降级代价语义 | **已登记**（2026-09-24） | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)：L1 = 质量降（88%→64%）+ **门控降**（相关性级→零召回级）；同构回归锁 `ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`；重开触发线入 OPS §5 |
 | 分段耗时（审计行 `stage_ms`） | **已建**（2026-09-24） | `retrieval/LegTimings` + `metrics/StageTimings`（八段）；非 chat 路径传 null → 不落字段（"没测"≠"测得为 0"） |
 | 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **四项全部出数**（2026-09-24 补跑，欠费解除后完成） | `offline/eval/reports/gate_matrix.{json,md}`、`offline/eval/reports/observed_probe.{json,md}`、`offline/load/reports/concurrency_sweep.{json,md}`、`offline/load/reports/cache_savings.{json,md}`。**探针 V9 的 live 断言已通过**（接地率 100%）。**核色前置**：`python scripts/check_upstream.py`（三路探活，全通过才 exit 0）——降级会静默掩盖上游故障，故已写成每次核色的第一步（见 `OPS.md` §11） |
-| 答案反馈入口（人机协同） | **已建**（2026-09-24） | `POST /api/v1/copilot/feedback` → 审计 `ev="feedback"`（按 fingerprint 归档、不占配额）；是"复盘→知识回灌"的前置入口 |
+| 答案反馈入口（人机协同） | **已建，且 live 已验**（2026-09-27） | `POST /api/v1/copilot/feedback` → 审计 `ev="feedback"`（按 fingerprint 归档、不占配额）；是"复盘→知识回灌"的前置入口。**live 四态实测**：未认证 401 ｜ 合法 200 且审计行落（含身份三元组+fp+verdict）｜ 未知 fingerprint 200（接受而非拒绝）｜ 非法 verdict 400（DTO @Pattern） |
 
 **逐轮修复流水**（细节见横线以下各节）：2026-09-12 五维评估 + H1/H2/H3/M1/M2 → 09-18 证据链 O1/O2 →
 09-19 外部评审核实（2 采纳 2 不采纳）+ P1 类型化 5xx + P2 配置 fail-fast → 09-21 O2 面二 + 打包自检互锁 +
@@ -353,3 +353,34 @@ L5 增量 ingest（语料 >2000 条或更新 <10min）。
 **一次差点误报的自我纠错**（值得记）：我用 `bash scripts/x.sh | tail -3; echo $?` 读面板契约的退出码，得到 0，一度以为"该门闩能打印 FAIL 却在 CI 里永远绿"。实际是 **`$?` 取的是管道末端 `tail` 的退出码**，不是脚本的；脚本末尾本就有 `exit $fail`。改用 `> file 2>&1; echo $?` 复测得 **1**，确认门闩有效。**教训：管道之后的 `$?` 不是被管道命令的退出码**——门闩自身的"是否会红"必须用不经过管道的方式验证。
 
 **门禁终态**：`mvn test` **150 全绿**（含改后的 `AdminControllerTest` 断言两个阈值）｜ `pytest` **139 全绿** ｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK ｜ 面板契约四层一致（**变异验证**：删掉面板的 `inflight_threshold` 消费点 → 契约 FAIL 且 exit 1，已还原）。
+
+## 修补记录（2026-09-27：Docker 恢复后补测被阻断项 + 一处新发现的口径缺口）
+
+**背景**：上一节末尾第 4 条"反馈端点只有单测、无 live 实测"被 Docker 引擎退出阻断。用户重启 Docker Desktop 后，中间件（`opspilot-redis` healthy / `opspilot-qdrant` / `opspilot-es` healthy）恢复，本轮把它与另外两处**只经单测、未经 live** 的改动一并补验。
+
+### 补测结果（三处改动从"单测绿"升级为"live 已验"）
+
+| 项 | live 实测 | 备注 |
+|---|---|---|
+| **反馈端点四态** | 未认证 → **401** ｜ 合法 fp → **200 `{"ok":true}`** 且审计行落盘（`ev=feedback` + sub/tenant/level/fp/verdict/note）｜ **未知 fp → 200**（接受而非拒绝，设计如此）｜ 非法 verdict（`maybe`）→ **400**（DTO `@Pattern` 经 GlobalExceptionHandler） | fp 取自**真实审计行**（32 位十六进制），不是造的 |
+| **`/state` 两个阈值键**（上一轮的改名+补键） | `degradation = {"level":"L0","inflight_threshold":40,"manual":false,"cooldown_s":0,"llm_failure_threshold":3,"failures":0}` —— 两键在场、**旧的笼统 `threshold` 已消失** | 单位断言写在调用脚本里（不是肉眼看） |
+| 核色前置 | `scripts/check_upstream.py` 三路全 PASS、exit 0 | 起栈第一步 |
+
+### 新发现并修掉的口径缺口：指纹的**长度与分隔符**从未写明
+
+补测时取真实 fp 做反馈，拿到的是 **32 位**十六进制（`823ac0a0459ce42e80c9e9279b3b4a1e`），而 `CONTEXT.md` 与 `FingerprintService` 类注释都只写 `SHA256(service + env + normalized_error_msg)` ⇒ 一个按文档对照的人会以为应该看到 64 位。查实现：`HexFormat.of().formatHex(d).substring(0, 32)`，即 **SHA-256 摘要取前 128 位**；且拼接用的是 `|` 分隔符，文档同样未提。
+
+**为什么这算缺陷而不是吹毛求疵**：指纹是**对外形状契约**——它同时是 L1 缓存键的组分、SSE `meta` 帧的回传值、以及反馈端点归档"问题"的键。长度或取值漂移**不报错**，只是让缓存命中与已归档反馈静默对不上。
+
+处置：
+- `CONTEXT.md` 词条与 `FingerprintService` 类注释补上**分隔符与截断**（128 位 / 32 位十六进制）。
+- 新增两条锁（`FingerprintServiceTest`）：`fingerprintShapeIsLockedToThirtyTwoLowercaseHex`（长度 32 + 小写十六进制 + 可重放）与 `serviceAndEnvBoundariesAreNotCollapsible`（`|` 必须参与摘要，否则 service/env 边界可被拼接抹平）。**变异验证**：去掉 `substring(0, 32)` → 形状锁当场红（`expected: <32> but was: <64>`，并打印出实际 64 位值）。
+- 关于"截断到 128 位是有意设计"——**仓内查无决策记录**（`grep` 全仓只有实现那一行；该行自首个 Sprint 1-3 commit 就在）。故词条只陈述事实并标注"无决策记录"，**不替它补一个理由**。参考量级：128 位碰撞界 ~2^64，对告警去重足够。
+
+### 一次自我纠错（同一段落内）
+
+上面那条词条我第一版写的是「**32 位而不是 64 位是刻意的**（碰撞界 ~2^64，去重绰绰有余）」——**"刻意的"是我推断的，没有任何依据**。写完立刻去核（全仓 grep + `git log -S`），发现只有实现、无 ADR/注释/文档，于是改回只陈述事实。这与本项目一路在修的"宣称与实现分叉"是同一类错误，只是这次是我自己刚犯的：**不能把"看起来合理"写成"当初就是这么决定的"**。
+
+### 门禁终态
+
+`mvn test` **150 → 152 全绿**（+2 指纹锁）｜ `pytest` **139 全绿** ｜ `provenance --check` OK ｜ `doc_numbers --check` 22 条/32 处 OK（**本轮它又抓出一次用例数漂移 150→152**，已按产物真值改 README）｜ 面板契约四层一致。

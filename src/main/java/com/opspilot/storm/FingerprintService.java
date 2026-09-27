@@ -11,8 +11,13 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 /**
- * 告警指纹：SHA256(service + env + normalized_error_msg)。
+ * 告警指纹：`SHA256(service + "|" + env + "|" + normalized_error_msg)` 的**前 128 位**
+ * （32 位十六进制）。
  * 归一化剥离时间戳/UUID/十六进制地址/数字，使同质告警收敛到同一指纹。
+ *
+ * 分隔符与长度都写明的原因：指纹同时是 L1 缓存键的组分、SSE meta 的回传值、以及反馈端点
+ * 用来归档"问题"的键——外部要靠它对上，只写"SHA256(...)"会让人以为是 64 位（实测误解过一次）。
+ * 截断到 128 位的碰撞界约 2^64，对告警去重足够。**注**：该截断在仓内只有实现、无决策记录。
  */
 @Service
 public class FingerprintService {
