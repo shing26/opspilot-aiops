@@ -12,7 +12,7 @@
       "format": "int",
       "cited_in": [
         {"file": "README.md", "pattern": "(\\d+) 单测"},
-        {"file": "README.md", "pattern": "单测与集成（(\\d+) 用例"}
+        {"file": "docs/repo-map.md", "pattern": "单测与集成（(\\d+) 用例"}
       ]
     },
     {
@@ -26,13 +26,13 @@
     },
     {
       "id": "chunks_lines",
-      "unit": "切分产物 chunks 行数（offline/corpus/chunks.jsonl）",
+      "unit": "切分产物 chunks 行数（offline/corpus/chunks.jsonl）——注意是 **chunk 数**，不是语料篇数",
       "derive": {"kind": "jsonl_lines", "path": "offline/corpus/chunks.jsonl"},
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 文档"},
-        {"file": "OPS.md", "pattern": "(\\d+) 文档"},
-        {"file": "DEMO.md", "pattern": "(\\d+) 文档"}
+        {"file": "README.md", "pattern": "(\\d+) chunks"},
+        {"file": "OPS.md", "pattern": "(\\d+) chunks"},
+        {"file": "DEMO.md", "pattern": "(\\d+) chunks"}
       ]
     },
     {

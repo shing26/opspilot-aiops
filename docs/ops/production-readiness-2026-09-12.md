@@ -9,7 +9,7 @@
 > **本文件不手写易漂的数字**（用例数、语料数、指标值）：那些由 `offline/doc_numbers.py` 在 CI 守着，
 > 以 README/产物为准——手写的数字必然过期，这正是 2026-09-21 那一轮的教训。
 
-## 现行状态（最后更新 2026-09-24）
+## 现行状态（最后更新 2026-09-27）
 
 | 能力面 | 现行状态 | 依据 / 证据落点 |
 |---|---|---|
@@ -29,10 +29,10 @@
 | 处置闭环（对目标系统写操作/自愈） | **未覆盖，产品承诺非缺陷**（只读立场 + 人做决定） | 触发线见 `OPS.md` §5 "处置闭环"行 |
 | 复盘 → 知识回灌 | **未覆盖，已入账**（2026-09-23 登记） | 知识库只读、运行期无「结论→语料」写路径；触发线见 `OPS.md` §5.1；谱系表 ④ 行已明示。**2026-09-24 补：前置入口已建**（答案反馈端点，见下） |
 | 承诺线（SLI/SLO） | **已建**（2026-09-24） | `OPS.md` §11 承诺表（七条 SLI + 核色方式与频次）；可派生数字入门闩面二 |
-| 防幻觉事后环（答案接地 V9） | **已建，且 live 已验**（2026-09-25） | `offline/grounding.py`（纯函数）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）。**live 断言实测：11 条答案 / 15 个错误码 / 无据 0（接地率 100%）**，同批 V2 5/5、V4 2/2。OPS §5.1 已登记其覆盖边界 |
-| 降级代价语义 | **已登记**（2026-09-24） | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)：L1 = 质量降（88%→64%）+ **门控降**（相关性级→零召回级）；同构回归锁 `ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`；重开触发线入 OPS §5 |
+| 防幻觉事后环（答案接地 V9） | **已建，且 live 已验**（2026-09-25） | `offline/grounding.py`（纯函数）+ 探针 V9（复用 V2/V4 答案，零额外 chat 预算）。**live 断言已通过**（无据错误码 0）——具体读数属 live 波动值，按本文件契约不入表，见探针当次输出。OPS §5.1 已登记其覆盖边界 |
+| 降级代价语义 | **已登记**（2026-09-24） | [ADR-0012](../../docs/adr/0012-degradation-cost-semantics.md)：L1 = **检索质量降**（即 `es_only` 列的口径，数值以评测报告为准、不在本表复述）+ **门控降**（相关性级 → 零召回级）；同构回归锁 `ChatOrchestratorTest.degradedL1SearchIsIsomorphicToEsOnlyMode`；重开触发线入 OPS §5 |
 | 分段耗时（审计行 `stage_ms`） | **已建**（2026-09-24） | `retrieval/LegTimings` + `metrics/StageTimings`（八段）；非 chat 路径传 null → 不落字段（"没测"≠"测得为 0"） |
-| 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **四项全部出数**（2026-09-24 补跑，欠费解除后完成） | `offline/eval/reports/gate_matrix.{json,md}`、`offline/eval/reports/observed_probe.{json,md}`、`offline/load/reports/concurrency_sweep.{json,md}`、`offline/load/reports/cache_savings.{json,md}`。**探针 V9 的 live 断言已通过**（接地率 100%）。**核色前置**：`python scripts/check_upstream.py`（三路探活，全通过才 exit 0）——降级会静默掩盖上游故障，故已写成每次核色的第一步（见 `OPS.md` §11） |
+| 代价量化脚本（门控混淆矩阵 / 并发曲线 / 缓存节省账 / 真实输入探测） | **四项全部出数**（两项 2026-09-24、两项 2026-09-25 欠费解除后完成） | `offline/eval/reports/gate_matrix.{json,md}`、`offline/eval/reports/observed_probe.{json,md}`、`offline/load/reports/concurrency_sweep.{json,md}`、`offline/load/reports/cache_savings.{json,md}`（数值以产物为准，不在本表复述）。**探针 V9 的 live 断言已通过**。**核色前置**：`python scripts/check_upstream.py`（三路探活，全通过才 exit 0）——降级会静默掩盖上游故障，故已写成每次核色的第一步（见 `OPS.md` §11） |
 | 答案反馈入口（人机协同） | **已建，且 live 已验**（2026-09-27） | `POST /api/v1/copilot/feedback` → 审计 `ev="feedback"`（按 fingerprint 归档、不占配额）；是"复盘→知识回灌"的前置入口。**live 四态实测**：未认证 401 ｜ 合法 200 且审计行落（含身份三元组+fp+verdict）｜ 未知 fingerprint 200（接受而非拒绝）｜ 非法 verdict 400（DTO @Pattern） |
 
 **逐轮修复流水**（细节见横线以下各节）：2026-09-12 五维评估 + H1/H2/H3/M1/M2 → 09-18 证据链 O1/O2 →

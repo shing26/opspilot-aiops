@@ -6,8 +6,30 @@
 
 - **S**：微服务告警风暴瞬时数千条同质告警打垮 LLM 链路；通用向量检索丢失错误码等精确符号，Top-1 不足 60%。
 - **T**：7 天交付高并发混合检索排障网关：精确符号 Top-1 100%、热点 TP99<50ms、500 并发 LLM 降为 1 次、权限泄漏绝对 0；随后追加生产化硬化（租户隔离、账号体系、中间件加固、零空窗重建）。
-- **A**：① Python AST 切分保护代码块/表格不腰斩，面包屑入元数据；② ES keyword + Qdrant 向量双路并行（虚拟线程+超时隔离），自研 RRF k=60 无量纲融合，精确符号快路径跳过 Rerank 压 TTFT；③ Redisson `来源×指纹` 聚合计数窗口 + 进程内 Single-Flight 收敛风暴（窗口供计数叙事，穿透闸门归 Single-Flight）；④ 三级降级状态机 LLM 429 熔断直出静态 SOP；⑤ auth_level + tenant 双维引擎层硬过滤，缓存/回放全链路权限维度；⑥ 五轮 QA 红队 + 双轴 code-review 闭环（P0 提权绕过 / TDD 锁；第四轮三 Persona 全系统测评揪出 Single-Flight 缺租户与 admin 信任域两处 P0；第五轮生成质量包立逐字导出出口硬护栏与熔断半开自愈）→ v1.0.0 冻结 → DashScope live 实测 → 四 Sprint 生产化（H2 账号+实时吊销、中间件凭据+环回、blue/green 原子切流、审计/配额/CI）→ 转公开前全模块独立+集成复验（台账 `docs/qa/2026-09-13-module-verification.md`），债务带触发线记录在案。
-- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 64% 拉到 88%，2026-09-16 现报告版）、热点命中 TP99 16ms（服务端 TTFT，产物 `offline/load/reports/l1_hit_latency.md`）、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏（双向判别语料 + 跨租户并发用例锁死）、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测零中断（切流期间 27 个在线探针 0 失败、全程约 40s；2026-09-16 复测 423 文档 22.3s）。
+- **A**（按数据流自下而上六件事，外加过程）：
+  1. **切分**——Python AST 切分保护代码块/表格不腰斩，面包屑入元数据；
+  2. **双路召回**——ES keyword + Qdrant 向量并行（虚拟线程 + 超时隔离），自研 RRF k=60 无量纲融合；
+  3. **压 TTFT**——精确符号快路径命中即跳过 Rerank；
+  4. **风暴收敛**——Redisson `来源×指纹` 聚合计数窗口 + 进程内 Single-Flight（窗口供计数叙事，穿透闸门归 Single-Flight）；
+  5. **弹性**——三级降级状态机，LLM 429 熔断直出静态 SOP；
+  6. **权限**——`auth_level` + `tenant` 双维在引擎层硬过滤，缓存与回放全链路携带权限维度。
+  - *过程*：五轮 QA 红队 + 双轴 code-review 闭环（P0 提权绕过 / TDD 锁；第四轮三 Persona 全系统测评揪出 Single-Flight 缺租户与 admin 信任域两处 P0；第五轮生成质量包立逐字导出出口硬护栏与熔断半开自愈）→ v1.0.0 冻结 → DashScope live 实测 → 四 Sprint 生产化（H2 账号+实时吊销、中间件凭据+环回、blue/green 原子切流、审计/配额/CI）→ 转公开前全模块独立+集成复验（台账 `docs/qa/2026-09-13-module-verification.md`），债务带触发线记录在案。
+- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 64% 拉到 88%）、热点命中 TP99 16ms（服务端 TTFT，产物 `offline/load/reports/l1_hit_latency.md`）、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏（双向判别语料 + 跨租户并发用例锁死）、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测零中断（切流期间 27 个在线探针 0 失败、全程约 40s；复测 423 chunks 22.3s）。**上表与本节的具体数字另见下方「核心指标」**。
+
+## 核心指标（实测）
+
+| 维度 | 目标 | 实测 | 口径 |
+| --- | --- | --- | --- |
+| 精确符号 Top-1 命中率 | 100% | **100%** | hybrid，34 错误码用例（live） |
+| 语义 Top-3 召回率 | >90% | **100%** | hybrid，25 口语化用例（live） |
+| 热点命中 TP99 | <50ms | **16ms** | L1 回放 n=200 的**服务端 TTFT**（回放不触外部 API）；端到端 p99=46.3ms 含本机 HTTP 栈开销——产物 [offline/load/reports/l1_hit_latency.md](offline/load/reports/l1_hit_latency.md) |
+| 风暴 LLM 触发次数 | 500→1 | **1** | 500 并发同指纹，llm_calls Δ=1（live） |
+| 权限泄漏率 | 0 | **0** | 5 条越狱用例，引擎层过滤（live） |
+| 场景 A 吞吐 | — | **88.4 req/s · 2492 请求 0 失败 · P50=16ms** | Locust 50 并发 30s（live，冷请求走真实 API；与随附 `locust_a_stats.csv` 一致） |
+
+> **读表前先看三条口径**：① 以上均为 **DashScope live** 后端实测——`text-embedding-v3`（1024 维神经语义）+ `gte-rerank-v2`（精排）+ `qwen-plus`（流式生成）；无 key 时自动切本地词法 mock 后端（同代码路径，双模自动切换），**mock 下不承诺这些数字**。② 「场景 A 吞吐」与「风暴」**不是同一种负载**：前者是混合查询（80% 热 + 20% 冷），后者是**同指纹风暴**（全量去重、请求极快）。③ 这两行来自 **2026-09-09** 的运行，早于 P2 账号体系；后来的 `concurrency_sweep` 曲线（拐点在 200→300 并发，且降级状态机在实测中未触发，见「三级自适应降级状态机」节）测的是另一件事——**三者的数字不可互相推广**。
+>
+> **live 独有的论证价值**：评测集显示语义查询的 **Top-1 命中率 `es_only` 仅 64% → hybrid 88%**（语义 MRR 0.767→0.940；语料扩至 303 篇前为 72%→88%）——向量路把纯词法在首位漏掉的 24 个百分点口语化查询捞了回来。这是 mock 词法后端无法暴露、也只有接入神经向量后才成立的混合检索核心卖点。**扩语料会让纯词法腿漂移**：语料 303→423 chunks 后 `es_only` 语义 Hit@3 由 100% 降至 92%、MRR 0.813→0.767，而 hybrid 逐位不变——混合检索的稳健性正体现在这里（E1 教训第二次实测复现）。报告出处与生成时刻见 `offline/eval/reports/PROVENANCE.json`（内容摘要判据，CI 强制同代）。
 
 ## AIOps 谱系定位 · 是什么，以及明确不是什么
 
@@ -34,21 +56,6 @@
 5. **风暴与故障是设计输入，不是运行时异常**：同指纹 500 并发→1 次 LLM 穿透；过载降纯 ES、LLM 熔断直出预热静态 SOP、冷却到期半开自探（修复见 `e966feb`）——降级是状态机的一等公民，不是 catch 块。→ `storm/SingleFlightRegistry.java`、`resilience/DegradationStateMachine.java`、A2-5/A2-6、`DegradationRecoveryTest`。
 
 > 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——152 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V9（其中 live 六道 V2/V3/V4/V5/V7/V9 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对；V9=答案接地一致性，复用 V2/V4 已产出答案故不占 chat 预算）+ 越狱/风暴/降级/留痕矩阵。
-
-## 核心指标（实测）
-
-| 维度 | 目标 | 实测 | 口径 |
-| --- | --- | --- | --- |
-| 精确符号 Top-1 命中率 | 100% | **100%** | hybrid，34 错误码用例（live） |
-| 语义 Top-3 召回率 | >90% | **100%** | hybrid，25 口语化用例（live） |
-| 热点命中 TP99 | <50ms | **16ms** | L1 回放 n=200 的**服务端 TTFT**（回放不触外部 API）；端到端 p99=46.3ms 含本机 HTTP 栈开销——产物 [offline/load/reports/l1_hit_latency.md](offline/load/reports/l1_hit_latency.md) |
-| 风暴 LLM 触发次数 | 500→1 | **1** | 500 并发同指纹，llm_calls Δ=1（live） |
-| 权限泄漏率 | 0 | **0** | 5 条越狱用例，引擎层过滤（live） |
-| 场景 A 吞吐 | — | **88.4 req/s · 2492 请求 0 失败 · P50=16ms** | Locust 50 并发 30s（live，冷请求走真实 API；与随附 `locust_a_stats.csv` 一致） |
-
-> **Embedding 后端**：以上为 **DashScope live** 后端实测——`text-embedding-v3`（1024 维神经语义）+ `gte-rerank-v2`（精排）+ `qwen-plus`（流式生成）。无 `DASHSCOPE_API_KEY` 时服务自动切换本地词法 mock 后端，用于零成本机制验证与 CI 验收（同一代码路径，双模自动切换）。
->
-> **live 独有的论证价值**：评测集显示语义查询的 **Top-1 命中率 `es_only` 仅 64% → hybrid 88%**（语义 MRR 0.767→0.940，2026-09-16 现报告版；语料扩至 303 篇前为 72%→88%）——向量路把纯词法在首位漏掉的 24 个百分点口语化查询捞了回来。这是 mock 词法后端无法暴露、也只有接入神经向量后才成立的混合检索核心卖点。**扩语料会让纯词法腿漂移**：语料 303→423 后 `es_only` 语义 Hit@3 由 100% 降至 92%、MRR 0.813→0.767，而 hybrid 逐位不变——混合检索的稳健性正体现在这里（E1 教训第二次实测复现）。
 
 ## 架构（30 秒看懂数据流）
 
@@ -89,7 +96,7 @@ flowchart TD
 ```
 
 - **权限是引擎层硬过滤不是 Prompt 约束**：tenant 与 auth_level 以 term/range 注入 ES Query DSL 与 Qdrant Filter，越权话术无法跨越数据级过滤；role 只在平台管理面生效（ADR-0008：权限三元组必须同构存在于每一条共享路径）。
-- **知识库零空窗重建**：`POST /admin/reingest` 走 blue/green 别名原子切流（ADR-0006），失败保留旧库在线，实测 423 文档 22.3s 零中断（live，服务端日志口径；mock 后端 8.0s）。
+- **知识库零空窗重建**：`POST /admin/reingest` 走 blue/green 别名原子切流（ADR-0006），失败保留旧库在线，实测 423 chunks 22.3s 零中断（live，服务端日志口径；mock 后端 8.0s）。
 
 ### 三级自适应降级状态机
 
@@ -106,9 +113,9 @@ stateDiagram-v2
     L1 --> L2: LLM 仍失败
 ```
 
-**降级的代价（如实登记，不只讲好处）**：L1 的检索质量就是 `es_only` 模式的质量——语义 Hit@1 由 88% 退到 64%；更值得说清的是第二项代价：摘除 Rerank 后没有可依的相关性分数，**置信度门控在 L1 退为「零召回级」**，即"不知道就不答"这条主张在降级期是弱化的（不是消失：零召回仍拒答）。为什么不给它补一个阈值：RRF 分数无量纲，照搬 L0 的 0.2 会变成拍脑袋拒答，未标定的阈值比现状更糟。取舍与重开触发线见 [ADR-0012](docs/adr/0012-degradation-cost-semantics.md)。
+**降级的代价（如实登记，不只讲好处）**：L1 的检索质量就是 `es_only` 模式的质量——语义 Hit@1 由 88% 退到 64%；更值得说清的是第二项代价：摘除 Rerank 后没有可依的相关性分数，**置信度门控在 L1 退为「零召回级」**，即"不知道就不答"这条主张在降级期是弱化的（不是消失：零召回仍拒答）。取舍理由与重开触发线见 [ADR-0012](docs/adr/0012-degradation-cost-semantics.md)。
 
-**降级机制在实测负载下的可见范围（2026-09-25 六档压测，如实登记）**：`offline/load/reports/concurrency_sweep.md` 扫 25→500 并发（混合负载，live），结果是——**各档在途峰值最高只有 11，远低于 L1 触发线 40，故降级状态机全程未触发**；而 u≥300 出现的失败**全部**是连接层失败（`HTTP 0`，无一条 5xx）。即：这一栈上连接层先在 200→300 之间给出上限，压力从未传到应用的在途计数。**所以"过载时降级而非拒绝"这条主张，在本机实测范围内没有被行使过**——不是它失效，是本机栈先以另一种方式失败了。连接层失效的具体成因未隔离（候选：本机 Windows 回环 / TIME_WAIT 端口耗尽、Tomcat accept 队列），需 Linux 运行或调高连接上限后复测。**引用口径提醒**：上表「500 并发同指纹 → LLM 仅 1 次」是**风暴场景**（全量去重、请求极快）的数，与这条曲线测的**不是一回事**，不可互相推广。
+**降级机制在实测负载下的可见范围（2026-09-25 六档压测，如实登记）**：`offline/load/reports/concurrency_sweep.md` 扫 25→500 并发（混合负载，live），结果是——**各档在途峰值最高只有 11，远低于 L1 触发线 40，故降级状态机全程未触发**；而 u≥200 出现的失败**全部**是连接层失败（`HTTP 0`，无一条 5xx）。即：这一栈上连接层先在 200→300 之间给出上限，压力从未传到应用的在途计数。**所以"过载时降级而非拒绝"这条主张，在本机实测范围内没有被行使过**——不是它失效，是本机栈先以另一种方式失败了。连接层失效的具体成因未隔离（候选：本机 Windows 回环 / TIME_WAIT 端口耗尽、Tomcat accept 队列），需 Linux 运行或调高连接上限后复测。**引用口径提醒**：上表「500 并发同指纹 → LLM 仅 1 次」是**风暴场景**（全量去重、请求极快）的数，与这条曲线测的**不是一回事**，不可互相推广。
 
 ## 技术栈
 
@@ -158,7 +165,7 @@ python ../scripts/gen_tokens.py > ../scripts/redteam_tokens.txt
 # 5. 构建 + 启动（首启若读别名缺失会自动入库）
 mvn package -DskipTests && java -jar target/opspilot-gateway-1.0.0.jar
 
-# 6. 初始化演示账号（幂等，读取 DEMO_PASSWORD）：sre-limited/sre-full/sre-acme
+# 6. 初始化演示账号（幂等，读取 DEMO_PASSWORD）：sre-limited/sre-full/sre-acme/sre-watcher
 bash scripts/seed_demo_users.sh
 
 # 7. 演示（客户端自动 login 换 24h token）
@@ -228,6 +235,10 @@ cd offline
 PY=.venv/bin/python          # Windows venv 为 .venv/Scripts/python.exe；或直接 bash ../scripts/py.sh 探测
 $PY eval/build_golden.py     # 59 样本（34 精确码 + 25 语义）
 $PY eval/evaluate.py         # 3 模式对比 + 越狱 → eval/reports/（报告自报服务端 live/mock 后端真相）
+$PY eval/gate_matrix.py      # 门控误拒/漏拒率 + 阈值扫描 → eval/reports/gate_matrix.md
+$PY eval/observed_probe.py   # 真实输入探测（无真值口径）→ eval/reports/observed_probe.md
+$PY load/sweep.py            # 并发-延迟曲线（六档）→ load/reports/concurrency_sweep.md
+$PY load/cache_savings.py    # 缓存节省账 → load/reports/cache_savings.md
 .venv/bin/locust -f load/locustfile.py --headless -u 50 -t 30s --html load/reports/locust_a.html
 SCENARIO=storm .venv/bin/locust -f load/locustfile.py --headless -u 500 -t 20s --html load/reports/locust_b.html
 $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/reports/l1_hit_latency.md
@@ -235,24 +246,9 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 
 > 需活体栈 + `pip install -r offline/requirements-dev.txt`（锁定的 pytest/locust 版本，见该文件）；`evaluate` 依赖的 `/copilot/search` 不受配额限制。数字底稿与指标出处即 `offline/eval/reports/eval_report.md` 与 `offline/load/reports/`。
 
-**报告与语料必须同代——2026-09-18 起由 CI 强制，不再靠自觉**：
+**数字怎么核对**（本项目的卖点之一，所以放在这里）：`python provenance.py --check` 判"随附报告是否仍是当前语料的报告"，判据是**内容摘要**而不是 mtime——CI 的 `git checkout` 会把所有 mtime 刷成检出时刻，时间戳判据在那里恒真、等于空门闩。语料字节变了而报告没重生成，摘要必然对不上，CI 的 `provenance` job 即转红；`evaluate.py` 每次运行自动刷新出处登记 `eval/reports/PROVENANCE.json`，人不需要记得同步。`python scripts/pack_evidence.py` 则一键产出**逐项注明出处**的证据快照（入口 `MANIFEST.md` 写明每个数字来自哪个文件、什么命令产生、在当前模式下能否复核）。机制的完整说明与绕过方式见 [OPS.md](OPS.md) §5——README 不复述运维细节。
 
-```bash
-cd offline && python provenance.py --check     # 零凭据、零网络
-```
-
-判据是**内容摘要**（语料文档 + `chunks.jsonl` + `golden_dataset.jsonl`），不是 mtime：CI 的 `git checkout` 会把所有文件 mtime 刷成检出时刻，"报告不早于语料"在 CI 里恒真、等于空门闩。语料字节变了而报告没重生成，摘要必然对不上，`provenance` job 即转红。`evaluate.py` 每次运行都会自动刷新 `eval/reports/PROVENANCE.json`（出处登记），人不需要记得同步。这条规矩此前是人工纪律，代价是同类事故发生过两次（E1：语料扩后 `es_only` 语义 Top-1 72%→64%；2026-09-16 复现：303→423 后 Hit@3 100%→92%）。
-
-**证据链一键打包**（把"愿意翻就能翻"变成"一条命令给我快照"）：
-
-```bash
-python scripts/pack_evidence.py            # → _archive/evidence/<时间>-<sha>-<mode>/
-python scripts/pack_evidence.py --zip      # 另产同名压缩包
-```
-
-归档入口是 `MANIFEST.md`：逐条写明**这个数字来自哪个文件、用什么命令产生、在当前模式下能不能复核**，并把产物分成三档——*干净检出即可复核* / *需活体栈* / *需 live key*。本项目的资源约束是双模的（无 key 走 mock、有 key 走 live，同代码路径），所以归档必须自报 `mode`：在 mock 档里，它会把"随附报告是 live 口径、这些指标值在这里复核不出来"直接写在开头，而不是让人拿 mock 快照去核对 live 数字。零凭据、零网络、仅 stdlib，干净检出下一条命令跑通；本机运行态证据（`logs/`，不入库）默认排除，需 `--include-local-evidence` 显式开启（含查询内容与租户标识，会告警）。
-
-**出包前会先自检"随附报告与语料是否同代"**（复用面一判据）：分叉时**默认拒绝出包**，并挡在任何产物落地之前——本档的承诺是"每个数字都能在这里复核"，悄悄打出一份报告已过期的快照，等于把旧结论盖章成现行结论。确实需要留一份过期快照（取证/对比）时加 `--allow-stale`，档内会在 §0 显著标注并写入 `MANIFEST.json`（`same_generation.ok=false`）。CI 从不传该开关，故 CI 永远走拒绝路径。
+> **本节的六个测量脚本，口径与已知边界都写在各自的产物里**（例：`gate_matrix` 走 `/search` 故不含 L1/L2 缓存、`cache_savings` 的未命中组必须是**真生成**而非拒答）。**引用前先读产物里的口径段**，那是它们的单一事实源。
 
 ## 安全设计
 
@@ -276,126 +272,26 @@ python scripts/pack_evidence.py --zip      # 另产同名压缩包
 
 ## QA 红队加固记录
 
-首轮验收全绿后经黑盒红队持续加固，逐轮回填台账与回归锁。早期轮次（6 项，P0×2 / P1×2 / P2×2）：
-| 缺陷 | 等级 | 修复 |
-| --- | --- | --- |
-| search `authLevelOverride` 客户端提权 | P0 | 移除该参数，密级恒取 token |
-| `/api/v1/admin/**` 零鉴权 | P0 | JWT + auth_level≥3 门禁 |
-| 指纹归一化不足致真实风暴不收敛 | P1 | 强化噪声掩码管道 + 回归单测 |
-| 缺 query 时 SSE 错误帧损坏 + NPE 泄露 | P1 | @Valid 前置校验 + 全局异常卫生 |
-| degrade 非法枚举 500 | P2 | 白名单校验返回 400 |
-| L2 命中丢 refs / 引用标号错位 | P2 | 缓存存完整 payload + 修正切块 |
+首轮验收全绿后经**黑盒红队持续加固**，逐轮回填台账与回归锁。完整缺陷表在 [docs/qa/](docs/qa/)（缺陷与验证的**单一事实源**），本节只留"打穿过什么"：
 
-第四轮（2026-09-11，三 Persona 全系统测评：体验/红队/运维+UI，详见 [docs/qa/2026-09-11-persona-eval.md](docs/qa/2026-09-11-persona-eval.md)）：
+- **两处 P0 都是红队真实触发，不是纸面推演**：① Single-Flight 组键缺 `tenant`——跨租户并发下 follower 回放 leader 的全文与引用（恰落在风暴场景，窗口最宽）；② admin 门禁"level≥3 即管理员"——外来租户的 L3 可重建共享索引/清全局缓存，**测评中真的被执行了一次**（blue/green 救回无损）。两处都改为数据层单一真相（组键掺租户；平台权查 DB `role`）并配回归锁。
+- **一处"备份的谎言"**：容器模式下备份落到未映射层，cron 每日假绿 → 加卷映射 + 宿主侧产物存在性校验。
+- **一处"永不自愈"**：熔断冷却到期恒判 L2，而 L2 分支零 LLM，失败计数无归零路径 → 改半开自探，并加守卫防"清零过宽 → 熔断永不触发"的反向陷阱。**这是 live 实测第三次推翻纸面闭环**（前两次见台账）。
+- **错误分层收口**：客户端错误错落 500 的家族内变体（body 反序列化、Accept 协商——OpenAI SDK 非流式默认头即触发）补专属分支 → 活体攻击参数面矩阵 13 用例 **0×5xx**。
+- **数字陈旧取证（E1）**：评测报告系语料扩充前版本，`es_only` 语义 Top-1 实测 72%→64%（hybrid 逐位不变）→ 重生成报告并对齐口径。教训入台账：**文档数字与随附产物必须同代**，现由 CI 两道门闩强制。
+- **正向确认**（红队打穿失败，保留为卖点）：串行越权读写零泄露、20/20 畸形 token 全拒、`alg=none`/篡改/空签名全拒、**持 `JWT_SECRET` 重签 `auth_level=9` 提权仍被 DB 真相压回**、CORS 外部 Origin 零放行、存在性 oracle 话术一致。
 
-| 缺陷 | 等级 | 修复 |
-| --- | --- | --- |
-| Single-Flight 组键缺 tenant，跨租户并发回放全文+引用（风暴场景窗口最宽） | P0 | key 掺 tenant + 回放 src_tenant 绊线 + A2-9 并发回归锁 |
-| admin 门禁"level≥3 即管理员"，外来租户 L3 可重建共享索引/清全局缓存（测评中被真实误触发） | P0 | role=platform 平台门禁（DB 单真相）+ 18 格矩阵锁 + seed 口径修正 |
-| `/admin/metrics` 无门禁，L1 可读全局计数与内部模型名 | P1 | 并入平台门禁 |
-| 401/403/登录失败/运维动作零审计留痕，"命中来源"字段缺失 | P1 | ev=auth/admin/invalid 全留痕 + src_tenant 随行 + A2-10 计数断言 |
-| 容器模式备份落未映射层，cron 每日假绿（"备份的谎言"） | P1 | compose 增 ./backup 卷映射 + 脚本宿主产物存在性校验（容器路径实测宿主落盘） |
-| daily_usage 不读轮转文件，跨天用量告警永远归零 | P1 | 按日期 glob 轮转+当前文件并集，业务事件口径收紧 |
-| SSE 端点 400 空 body（内容协商吞文案）/backup 拒绝回 500/`/v1` 401 非 OpenAI 形状 | P2 | 三处错误形状直写修复 |
-| 拒答话术回显置信度分数与阈值（门控 oracle） | P2 | 分数只进日志/metrics |
-| OPS §7 恢复流程裸机命令与容器部署互斥、取 token 命令缺 .env 前置 | P2 | 容器版重写 + 命令块补全（照抄可执行） |
-| acme 零语料致"跨租户零泄漏"验收单腿证据 | P3 | 播种 tenant-acme 私有语料（52xxx 段+同名 50012 变体），矩阵升级为"各回各家"双向判别 |
+过程留痕：五轮测评的原始口径在 [docs/qa/2026-09-11-persona-eval.md](docs/qa/2026-09-11-persona-eval.md)、[docs/qa/2026-09-13-module-verification.md](docs/qa/2026-09-13-module-verification.md)、[docs/qa/2026-09-16-self-alert-loop.md](docs/qa/2026-09-16-self-alert-loop.md)；生成层的"分层设卡"决策与各自上限见 [ADR-0010](docs/adr/0010-generation-layer-enforcement-split.md)。
 
-第五轮（2026-09-12–13，生成层复现 → **生成质量包**，详见 [ADR-0010](docs/adr/0010-generation-layer-enforcement-split.md)）：
-- **逐字导出**：L1 权限用户一句话即可让助手倒出其**有权看到**的原文（实测 304 字重合——不是越权，是"排障助手退化为文档导出器"的产品叙事破防）→ Prompt 规则 5 + 出口句级 LCS 硬护栏（重叠 >80 字整句替换，carry=160 堵"逐行不超阈、拼接超阈"的表格式漏检）；设卡一处即覆盖缓存回放/Single-Flight 分发/双协议面。
-- **断言语态**：无强标识符的泛化症状被自信锚定具体事故编号 → 条件注入假设语态规则；探针正则定性为软约束层上限，升级触发线入 OPS 债务闹钟表。
-- **live 第三次推翻纸面闭环**：熔断冷却到期恒判 L2、而 L2 分支零 LLM → 失败计数无归零路径，熔断**永不自愈** → 改半开放行（`e966feb`），并加 `until>0` 守卫防"清零过宽→熔断永不触发"的反向陷阱。
-- 回归锁：`offline/qa_gen_quality_probes.py`（承担 live 五道门禁 V2/V3/V4/V5/V7 + 内置 chat 预算闸）+ 出口护栏 10 用例 + 自愈 3 用例。
+## 规模与目录
 
-转公开前模块复验（2026-09-13–14，全链路台账 [docs/qa/2026-09-13-module-verification.md](docs/qa/2026-09-13-module-verification.md)）：
-- 逐包独立单测 115→118 全绿、五依赖面逐个探活、集成套件全绿（探针 11/11 / A2 10/10 / A3 8/8 / 蓝绿重建 27 在线探针零空窗）、干净 Linux 容器三条命令冷启动实测通过。
-- **F1/F2**：错误分层第五轮按异常种类建专属分支，body 反序列化（`HttpMessageNotReadableException`）与 mapping 期 Accept 协商（`HttpMediaTypeNotAcceptableException`，OpenAI SDK 非流式默认头即触发）两族内变体漏网仍落 500 → 补 400/406 分支 + 留痕，活体攻击参数面矩阵 13 用例 **0×5xx** 复验。
-- **E1 数字陈旧取证**：评测报告系语料扩充（+52 篇 acme）前版本，`es_only` 语义 Top-1 实测 72%→64%（hybrid 逐位不变）→ 重生成报告并对齐本页口径。教训入台账：文档数字与随附产物必须同代。
+**规模**：152 单测（`@Test` 声明数）· 12 项架构决策（ADR）· 423 chunks（切分产物行数）· 63 篇复盘/Runbook 语料（另加 OpenAPI 文档，共 64 篇）· 评测集 59 样本（34 精确码 + 25 语义）· 14 个运维脚本。CI 五 job：`java` / `panel-contract` / `provenance` / `python` / `shell`。
 
-正向确认（红队打穿失败，保留为卖点）：串行越权读写零泄露、20/20 畸形 token 全拒、alg=none/篡改/空签名全拒、**持 JWT_SECRET 重签 auth_level=9 提权仍被 DB 真相压回**、CORS 外部 Origin 零放行、存在性 oracle 话术一致、错拼/中英混杂检索免疫。
+**四份根文档按读者分工**（互不重复）：判断值不值得看 → 本文；起服务/跑演示 → [DEMO.md](DEMO.md)；日常运维与**债务触发线** → [OPS.md](OPS.md)；领域词汇 → [CONTEXT.md](CONTEXT.md)。
 
-## 文档
+**证据在哪**：实测产物在 [offline/eval/reports/](offline/eval/reports/)（评测报告、门控矩阵、真实输入探测）与 [offline/load/reports/](offline/load/reports/)（压测、L1 回放延迟、并发曲线、缓存节省账）；缺陷与验证的原始记录在 [docs/qa/](docs/qa/)；"已经做完什么、证据在哪"在 [docs/ops/](docs/ops/)；架构决策与否决理由在 [docs/adr/](docs/adr/)。
 
-- [DEMO.md](DEMO.md) — 六幕主线 + 幕⑦标准协议面 + 幕⑧自举闭环（+ 预检脚本 `scripts/demo.sh`）+ 3 分钟录屏讲解稿
-- [OPS.md](OPS.md) — 管理员日常速查：账号生命周期/配额/用量 SOP/债务闹钟/推送门闩
-- [CONTEXT.md](CONTEXT.md) — 领域术语表
-- [docs/adr/](docs/adr/) — 12 项架构决策记录（每份含否决项与后果）
-- [docs/qa/](docs/qa/) — 红队缺陷台账（三 Persona 测评 / 模块独立+集成验证 / 自举告警闭环验收）
-- [offline/eval/reports/](offline/eval/reports/) — 评测报告（`eval_report`、门控混淆矩阵 `gate_matrix`、真实输入探测 `observed_probe`）
-- [offline/load/reports/](offline/load/reports/) — Locust 压测 HTML、L1 回放延迟 `l1_hit_latency`
-
-## 目录与文档地图
-
-> 给接手的人（或下一个 Agent）一页定位：四份根文档**按读者分工**，互不重复。
-
-| 你在做什么 | 打开哪份 |
-| --- | --- |
-| 判断这项目值不值得看 | [README.md](README.md)（本文：门面与实测指标） |
-| 起服务 / 跑演示 / 录屏 | [DEMO.md](DEMO.md)（六幕主线 + 幕⑦/幕⑧，前置 `scripts/demo.sh` 自检） |
-| 日常运维：开号、离职、配额、告警、债务闹钟 | [OPS.md](OPS.md)（管理员速查） |
-| 对齐领域词汇（Query / Chunk / 指纹…） | [CONTEXT.md](CONTEXT.md)（术语表——**改名词先改这里**） |
-
-**目录职责**
-
-| 路径 | 是什么 | 入库 |
-| --- | --- | --- |
-| `src/main/java/com/opspilot/` | 在线面：`gateway`(协议/编排) `retrieval` `llm` `resilience` `auth` `cache` `storm` `metrics` `health` `ingest` `chunk` `config` | ✅ |
-| `src/test/java/` | 单测与集成（152 用例，`@Test` 声明数） | ✅ |
-| `docs/adr/` | 12 项架构决策（每份含否决项与后果）——**改架构先写 ADR** | ✅ |
-| `docs/qa/` | 红队缺陷台账 / 模块复验台账（缺陷与验证的单一事实源） | ✅ |
-| `docs/ops/` | 生产化就绪评估 | ✅ |
-| `LICENSE` | MIT 许可（唯一根级非文档文件；不纳入证据快照，理由见 §许可） | ✅ |
-| `offline/chunkers/` | Python 切分管道（OpenAPI AST / 标题树 / 错误码三切分器 + `build_chunks.py`） | ✅ |
-| `offline/corpus/` | 语料源（openapi / runbooks / postmortems）+ 生成物 `chunks.jsonl` | ✅ |
-| `offline/eval/` | golden dataset、`evaluate.py`（评测并自动刷新出处登记）、评测报告 | ✅ |
-| `offline/eval/gate_matrix.py` | **门控混淆矩阵 + 阈值扫描**：误拒率/漏拒率 + 0.1/0.2/0.3/0.4 四档。走 `/search` 取门控信号，故**一次遍历算完任意阈值**（无需重启网关）且不含 L1/L2 缓存（排除"缓存回放绕过门控"的混淆） | ✅ |
-| `offline/eval/refuse_set.jsonl` | 门控矩阵的"应拒答"半集（幽灵错误码 + 域外提问）；**位于 `corpus/` 之外**（探针词进语料会污染评测指标），其"幽灵码确实不在语料里"的前提由测试现算锁死 | ✅ |
-| `offline/eval/observed_probe.py` | **真实输入探测（G4）**：在系统自己跑出的 query 上测三件**无需真值**的事（零召回率 / 快路径命中率 / 门控拒答率）。query 集不入库，报告只含聚合 | ✅ |
-| `offline/provenance.py` | **报告↔语料同代判据**（面一）：CI 门闩 `--check` + 出处登记 `--stamp`（内容摘要，非 mtime） | ✅ |
-| `offline/doc_numbers.py` | **文档数字↔产物同代判据**（面二）：按 `doc_numbers.json` 每次**现算**产物真值比对文档字面量（不存快照、无 `--stamp`） | ✅ |
-| `offline/load/` | Locust 压测脚本与报告 | ✅ |
-| `offline/load/sweep.py` | **并发-延迟曲线**：扫 25/50/100/200/300/500 六档出 P50/P95/P99 + 失败率 + RPS，标出**首次 L1 触发档**。原始 locust 产物留本地（`.gitignore`），只入汇总报告 | ✅ |
-| `offline/load/cache_savings.py` | **缓存节省账**：受控混合负载 → 命中/未命中延迟差 × 命中率 = 单请求平均节省。归因靠本脚本自己的负载（`hits/total_requests` 的分母含 Single-Flight follower，是浑的） | ✅ |
-| `offline/tests/` | pytest（切分器不变量 + 告警生产者判定/闸门，**不触网**由 fixture 强制） | ✅ |
-| `offline/requirements-dev.txt` | 开发/验证依赖的**锁定版本**（运行时代码零第三方依赖，全 stdlib） | ✅ |
-| `offline/localapi.py` | **验收/评测脚本的本机 HTTP 单点**（SSRF 白名单 + token 路径解析）——新增脚本复用它，别再造轮子 | ✅ |
-| `offline/acceptance_a2.py` / `acceptance_a3.py` | A2 机制验收 / A3 综合验收 | ✅ |
-| `offline/qa_gen_quality_probes.py` | 生成质量门禁的 live 六道（V2/V3/V4/V5/V7/V9）+ chat 预算闸；V9 复用 V2/V4 答案故不占预算。V1/V6/V8 分属 Java 单测、ZSET 用例、文档核对 | ✅ |
-| `offline/grounding.py` | **答案接地判据**（V9 的纯函数实现）：答案中的错误码是否都落在本轮 refs 覆盖内——防幻觉链路的**事后**环（前几道管"没证据就不答"，这项管"答了的都有据"）。词法复用 `chunkers/errorcode.py`，不另立副本 | ✅ |
-| `offline/console_client.py` | 控制台演示客户端（SSE 打字机 / 风暴模拟） | ✅ |
-| `offline/alert_producer.py` | **自举告警生产者**（[ADR-0011](docs/adr/0011-self-bootstrapped-alert-source.md)）：读运行态真相面 → 命中即以 `source=alert` 回打自身链路 | ✅ |
-| `scripts/` | 运维与入口脚本，逐个见下表 | ✅ |
-| `data/` | H2 用户主库（含凭据散列） | ❌ |
-| `logs/` | 运行日志 + `audit.jsonl` 合规审计 | ❌ |
-| `backup/` | `backup.sh` 产出，按 7/14 天策略自清 | ❌ |
-| `_archive/` | **历史归档区**（本机留档，不入库）：外部评估报告、一次性演练产物；目录内有说明 | ❌ |
-| `target/` | Maven 构建产物 | ❌ |
-
-**scripts/ 一览**
-
-| 脚本 | 用途 |
-| --- | --- |
-| `quickstart.sh` | 公开入口：一键冷启动（预检 buildx / compose 插件） |
-| `run.sh` | 开发态起服务（加载 `.env` + `mvn spring-boot:run`，可透传 `--opspilot.ingest=true`） |
-| `demo.sh` | 演示前自检（健康 / 权限 / 面板契约 / live 键集合等七检） |
-| `backup.sh` | users 备份 + audit 打包（HTTP 优先，容器内 CLI 兜底） |
-| `user_admin.sh` | 账号生命周期 CLI：`add` / `disable` / `passwd` / `backup` |
-| `seed_demo_users.sh` | 幂等初始化四个账号：三演示角色（含跨租户矩阵靶）+ 告警主体 `sre-watcher` |
-| `gen_tokens.py` | 生成红队畸形 token 样本（合法账号走 login，不预签 token） |
-| `check_upstream.py` | **核色前置**：DashScope 三路（LLM / embedding / rerank）探活，全通过才 exit 0——降级会静默掩盖上游故障，故核色前必跑 |
-| `daily_usage.py` | 从审计日志聚合当日用量（cron 友好） |
-| `check_panel_contract.sh` | 面板↔后端字面量契约（CI 零依赖，后端改名即红） |
-| `py.sh` | Python 解释器三档探测（跨平台单点，被多个脚本复用） |
-| `pack_evidence.py` | 证据链一键打包：产出自述快照（`MANIFEST.md` 逐项注明出处与"当前模式能否复核"）；出包前自检"报告↔语料同代"，分叉即拒绝（`--allow-stale` 可显式放行并留痕） |
-
-**收纳规矩（防止再乱）**
-
-1. 新证据与报告 → `offline/*/reports/`；DoD 要求入库，且**数字必须与正文同代**（E1 教训：语料扩后旧报告会让 README 数字陈旧）。**2026-09-18 起由 `offline/provenance.py` 在 CI 强制**——语料变了不重跑评测，`provenance` job 直接转红，不再靠人发现。**2026-09-21 补上另一面**：面一只保证"报告↔语料"同代，不保证"人抄进文档的数字"是对的（实测：README 曾写「121 用例」而当时实际已是 131——现量以登记表为准，本句不再复述具体数字）。故新增 `offline/doc_numbers.py`：按登记表现算产物真值比对文档字面量，同批进 CI。登记表只收**可从产物确定性派生**的数字——live 实测时长等含波动的读数刻意不登记（会假红的门闩比没有门闩更快被关掉）。
-2. 一次性产物、外部评估、过时台账 → `_archive/`，git 忽略，不污染根视图。证据快照产物（`scripts/pack_evidence.py`）也落这里。
-3. 例行数据备份 → `backup/`，交给 `backup.sh` 的 7/14 天策略，勿手工堆积。
-4. 根目录只留四份文档 + 构建入口；**新文档先进 `docs/`**，确实属于必读门面才升到根。
-5. 改架构或口径 → 先更新 ADR / 术语表，再改代码；改完回来同步本地图。
-6. 动语料 → 同批重跑 `build_golden.py` + `evaluate.py`（`provenance --check` 会拦住漏做的那一步）。
+> **完整目录地图、逐包职责、`scripts/` 一览与「收纳规矩」在 [docs/repo-map.md](docs/repo-map.md)** —— 那些是维护者/接手 Agent 向的内容：访客不需要，但接手的人需要，故单独成文而不是占本文篇幅。
 
 ## 许可
 

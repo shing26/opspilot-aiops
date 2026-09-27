@@ -114,21 +114,33 @@ def _derived(root: Path, entry_id: str) -> str:
 
 
 def test_mutation_a_doc_number_changed_turns_gate_red(tmp_path: Path) -> None:
-    """变异 A（文档侧）：把 README 的用例数改大 1 → 必须红，且点名文件:行。"""
+    """变异 A（文档侧）：按**登记表自己的引用位**把该文档的用例数改大 1 → 必须红，且点名文件:行。
+
+    为什么不硬编码引用措辞（2026-09-27 实测教训）：本用例最初写死 `f"{val} 用例"`，而本轮把该措辞
+    随「目录与文档地图」搬去了 `docs/repo-map.md`——用例当场**假红**，而门闩本身是绿的、判据没坏。
+    根因是把"文案写在哪个文件哪句话里"当成了不变量；真正的不变量是 registry 的 `cited_in`。
+    改为从中取第一个引用位（含 file/pattern/group），文案搬家 + 登记表同批更新时用例自动跟上。
+    """
     root = _mirror(tmp_path)
-    readme = root / "README.md"
+    entry = next(e for e in dn.load_registry(root) if e["id"] == "java_test_declarations")
+    cite = next(c for c in entry["cited_in"] if c["file"] == "README.md")
     val = _derived(root, "java_test_declarations")
+
+    hits = dn.citations(root, cite)              # [(行号, 命中字面量)]
+    assert hits, f"{cite['file']} 未按登记 pattern {cite['pattern']!r} 引用——那是另一类红，见其它用例"
+    lineno, literal = hits[0]
+    assert literal == val, f"文档写的是 {literal}、真值 {val}——那是另一类红，见其它用例"
+
     wrong = str(int(val) + 1)
-    text = readme.read_text(encoding="utf-8")
-    assert f"{val} 用例" in text, f"README 未引用当前真值 {val}——那是另一类红，见其它用例"
-    readme.write_text(text.replace(f"{val} 用例", f"{wrong} 用例"), encoding="utf-8")
+    path = root / cite["file"]
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    lines[lineno - 1] = lines[lineno - 1].replace(literal, wrong, 1)
+    path.write_text("".join(lines), encoding="utf-8")
 
     assert dn.check(root) == 1
     out = _capture_check(root)
-    # 行号现算而不是硬编码：README 增删一行就换行号，硬编码会把"断言过时"伪装成"门闩坏了"。
-    lineno = next(i for i, ln in enumerate(readme.read_text(encoding="utf-8").splitlines(), 1)
-                  if f"{wrong} 用例" in ln)
-    assert f"README.md:{lineno}" in out, out
+    # 行号现算而不是硬编码：文档增删一行就换行号，硬编码会把"断言过时"伪装成"门闩坏了"。
+    assert f"{cite['file']}:{lineno}" in out, out
     assert f"真值 {val}、文档写的是 {wrong}" in out, out
 
 

@@ -70,7 +70,7 @@ cron（Linux 部署版；本机手动跑同样有效）：
 
 ## 5. 知识库运维与债务闹钟表
 
-- 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 423 文档 22.3s，live、服务端日志口径；mock 后端 8.0s；live+账户限流最坏 ~6min）。**动语料后 `build_golden.py` 必须与 `evaluate.py` 同批跑**——只改语料不重生成评测集，会让报告与语料悄悄分叉（旧 golden 的 `exact-50012` 就是这样与入库语料不自洽的）。
+- 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 423 chunks 22.3s，live、服务端日志口径；mock 后端 8.0s；live+账户限流最坏 ~6min）。**动语料后 `build_golden.py` 必须与 `evaluate.py` 同批跑**——只改语料不重生成评测集，会让报告与语料悄悄分叉（旧 golden 的 `exact-50012` 就是这样与入库语料不自洽的）。
 - **同代性不必靠记性**（2026-09-18 起）：`cd offline && python provenance.py --check` 当场判定"报告是否仍是当前语料的报告"（内容摘要判据，零凭据零网络），CI 的 `provenance` job 跑的就是它。漏跑评测时它会点名哪个输入变了并给出修复命令：`python eval/build_golden.py && python eval/evaluate.py`；`evaluate.py` 会自动刷新出处登记 `eval/reports/PROVENANCE.json`。
 - **交接/对外给证据**：`python scripts/pack_evidence.py`（加 `--zip` 出压缩包）产出自述快照到 `_archive/evidence/`，入口 `MANIFEST.md` 逐项写明出处与"当前模式下能否复核"。默认**不含**本机运行态证据（`logs/`）；要看运行史用 `--include-local-evidence`——**该档含查询内容与租户标识，别原样对外发**。
 - `scripts/gen_tokens.py` **是红队畸形 token 签发器**（A2-8b/8c 与 demo.sh 预检依赖）——不是遗留脚本，勿删。
@@ -111,6 +111,7 @@ cron（Linux 部署版；本机手动跑同样有效）：
 | 真增量 Ingest 的阈值口径（ADR-0006 曾写"语料上千"） | **已收敛（2026-09-17）**：以本表"真增量 Ingest"行为准（chunks > 2000 **或** live 全量 > 10min）；ADR-0006 已加注指向本表 | 与上表同项，不再单列 |
 | 单测偶发红：`ChatOrchestratorTest.alertSourceLandsInAuditRow`（2026-09-20 CI 实测一次） | **再次出现**即按 `awaitSuccess` 给出的**真实异常**定位并修根因——不许再按"审计零交互"猜方向（这正是上次被误导的那一步） | 全部兄弟用例已改用 `awaitSuccess`（先断言 `sink.error` 为空再 verify）：RecordingSink 的 `done()`/`error()` **共用一个 latch**，"await 通过"在出错时同样成立，是该次误导性报错的结构原因。本机 20 连跑零复现、同代码重跑即绿，属 CI 负载相关，故按触发线挂起而非盲改 |
 | 接地判据 V9 的覆盖边界（只管错误码，不管步骤编号/配置名/服务名的无据断言） | 出现一次"答案里**非错误码**的断言无据"且被真人/QA 复现——判据：该事故落在 V9 词法盲区（`pm-*`/`rb-*` 步骤编号、配置项名等），即现有判据结构上抓不到 | 已覆盖错误码：它是精确符号、可做集合运算、无"有据与否"的解释歧义。步骤编号/配置名要纳入，须先给出"有据"的**可判读**定义，否则会引入误报噪音、把门闩变成噪声源（本表纪律：不可判读的触发线等于没有）。**引用正确率**（标号是否真的支撑该句）另属一类，需异构裁判模型或人工标注，不并入本项——判据与裁判同源则无证据价值 |
+| 引用洗白 / 出口引用-内容对齐校验（来源：`docs/qa/2026-09-11-persona-eval.md` P1-5，标"第五轮未复现，待复现再立项"） | 再次出现"答案的 `[参考N]` 标号与所指段落**并不支撑**该句断言"且被真人/QA 复现——判据：能指到具体某条答案的某个标号与它引的段落不匹配（不是"答案整体偏了"，那类归 V9 与门控） | **此前不在任何账上**（2026-09-27 复核时查出：QA 台账标了"待复现"，但本表没有对应行——正是本表纪律所指的"没有触发线的欠账"）。第五轮之后未再复现，故按触发线挂起而非现在做：该判据要判"标号是否支撑句子"，**判据本身需要裁判**，与 V9 的集合运算不是一类；且裁判与选手同源则无证据价值（需异构模型或人工标注小集），成本远高于 V9 |
 
 ## 6. 公开 push 门闩（已执行记录：2026-09-10 清洗并首推 private）
 
@@ -168,7 +169,7 @@ cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');imp
 |---|---|---|
 | H2 `./data/users.mv.db`（口令散列 + token_ver 吊销状态） | **唯一不可再生** | `scripts/backup.sh` 每日（网关活着走 `POST /admin/backup`、DB 所有者在线 `BACKUP TO` 事务一致；网关停了走 CLI 嵌入式。**禁止 cp 热拷运行中的库文件**） |
 | `logs/audit.jsonl` | 合规留痕，logback 14 天滚动会回收 | backup.sh 一并 tar（保 14 天） |
-| ES / Qdrant | **派生索引，不备份**——chunks.jsonl 在 git（ADR-0001），恢复=reingest（实测 423 文档 22.3s，live、服务端日志口径；mock 8.0s） | 无需动作 |
+| ES / Qdrant | **派生索引，不备份**——chunks.jsonl 在 git（ADR-0001），恢复=reingest（实测 423 chunks 22.3s，live、服务端日志口径；mock 8.0s） | 无需动作 |
 
 cron（Linux 部署）：
 
