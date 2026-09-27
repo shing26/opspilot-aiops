@@ -31,6 +31,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.mockito.ArgumentCaptor;
+import org.mockito.verification.VerificationMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -59,6 +60,19 @@ class ChatOrchestratorTest {
 
     /** G2 分段耗时的检索分腿桩值：四个互不相同的数，便于在审计行断言"原样透传"。 */
     private static final LegTimings LEGS = new LegTimings(11, 22, 33, 44);
+
+    /**
+     * 审计断言的**超时轮询**（不是普通 verify）。
+     *
+     * 为什么必须带超时：编排里 `sink.done()` **先于** `audit.log()`（见 `ChatOrchestrator` 三条出口路径），
+     * 而 `awaitSuccess` 只等到 sink 的 latch（由 `done()` 落下）。于是"等 sink 收尾 → verify 审计"
+     * 天然是一场竞态：本机线程够快会赢，CI 两核调度下会输——症状是 Mockito 报
+     * "Actually, there were zero interactions with this mock"，看着像"审计没写"，
+     * 实为"还没写到"。2026-09-27 CI 实测踩到（`verbatimDumpFromLlmIsMaskedAtExitAndCacheStaysClean`）。
+     * 这也正是台账 §5.1 那条"单测偶发红：audit … zero interactions"的真实根因——
+     * 当初只给 `awaitSuccess` 加了"sink.error 须为空"来修**误导性报错**，没修**竞态本身**。
+     */
+    private static final VerificationMode AUDIT_WAIT = org.mockito.Mockito.timeout(2_000);
 
     private final CountDownLatch llmGate = new CountDownLatch(1);
 
@@ -263,7 +277,7 @@ class ChatOrchestratorTest {
 
         assertNotNull(sink.error, "外来租户载荷必须走 error 收尾而非回放");
         assertEquals("", sink.answer.toString(), "绊线触发前不得吐出任何内容");
-        verify(audit).log(eq(ACME), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
+        verify(audit, AUDIT_WAIT).log(eq(ACME), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
                 eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong(), isNull(), isNull(), isNull());
     }
 
@@ -297,7 +311,7 @@ class ChatOrchestratorTest {
                 new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
                         new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal")),
                 "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse", "manual");
-        verify(audit).log(eq(INTERNAL), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
+        verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
                 eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull(), isNull());
     }
 
@@ -314,7 +328,7 @@ class ChatOrchestratorTest {
         orchestrator.submit(req(q(), "alert"), INTERNAL, sink, "sse");
         llmGate.countDown();                    // setUp 的 internal 桩阻塞在闸门上，本用例无需跨租户计时
         awaitSuccess(sink);
-        verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("alert"), anyString(), anyString(),
+        verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("alert"), anyString(), anyString(),
                 eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class));
     }
 
@@ -327,7 +341,7 @@ class ChatOrchestratorTest {
         orchestrator.submit(new ChatRequest(q(), "   ", null, null), INTERNAL, sink, "sse");
         llmGate.countDown();
         awaitSuccess(sink);
-        verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
+        verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
                 eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class));
     }
 
@@ -372,7 +386,7 @@ class ChatOrchestratorTest {
                 "写进 L1 的载荷必须是掩码版（回放卫生）");
         assertFalse(json.getValue().contains(longText.substring(0, 90)), "缓存载荷含逐字原文");
 
-        verify(audit).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
+        verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
                 eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(),
                 argThat((Integer n) -> n != null && n >= 1), any(StageTimings.class));
         Object masked = metrics.snapshot().get("verbatim_masked");
