@@ -192,6 +192,19 @@ def same_generation_md(gen: dict) -> str:
     ]))
 
 
+def _hidden(path: Path, root: Path) -> bool:
+    """目录项展开时判定"隐藏段"（任一路径段以 `.` 开头）。
+
+    为什么需要这道闸：目录登记项会扫进"跑打包时这台机器上恰好存在"的任何文件，而它们**不在版本库里**。
+    实测踩到过——本工作区的 Mimosa 安全钩子会在 `docs/adr/` 下写 `.mimosa/hook-status/sess_*.json`：
+    它被 `.gitignore` 忽略（所以 `git status` 干净、人工复核也看不见），却让证据包多出一条，
+    于是**同一提交**本机 47 产物 vs CI 干净检出 46——而"能在干净检出下复核"正是本档存在的理由。
+
+    显式登记的单文件不受本规则约束（`logs/.alert-producer.lock` 是刻意登记的）。
+    """
+    return any(part.startswith(".") for part in path.relative_to(root).parts)
+
+
 def collect(include_local: bool = False) -> tuple[list[dict], list[str]]:
     """按登记表收集存在的产物。返回 (条目列表, 未纳入说明)。
 
@@ -213,7 +226,16 @@ def collect(include_local: bool = False) -> tuple[list[dict], list[str]]:
             skipped.append(f"{rel}（{PREREQ_LABEL[prereq]}）——"
                            f"默认不纳入；需 `--include-local-evidence` 显式开启")
             continue
-        files = sorted(p for p in ([src] if src.is_file() else src.rglob("*")) if p.is_file())
+        if src.is_file():
+            files = [src]
+        else:
+            all_members = sorted(p for p in src.rglob("*") if p.is_file())
+            files = [p for p in all_members if not _hidden(p, src)]
+            # 跳过的隐藏项显式登记：静默少一条与"没生成"长得一样，而本档的纪律正是禁静默空洞
+            skipped.extend(
+                f"{p.relative_to(REPO).as_posix()}（隐藏项）——目录项展开跳过："
+                f"`.` 开头的机器本地文件不在版本库里，纳入会让本机包与干净检出包不一致"
+                for p in all_members if _hidden(p, src))
         for f in files:
             key = f.relative_to(REPO).as_posix()
             if key in by_path:

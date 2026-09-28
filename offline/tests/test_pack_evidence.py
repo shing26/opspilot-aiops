@@ -153,6 +153,30 @@ def test_collect_dedupes_files_listed_twice(tmp_path, monkeypatch) -> None:
     assert len(paths) == len(set(paths)), "collect() 必须按路径去重"
 
 
+def test_directory_entries_skip_hidden_machine_local_files(tmp_path, monkeypatch) -> None:
+    """目录登记项不得扫进**隐藏段**的机器本地文件（`.mimosa/`、`.DS_Store` 之类）。
+
+    实测踩到过：本工作区的 Mimosa 安全钩子在 `docs/adr/` 下写 `.mimosa/hook-status/sess_*.json`，
+    它被 `.gitignore` 忽略（`git status` 干净、人工复核看不见），却让证据包多出一条——
+    **同一提交**本机 47 产物 vs CI 干净检出 46。归档的用途是"给第三方在干净检出里复核"，
+    多出来那条既核不了、又让两边数字对不上。
+
+    变异验证（改坏必红）：把 `collect()` 里的 `_hidden` 过滤去掉 → 本用例必红。
+    """
+    monkeypatch.setattr(pe, "REPO", tmp_path)
+    monkeypatch.setattr(pe, "REGISTRY", [("docs/adr/", "x", pe.CLEAN)])
+    adr = tmp_path / "docs" / "adr"
+    (adr / ".mimosa" / "hook-status").mkdir(parents=True)
+    (adr / ".DS_Store").write_bytes(b"junk")
+    (adr / ".mimosa" / "hook-status" / "sess.json").write_bytes(b"hook")
+    (adr / "0013-x.md").write_bytes(b"adr")
+
+    items, skipped = pe.collect(True)
+    paths = [i["path"] for i in items]
+    assert paths == ["docs/adr/0013-x.md"], f"隐藏项被当成证据打包了: {paths}"
+    assert any(".mimosa" in s for s in skipped), "跳过的隐藏项必须显式登记（禁静默空洞）"
+
+
 def test_checksums_file_is_lf_so_sha256sum_c_works(tmp_path, monkeypatch) -> None:
     """CHECKSUMS 必须以 LF 落盘。
 

@@ -435,10 +435,34 @@ git -c url."git@github.com:".insteadOf="https://github.com/" push origin main
 - `refuse_set.jsonl`（24 条）此前**未登记**于 `doc_numbers.json`，而本文档正文引用它 → 已登记 `refuse_samples`。
 - `gate_matrix.{md,json}` 与 `observed_probe.{md,json}` **不在** `scripts/pack_evidence.py` 的 REGISTRY，而本文档称"代价量化四脚本全部出数" → 已补四条（前提档 `KEY`）。
 
+### 第 5 处（CI 复验时查出）：证据包把机器本地隐藏文件当成证据
+
+推送后比对两侧读数时发现：**同一提交**本机证据包 **47 产物**、CI 干净检出 **46 产物**。差的那一个是
+`docs/adr/.mimosa/hook-status/sess_*.json`——本工作区 Mimosa 安全钩子的状态文件，落在被登记的
+`docs/adr/` 目录里，于是被目录项展开一并扫进了归档。
+
+它之所以躲过此前所有复核：`.mimosa/` 在 `.gitignore:34` 里 ⇒ `git status` 干净、人工复核也看不见。
+而归档的用途恰恰是"给第三方在干净检出里复核"——多出来那条既核不了、又让两侧数字对不上，
+**"干净检出可复核"这条存在理由被打破**。
+
+修法：目录项展开时跳过**隐藏段**（任一路径段以 `.` 开头），并把跳过项**显式登记**进 MANIFEST §2
+（静默少一条与"没生成"长得一样，本档纪律禁静默空洞）；显式登记的单文件不受此规则约束
+（`logs/.alert-producer.lock` 是刻意登记的）。**变异验证**：去掉 `_hidden` 过滤 → 新增用例必红。
+修后本机亦为 46 产物、跳过 4 项（3 项本机独有 + 1 项隐藏）。
+
 ### 一处自我纠错
 
 改面板表头时先写成"ev 六类"（凭印象），点算 `AuditService` 的 `ev` 取值后实为**七类**（chat/search/auth/admin/invalid/feedback/degrade_transition）——且该表头在我改动前**已经陈旧**（feedback 加入后没跟）。已按点算值改准。教训与门闩系列同源：**类目数要点算，不能凭印象**。
 
 ### 门禁终态（本机）
 
-`mvn -B test` 168/168 绿 ｜ `offline` pytest 139 passed ｜ `provenance --check` OK（423 chunks / 59 样本 / 64 篇）｜ `doc_numbers --check` OK（23 条 33 处）｜ 面板契约四层一致 ｜ `bash -n` 全脚本通过 ｜ 证据包 smoke 47 产物 + `sha256sum -c` 47/47 OK + 同代自检通过。
+`mvn -B test` 168/168（连跑两遍，30 个测试类集合逐项一致）｜ `offline` pytest **140 passed** ｜ `provenance --check` OK（423 chunks / 59 样本 / 64 篇）｜ `doc_numbers --check` OK（23 条 33 处）｜ 面板契约四层一致 ｜ `bash -n` 全脚本通过 ｜ 证据包 smoke **46 产物** + `sha256sum -c` 46/46 OK + 同代自检通过。
+
+### CI 首验（run `36369276252`，五 job 全绿）
+
+`5b7e15f` 推送后 CI **success**，五 job 全绿：`java` 30s ｜ `python` 14s ｜ `provenance` 7s ｜ `panel-contract` 5s ｜ `shell` 4s。
+
+CI 侧读数（**不是本机读数**）：`Tests run: 168, Failures: 0, Errors: 0, Skipped: 0` ｜ `139 passed` ｜ `OK 23 条文档数字与产物一致（33 处引用全部命中且相符）` ｜ 面板契约四层一致 ｜ 9 个脚本语法通过 ｜ 证据快照自洽。Python 侧首验时是 139——**第 5 处修复的用例是首验之后才加的**，故本机现为 140，下次 CI 复验应对齐。
+
+**本机绿＝CI 绿，未出现"本机绿≠CI 绿"**：这批改动动了审计行的字段与 `log()` 签名、新增 18 个用例，此前从未在 CI 跑过（本项目有 2026-09-16 那次前科）。
+
