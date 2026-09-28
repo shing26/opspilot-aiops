@@ -573,4 +573,9 @@ CI 侧其余读数与本机一致：`Tests run: 168, Failures: 0` ｜ `145 passe
 
 **两条新操作纪律（都写进 OPS §7）**：**打 jar 前必须先停服务**——Windows 上 JVM 锁着 `target/*.jar` 时 `spring-boot:repackage` 覆盖不了它，会**失败并留下被截断的 jar**（实测 84MB → 217KB，此后怎么起都是错的东西）；以及本轮新确认的"停进程按端口杀、启动以日志为准"。
 
-**门禁终态**：`mvn -B test` **188/188**（原 168 → +20 用例）｜ pytest 145 ｜ doc_numbers 23 条 33 处 ｜ provenance OK ｜ 面板契约四层一致 ｜ `bash -n` 全通过 ｜ 证据包 smoke 自洽。
+**门禁终态**：`mvn -B test` **188/188**（原 168 → +20 用例）｜ pytest 145 ｜ doc_numbers 23 条 33 处 ｜ provenance OK ｜ 面板契约四层一致 ｜ `bash -n` 全通过 ｜ 证据包 smoke 51/51 自洽。
+**CI 复验**（push `4a2940a`，run `36407216611`）：五 job 全绿，CI 侧读数与本机一致（`Tests run: 188, Failures: 0` ｜ `145 passed` ｜ 23 条 33 处 ｜ 接地门 OK ｜ 51 个产物）。
+
+**本轮未修、如实留档的两项**（都不是"忘了"）：
+- **门控只有一道 Top-1 阈值闸**（探索性验收 F5）：mock 上 `今天天气怎么样` top_rerank **0.695**、`zzzqqqxxyyy 完全不存在的东西` **0.823**，均过阈 → 不拒答、给出自信但不相关的答案；纯 ASCII 乱串 0.0 才拒答。**但** `min-relevance: 0.2` 是按 **live 精排分数分布**标定的（ADR-0012），mock 的分数字段不可比，故"live 是否同样漏拒"**未验**（当日上游欠费）。它的真身是与后端无关的**设计观察**：对"共词但域外"的输入缺第二道闸。建议方向（待 live 可用后评估）：无可识别领域词 → 走澄清而非硬答。
+- **`stage_ms` 的 sub-ms 段口径**（F6）：`rrf` 恒 0（纯计算）、mock 下 `rerank` 也常 0，与"0=未调用"的绝对表述冲突——已在 `CONTEXT.md` 分段耗时词条补限定（"是否调用以 `mode`/`fast_path` 为准"），未改字段本身。

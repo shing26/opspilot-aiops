@@ -123,7 +123,7 @@ H2 主库中的一行用户记录（sub + bcrypt 口令 + tenant + auth_level + 
 门控的两类错误，方向相反且都伤系统：**误拒** = 本可作答却拒答（伤可用性——用户问了知识库里有的东西，却被告知"无相关参考"）；**漏拒** = 本无据却作答（伤可信度——正是"不知道就不答"要挡的那类）。两者必须**一起看**：单看任一个都能被一个极端阈值刷到很好看（全拒 → 漏拒 0；全答 → 误拒 0）。度量产物 `offline/eval/reports/gate_matrix.md`。_Avoid_: 拒答率（那只是次数，不含正确性）
 
 **分段耗时（Stage Timings）**:
-一条请求的时间去哪儿了——检索分腿（`es`/`vector`/`rrf`/`rerank`）+ `retrieval` + `llm_ttft` + `llm` + `l2_store`，随 chat 审计行落 `stage_ms` 嵌套对象（**不落 SSE 帧**：那是对外协议面，内部耗时不该泄到那里）。口径两条易误读：`vector` 段**含该腿内的 embedding 调用**；`rerank = 0` 表示**未调用**（快路径/es_only/降级）而非"很快"。非 chat 路径传 `null` → 不落字段（"没测"），与"测得为 0"是两回事。_Avoid_: 耗时（不指明分段时无法回答"时间花在哪"）
+一条请求的时间去哪儿了——检索分腿（`es`/`vector`/`rrf`/`rerank`）+ `retrieval` + `llm_ttft` + `llm` + `l2_store`，随 chat 审计行落 `stage_ms` 嵌套对象（**不落 SSE 帧**：那是对外协议面，内部耗时不该泄到那里）。口径两条易误读：`vector` 段**含该腿内的 embedding 调用**；`rerank = 0` 表示**未调用**（快路径/es_only/降级）而非"很快"——**但 sub-ms 段例外**：`rrf` 是纯计算（恒 <1ms），mock 后端下的 `rerank` 亦如此（实测：`/search` 返回非零 `rerank_score` 证明已应用，审计行却是 0），故"是否调用"请以 `mode`/`fast_path` 为准，`0` 只是"没测出耗时"。非 chat 路径传 `null` → 不落字段（"没测"），与"测得为 0"是两回事。_Avoid_: 耗时（不指明分段时无法回答"时间花在哪"）
 
 **答案反馈（Feedback）**:
 人把"这个答案不对"告诉系统的入口（`POST /api/v1/copilot/feedback`），落审计 `ev="feedback"`。**按 fingerprint 归档**而非 request_id——fingerprint 标识的是**问题**不是某次生成，而"复盘→知识回灌"要沉淀的正是知识（问题）。不占配额：反馈是治理信号不是成本，若占配额，用户会在配额耗尽时放弃上报坏答案。它是"复盘→知识回灌"（OPS §5.1 在案债务）的前置入口。_Avoid_: 点赞、评分（都易被读成产品功能，而它是治理信号）
