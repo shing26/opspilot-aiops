@@ -149,15 +149,18 @@ def test_locust_command_disables_failure_exit_code(tmp_path, monkeypatch):
     def _run(cmd, **kw):
         seen["cmd"] = cmd
         seen["check"] = kw.get("check")
+        seen["env"] = kw.get("env") or {}
         (tmp_path / "lvl_9_stats.csv").write_text("Type,Name\n,Aggregated\n", encoding="utf-8")
         return type("P", (), {"returncode": 1})()
 
     monkeypatch.setattr(sweep, "RAW", tmp_path)
     monkeypatch.setattr(sweep.subprocess, "run", _run)
-    sweep._run_locust(9, "1s", 1)
+    sweep._run_locust(9, "1s", 1, "unique")
     assert "--exit-code-on-error" in seen["cmd"]
     assert seen["cmd"][seen["cmd"].index("--exit-code-on-error") + 1] == "0"
     assert seen["check"] is False, "不得用 check=True——失败是数据不是错误"
+    # 场景必须**显式透传**给 locust 子进程：`unique` 就是"真触发 L1"那个场景，传丢了压测白跑
+    assert seen["env"].get("SCENARIO") == "unique", "场景未透传到 locust 子进程环境"
 
 
 def test_locust_real_crash_still_raises(tmp_path, monkeypatch):
@@ -165,7 +168,7 @@ def test_locust_real_crash_still_raises(tmp_path, monkeypatch):
     monkeypatch.setattr(sweep, "RAW", tmp_path)
     monkeypatch.setattr(sweep.subprocess, "run", _fake_run(None, 2))
     with pytest.raises(RuntimeError, match="未产出 stats.csv"):
-        sweep._run_locust(9, "1s", 1)
+        sweep._run_locust(9, "1s", 1, "hot")
 
 
 if __name__ == "__main__":

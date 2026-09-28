@@ -174,7 +174,7 @@ class LevelSampler:
             self._t.join(timeout=5)
 
 
-def _run_locust(level: int, duration: str, rate: int) -> Path:
+def _run_locust(level: int, duration: str, rate: int, scenario: str) -> Path:
     RAW.mkdir(parents=True, exist_ok=True)
     prefix = RAW / f"lvl_{level}"
     # `--exit-code-on-error 0`：locust 默认在有**任何失败**时以 1 退出，而本脚本测的就是失败率，
@@ -184,6 +184,7 @@ def _run_locust(level: int, duration: str, rate: int) -> Path:
            "-u", str(level), "-r", str(rate), "-t", duration, "--csv", str(prefix),
            "--only-summary", "--exit-code-on-error", "0"]
     env = dict(os.environ)
+    env["SCENARIO"] = scenario   # 显式透传：hot（默认）/ storm / unique
     proc = subprocess.run(cmd, check=False, cwd=str(LOAD), env=env,
                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     stats_csv = prefix.with_name(prefix.name + "_stats.csv")
@@ -204,6 +205,12 @@ def main(argv: list[str] | None = None) -> int:
                          "**不要用固定速率**：固定 -r 10 + 30s 只能爬到 300 用户，高档位会跑不到（实测踩过）")
     ap.add_argument("--user", default=localapi.DEFAULT_EVAL_USER,
                     help=f"主体（默认 {localapi.DEFAULT_EVAL_USER}）——必须是真实用户名，不是 load_tokens 的键名")
+    ap.add_argument("--scenario", default="hot", choices=("hot", "storm", "unique"),
+                    help="locust 场景（默认 hot）。`unique`＝每请求唯一指纹，用于**真触发 L1**："
+                         "它绕过 L1/L2/Single-Flight 三层折叠且占空比≈1，在途 ≈ 并发数")
+    ap.add_argument("--report", default="concurrency_sweep",
+                    help="报告文件名（不含扩展名，默认 concurrency_sweep）。"
+                         "**别用默认名跑别的实验**——那会覆盖已入库的曲线报告")
     a = ap.parse_args(argv)
     levels = [int(x) for x in a.levels.split(",")]
 
@@ -227,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         # ramp 速率按档位自适应：保证在 --ramp-seconds 内爬到目标，高档位才"够得着"
         rate = max(1, round(lv / max(1, a.ramp_seconds)))
         with LevelSampler(token) as s:
-            stats_csv = _run_locust(lv, a.duration, rate)
+            stats_csv = _run_locust(lv, a.duration, rate, a.scenario)
             worst, manual, max_inflight = s.worst, s.manual_seen, s.max_inflight
         st = parse_stats_csv(stats_csv)
         fails = parse_failures_csv(stats_csv.with_name(stats_csv.name.replace("_stats.csv", "_failures.csv")))
@@ -247,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         "measured_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
         "subject": a.user,
         "backend": backend,
+        "scenario": a.scenario,
         "llm_failure_threshold": llm_failure_threshold,
         "inflight_threshold": inflight_threshold,
         "quota_limit": quota_limit,
@@ -258,18 +266,24 @@ def main(argv: list[str] | None = None) -> int:
                  "降级档位取每档运行期间的**最高**档（轮询 1s，瞬时采样会漏脉冲）；manual_lock_seen=true "
                  "表示该档期间存在人工锁定，其档位不纯由负载导致。原始 locust 产物在 "
                  "load/_sweep_raw/（不入库），本报告是唯一入库的汇总。"
-                 "**配额口径须一并读**：六档合计请求数远超默认配额（5000/天/主体），故本轮的网关是以"
-                 "抬高的 OPSPILOT_QUOTA_DAILY_LIMIT 启动的——本报告记录的 quota_limit 即当时真值；"
+                 "**配额口径须一并读**：多数档合计请求数可能超出默认配额（5000/天/主体），故网关常以"
+                 "抬高的 OPSPILOT_QUOTA_DAILY_LIMIT 启动——本报告记录的 quota_limit 即当时真值；"
                  "曲线测的是延迟/吞吐，不是配额护栏，配额耗尽后 locust 会把 429 记成失败使曲线失真，"
                  "故抬高并披露。各档 failure_rate 即该档是否被 429 污染的判据。"
                  "**实到并发必须看**：`-r` × 时长为并发上限，固定 ramp 速率会让高档位爬不到目标"
                  "（曾出现「u=500 实到只有 290」，标签与事实不符）；本脚本按 `档位/ramp-seconds` "
                  "自适应 ramp 并逐档记录实到值。**失败要分性质**：`HTTP 0` 是连接层（容量/本地栈极限），"
                  "`HTTP 5xx` 才是应用缺陷；且连接层失败可能**非单调**（本地临时端口耗尽等粘性资源"
-                 "会让相邻档出现「低档失败、高档反而干净」），故单看某一档的失败率不足以下结论。"),
+                 "会让相邻档出现「低档失败、高档反而干净」），故单看某一档的失败率不足以下结论。"
+                 + ("  **本报告是 `unique` 场景**：每请求唯一指纹（纯字母 nonce——数字/UUID 会被指纹"
+                    "归一化掩码掉，那样所有请求同指纹、被 Single-Flight 折成一个 leader，在途永远上不去），"
+                    "占空比≈1，故在途 ≈ 并发数，这才够得着 L1 触发线。判据不能只看本报告的档位："
+                    "还须核审计行（`ev=degrade_transition` 的 cause、以及 chat 行的 `degrade_level` + "
+                    "`stage_ms.vector==0`）——`mode=es_only` 单独不作为降级证据（它有两个来源）。"
+                    if a.scenario == "unique" else "")),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
-    (REPORTS / "concurrency_sweep.json").write_text(
+    (REPORTS / f"{a.report}.json").write_text(
         json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def f(x, nd=1):
@@ -281,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     md = [
         "# 并发-延迟曲线（拐点与首次降级档）",
         "",
-        f"> 实测时间：{out['measured_at']} ｜ 主体 `{a.user}` ｜ 每档 {a.duration}（ramp {a.ramp_seconds}s） ｜ "
+        f"> 场景 `{a.scenario}` ｜ 实测时间：{out['measured_at']} ｜ 主体 `{a.user}` ｜ 每档 {a.duration}（ramp {a.ramp_seconds}s） ｜ "
         f"在途降级阈值 {inflight_threshold}（L1 触发线） ｜ LLM 熔断失败阈值 {llm_failure_threshold}（L2 触发） ｜ "
         f"当日配额上限 {quota_limit}",
         f"> 后端：embedding={backend.get('embedding')} / rerank={backend.get('rerank')} / "
@@ -307,10 +321,12 @@ def main(argv: list[str] | None = None) -> int:
             md.append(f"- u={p['level']}：" + "；".join(
                 f"`{d['error']}` ×{d['occurrences']}" for d in p["failure_detail"]))
     md += ["", out["note"], "",
-           f"复现：`cd offline && python load/sweep.py --levels {a.levels} --duration {a.duration}`"
-           "（需活体栈 + `.env` + live key；每档真实调用 LLM，有 token 成本）。"]
-    (REPORTS / "concurrency_sweep.md").write_text("\n".join(md) + "\n", encoding="utf-8")
-    print(f"OK 六档完成，首次降级档={first_l1} -> {REPORTS / 'concurrency_sweep.md'}")
+           f"复现：`cd offline && python load/sweep.py --levels {a.levels} --duration {a.duration}"
+           + (f" --scenario {a.scenario}" if a.scenario != "hot" else "")
+           + (f" --report {a.report}" if a.report != "concurrency_sweep" else "")
+           + "`（需活体栈 + `.env` + live key；每档真实调用 LLM，有 token 成本）。"]
+    (REPORTS / f"{a.report}.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    print(f"OK {len(points)} 档完成（场景 {a.scenario}），首次降级档={first_l1} -> {REPORTS / (a.report + '.md')}")
     return 0
 
 

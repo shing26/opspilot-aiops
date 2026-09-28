@@ -1,0 +1,2067 @@
+{
+  "measured_at": "2026-09-28T11:32:22+08:00",
+  "backend": {
+    "llm": "dashscope:qwen-plus",
+    "rerank": "dashscope:gte-rerank-v2",
+    "embedding": "dashscope:text-embedding-v3"
+  },
+  "golden_samples": 59,
+  "modes": {
+    "es_only": {
+      "exact": {
+        "n": 34,
+        "hit@1": 1.0,
+        "hit@3": 1.0,
+        "mrr": 1.0,
+        "ci95_hit@1": 0.0,
+        "rows": [
+          {
+            "q": "50012_DB_TIMEOUT",
+            "top3": [
+              "rb-001",
+              "pm-001",
+              "rb-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50013_DB_DEADLOCK",
+            "top3": [
+              "pm-002",
+              "rb-002",
+              "rb-002"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50021_REDIS_TIMEOUT",
+            "top3": [
+              "pm-003",
+              "rb-003",
+              "rb-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50022_REDIS_CONN_REFUSED",
+            "top3": [
+              "pm-004",
+              "rb-003",
+              "rb-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50031_MQ_CONSUME_LAG",
+            "top3": [
+              "pm-005",
+              "rb-004",
+              "rb-004"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50032_MQ_SEND_FAILED",
+            "top3": [
+              "rb-004",
+              "pm-006",
+              "rb-004"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50041_PAY_GATEWAY_502",
+            "top3": [
+              "rb-005",
+              "rb-005",
+              "pm-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50042_PAY_SIGN_INVALID",
+            "top3": [
+              "pm-008",
+              "pm-008",
+              "rb-005"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "40901_ORDER_STATE_CONFLICT",
+            "top3": [
+              "rb-006",
+              "pm-009",
+              "rb-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "40902_INVENTORY_INSUFFICIENT",
+            "top3": [
+              "rb-007",
+              "rb-007",
+              "rb-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "42901_RATE_LIMIT_EXCEEDED",
+            "top3": [
+              "rb-008",
+              "rb-008",
+              "rb-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50051_ES_INDEX_MISSING",
+            "top3": [
+              "rb-013",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50061_OSS_UPLOAD_DENIED",
+            "top3": [
+              "rb-013",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50071_CONFIG_CENTER_UNREACHABLE",
+            "top3": [
+              "pm-015",
+              "pm-015",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50081_K8S_POD_OOMKILLED",
+            "top3": [
+              "pm-010",
+              "rb-009",
+              "rb-009"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50082_K8S_NODE_NOT_READY",
+            "top3": [
+              "rb-010",
+              "pm-011",
+              "rb-010"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50091_JVM_GC_PAUSE",
+            "top3": [
+              "rb-011",
+              "pm-012",
+              "rb-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50092_THREAD_POOL_EXHAUSTED",
+            "top3": [
+              "rb-012",
+              "pm-013",
+              "rb-012"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50101_SLOW_SQL_DETECTED",
+            "top3": [
+              "order-center-api",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50111_CERT_EXPIRING",
+            "top3": [
+              "rb-014",
+              "rb-014",
+              "rb-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50121_DNS_RESOLUTION_FAILED",
+            "top3": [
+              "pm-014",
+              "pm-014",
+              "pm-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50131_NTP_DRIFT",
+            "top3": [
+              "rb-010",
+              "order-center-api",
+              "rb-010"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50141_CONNECTION_POOL_EXHAUSTED",
+            "top3": [
+              "rb-001",
+              "pm-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50151_FEIGN_TIMEOUT",
+            "top3": [
+              "order-center-api",
+              "rb-005",
+              "pm-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50161_SENTINEL_BLOCKED",
+            "top3": [
+              "rb-008",
+              "rb-008",
+              "rb-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51103_H2_CONCURRENT_WRITE_CORRUPTION",
+            "top3": [
+              "rb-105",
+              "pm-104",
+              "rb-105"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51201_CIRCUIT_BREAKER_NO_SELFHEAL",
+            "top3": [
+              "rb-201",
+              "pm-201",
+              "rb-201"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51202_CACHE_EVICTED_EARLY",
+            "top3": [
+              "rb-202",
+              "pm-202",
+              "rb-202"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51203_CONTAINER_MEM_BUDGET",
+            "top3": [
+              "rb-203",
+              "pm-203",
+              "rb-203"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51204_BACKUP_LAYER_MISSING",
+            "top3": [
+              "rb-204",
+              "pm-204",
+              "rb-204"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51205_SINGLEFLIGHT_TENANT_GAP",
+            "top3": [
+              "rb-205",
+              "pm-205",
+              "rb-205"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51206_CLIENT_ERROR_LAYERING",
+            "top3": [
+              "rb-206",
+              "pm-206",
+              "rb-206"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51207_HOSTPORT_PROXY_LATENCY",
+            "top3": [
+              "rb-207",
+              "pm-207",
+              "rb-207"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51208_DEPENDENCY_DOWN",
+            "top3": [
+              "rb-208",
+              "rb-208",
+              "rb-208"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          }
+        ]
+      },
+      "semantic": {
+        "n": 25,
+        "hit@1": 0.64,
+        "hit@3": 0.92,
+        "mrr": 0.7667,
+        "ci95_hit@1": 0.1882,
+        "rows": [
+          {
+            "q": "下单一直超时页面转圈，数据库是不是扛不住了",
+            "top3": [
+              "pm-101",
+              "rb-001",
+              "rb-204"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "连接池被占满，获取连接等待超时",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "rb-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "库存扣减的时候事务互相卡住回滚了",
+            "top3": [
+              "pm-002",
+              "order-center-api",
+              "rb-105"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "购物车加载不出来，缓存服务响应太慢",
+            "top3": [
+              "order-center-api",
+              "order-center-api",
+              "order-center-api"
+            ],
+            "hit@1": false,
+            "hit@3": false,
+            "es_contributed": 3
+          },
+          {
+            "q": "登录失败，连不上会话存储的 Redis",
+            "top3": [
+              "rb-003",
+              "pm-004",
+              "order-center-api"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "支付回调处理特别慢，消息堆积了几十万",
+            "top3": [
+              "order-center-api",
+              "rb-004",
+              "pm-005"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "订单事件发不出去，消息队列投递失败",
+            "top3": [
+              "pm-006",
+              "pm-006",
+              "pm-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "第三方支付渠道挂了，下单付款全部报错",
+            "top3": [
+              "pm-007",
+              "pm-007",
+              "rb-005"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "回调签名验证不通过，密钥版本对不上",
+            "top3": [
+              "pm-008",
+              "pm-008",
+              "rb-005"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "订单取消和支付撞车了，状态机报错",
+            "top3": [
+              "pm-009",
+              "pm-009",
+              "rb-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "明明显示有货，提交订单却说库存不足",
+            "top3": [
+              "rb-007",
+              "rb-102",
+              "rb-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "大促流量太大，接口被限流拒绝请求",
+            "top3": [
+              "rb-008",
+              "pm-001",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "搜索商品报错，说索引不存在",
+            "top3": [
+              "order-center-api",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "用户头像上传失败，对象存储拒绝访问",
+            "top3": [
+              "order-center-api",
+              "rb-013",
+              "pm-012"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "配置中心连不上，服务拉不到最新配置",
+            "top3": [
+              "pm-004",
+              "pm-015",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "发券服务容器被杀掉了，反复重启",
+            "top3": [
+              "pm-203",
+              "rb-203",
+              "pm-203"
+            ],
+            "hit@1": false,
+            "hit@3": false,
+            "es_contributed": 3
+          },
+          {
+            "q": "K8s 节点掉线了，Pod 调度不上去",
+            "top3": [
+              "rb-009",
+              "rb-009",
+              "pm-011"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "接口每隔几秒卡一下，像是垃圾回收停顿",
+            "top3": [
+              "pm-012",
+              "rb-011",
+              "pm-012"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "异步任务全部排队，线程池满了拒绝执行",
+            "top3": [
+              "rb-012",
+              "pm-013",
+              "rb-012"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "内部域名解析不了，服务之间调不通",
+            "top3": [
+              "pm-014",
+              "rb-207",
+              "pm-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "机器时间不准，签名被判定为未来时间",
+            "top3": [
+              "pm-207",
+              "pm-207",
+              "pm-011"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "数据库连接泄漏，池子耗尽要重启",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "rb-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "调用下游服务超时，Feign 读超时",
+            "top3": [
+              "pm-013",
+              "pm-001",
+              "order-center-api"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "HTTPS 握手失败，证书快要过期了",
+            "top3": [
+              "rb-014",
+              "rb-014",
+              "rb-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "热点商品加购被熔断保护挡住了",
+            "top3": [
+              "order-center-api",
+              "rb-008",
+              "pm-201"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          }
+        ]
+      }
+    },
+    "vector_only": {
+      "exact": {
+        "n": 34,
+        "hit@1": 1.0,
+        "hit@3": 1.0,
+        "mrr": 1.0,
+        "ci95_hit@1": 0.0,
+        "rows": [
+          {
+            "q": "50012_DB_TIMEOUT",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50013_DB_DEADLOCK",
+            "top3": [
+              "rb-002",
+              "pm-002",
+              "rb-002"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50021_REDIS_TIMEOUT",
+            "top3": [
+              "pm-003",
+              "pm-003",
+              "rb-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50022_REDIS_CONN_REFUSED",
+            "top3": [
+              "pm-004",
+              "pm-004",
+              "pm-004"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50031_MQ_CONSUME_LAG",
+            "top3": [
+              "pm-005",
+              "pm-005",
+              "pm-005"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50032_MQ_SEND_FAILED",
+            "top3": [
+              "pm-006",
+              "pm-006",
+              "pm-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50041_PAY_GATEWAY_502",
+            "top3": [
+              "rb-005",
+              "pm-007",
+              "rb-005"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50042_PAY_SIGN_INVALID",
+            "top3": [
+              "pm-008",
+              "pm-008",
+              "pm-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "40901_ORDER_STATE_CONFLICT",
+            "top3": [
+              "rb-006",
+              "rb-006",
+              "pm-009"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "40902_INVENTORY_INSUFFICIENT",
+            "top3": [
+              "rb-007",
+              "rb-007",
+              "rb-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "42901_RATE_LIMIT_EXCEEDED",
+            "top3": [
+              "rb-008",
+              "rb-008",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50051_ES_INDEX_MISSING",
+            "top3": [
+              "rb-013",
+              "rb-013",
+              "order-center-api"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50061_OSS_UPLOAD_DENIED",
+            "top3": [
+              "rb-013",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50071_CONFIG_CENTER_UNREACHABLE",
+            "top3": [
+              "pm-015",
+              "pm-015",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50081_K8S_POD_OOMKILLED",
+            "top3": [
+              "rb-009",
+              "pm-010",
+              "pm-010"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50082_K8S_NODE_NOT_READY",
+            "top3": [
+              "rb-010",
+              "rb-010",
+              "pm-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50091_JVM_GC_PAUSE",
+            "top3": [
+              "pm-012",
+              "rb-011",
+              "rb-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50092_THREAD_POOL_EXHAUSTED",
+            "top3": [
+              "pm-013",
+              "rb-012",
+              "rb-012"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50101_SLOW_SQL_DETECTED",
+            "top3": [
+              "pm-001",
+              "rb-001",
+              "rb-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50111_CERT_EXPIRING",
+            "top3": [
+              "rb-014",
+              "rb-014",
+              "rb-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50121_DNS_RESOLUTION_FAILED",
+            "top3": [
+              "pm-014",
+              "pm-014",
+              "pm-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50131_NTP_DRIFT",
+            "top3": [
+              "pm-011",
+              "rb-010",
+              "pm-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50141_CONNECTION_POOL_EXHAUSTED",
+            "top3": [
+              "pm-001",
+              "pm-001",
+              "rb-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50151_FEIGN_TIMEOUT",
+            "top3": [
+              "pm-013",
+              "rb-005",
+              "order-center-api"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "50161_SENTINEL_BLOCKED",
+            "top3": [
+              "rb-008",
+              "rb-008",
+              "rb-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51103_H2_CONCURRENT_WRITE_CORRUPTION",
+            "top3": [
+              "rb-105",
+              "rb-105",
+              "rb-105"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51201_CIRCUIT_BREAKER_NO_SELFHEAL",
+            "top3": [
+              "rb-201",
+              "rb-201",
+              "rb-201"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51202_CACHE_EVICTED_EARLY",
+            "top3": [
+              "rb-202",
+              "rb-202",
+              "rb-202"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51203_CONTAINER_MEM_BUDGET",
+            "top3": [
+              "pm-203",
+              "pm-203",
+              "pm-203"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51204_BACKUP_LAYER_MISSING",
+            "top3": [
+              "rb-204",
+              "rb-204",
+              "rb-204"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51205_SINGLEFLIGHT_TENANT_GAP",
+            "top3": [
+              "rb-205",
+              "rb-205",
+              "rb-205"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51206_CLIENT_ERROR_LAYERING",
+            "top3": [
+              "rb-206",
+              "pm-206",
+              "rb-206"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51207_HOSTPORT_PROXY_LATENCY",
+            "top3": [
+              "rb-207",
+              "pm-207",
+              "rb-207"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "51208_DEPENDENCY_DOWN",
+            "top3": [
+              "rb-208",
+              "rb-208",
+              "rb-208"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          }
+        ]
+      },
+      "semantic": {
+        "n": 25,
+        "hit@1": 0.88,
+        "hit@3": 1.0,
+        "mrr": 0.94,
+        "ci95_hit@1": 0.1274,
+        "rows": [
+          {
+            "q": "下单一直超时页面转圈，数据库是不是扛不住了",
+            "top3": [
+              "order-center-api",
+              "pm-001",
+              "rb-001"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "连接池被占满，获取连接等待超时",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "库存扣减的时候事务互相卡住回滚了",
+            "top3": [
+              "rb-002",
+              "order-center-api",
+              "pm-002"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "购物车加载不出来，缓存服务响应太慢",
+            "top3": [
+              "pm-003",
+              "order-center-api",
+              "pm-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "登录失败，连不上会话存储的 Redis",
+            "top3": [
+              "pm-004",
+              "order-center-api",
+              "rb-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "支付回调处理特别慢，消息堆积了几十万",
+            "top3": [
+              "pm-005",
+              "pm-005",
+              "order-center-api"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "订单事件发不出去，消息队列投递失败",
+            "top3": [
+              "pm-006",
+              "pm-006",
+              "pm-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "第三方支付渠道挂了，下单付款全部报错",
+            "top3": [
+              "pm-007",
+              "pm-007",
+              "pm-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "回调签名验证不通过，密钥版本对不上",
+            "top3": [
+              "pm-008",
+              "pm-008",
+              "rb-005"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "订单取消和支付撞车了，状态机报错",
+            "top3": [
+              "pm-009",
+              "pm-009",
+              "pm-009"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "明明显示有货，提交订单却说库存不足",
+            "top3": [
+              "rb-007",
+              "rb-007",
+              "rb-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "大促流量太大，接口被限流拒绝请求",
+            "top3": [
+              "rb-008",
+              "pm-001",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "搜索商品报错，说索引不存在",
+            "top3": [
+              "order-center-api",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "用户头像上传失败，对象存储拒绝访问",
+            "top3": [
+              "order-center-api",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "配置中心连不上，服务拉不到最新配置",
+            "top3": [
+              "pm-015",
+              "pm-004",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "发券服务容器被杀掉了，反复重启",
+            "top3": [
+              "pm-010",
+              "rb-203",
+              "rb-203"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "K8s 节点掉线了，Pod 调度不上去",
+            "top3": [
+              "pm-011",
+              "rb-010",
+              "rb-010"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "接口每隔几秒卡一下，像是垃圾回收停顿",
+            "top3": [
+              "rb-011",
+              "pm-012",
+              "rb-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "异步任务全部排队，线程池满了拒绝执行",
+            "top3": [
+              "rb-012",
+              "pm-013",
+              "pm-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "内部域名解析不了，服务之间调不通",
+            "top3": [
+              "pm-014",
+              "pm-014",
+              "pm-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "机器时间不准，签名被判定为未来时间",
+            "top3": [
+              "rb-010",
+              "rb-010",
+              "order-center-api"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "数据库连接泄漏，池子耗尽要重启",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "调用下游服务超时，Feign 读超时",
+            "top3": [
+              "pm-007",
+              "pm-013",
+              "pm-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "HTTPS 握手失败，证书快要过期了",
+            "top3": [
+              "rb-014",
+              "rb-014",
+              "rb-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "热点商品加购被熔断保护挡住了",
+            "top3": [
+              "rb-008",
+              "pm-002",
+              "rb-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          }
+        ]
+      }
+    },
+    "hybrid": {
+      "exact": {
+        "n": 34,
+        "hit@1": 1.0,
+        "hit@3": 1.0,
+        "mrr": 1.0,
+        "ci95_hit@1": 0.0,
+        "rows": [
+          {
+            "q": "50012_DB_TIMEOUT",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50013_DB_DEADLOCK",
+            "top3": [
+              "rb-002",
+              "pm-002",
+              "rb-002"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50021_REDIS_TIMEOUT",
+            "top3": [
+              "rb-003",
+              "pm-003",
+              "rb-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50022_REDIS_CONN_REFUSED",
+            "top3": [
+              "pm-004",
+              "pm-004",
+              "pm-004"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50031_MQ_CONSUME_LAG",
+            "top3": [
+              "pm-005",
+              "rb-004",
+              "rb-004"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50032_MQ_SEND_FAILED",
+            "top3": [
+              "pm-006",
+              "rb-004",
+              "rb-004"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50041_PAY_GATEWAY_502",
+            "top3": [
+              "rb-005",
+              "rb-005",
+              "pm-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50042_PAY_SIGN_INVALID",
+            "top3": [
+              "pm-008",
+              "pm-008",
+              "pm-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "40901_ORDER_STATE_CONFLICT",
+            "top3": [
+              "rb-006",
+              "pm-009",
+              "rb-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "40902_INVENTORY_INSUFFICIENT",
+            "top3": [
+              "rb-007",
+              "rb-007",
+              "rb-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "42901_RATE_LIMIT_EXCEEDED",
+            "top3": [
+              "rb-008",
+              "rb-008",
+              "rb-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50051_ES_INDEX_MISSING",
+            "top3": [
+              "rb-013",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50061_OSS_UPLOAD_DENIED",
+            "top3": [
+              "rb-013",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50071_CONFIG_CENTER_UNREACHABLE",
+            "top3": [
+              "pm-015",
+              "pm-015",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50081_K8S_POD_OOMKILLED",
+            "top3": [
+              "rb-009",
+              "rb-009",
+              "pm-010"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50082_K8S_NODE_NOT_READY",
+            "top3": [
+              "pm-011",
+              "rb-010",
+              "pm-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50091_JVM_GC_PAUSE",
+            "top3": [
+              "rb-011",
+              "pm-012",
+              "pm-012"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50092_THREAD_POOL_EXHAUSTED",
+            "top3": [
+              "rb-012",
+              "pm-013",
+              "rb-012"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50101_SLOW_SQL_DETECTED",
+            "top3": [
+              "rb-001",
+              "pm-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50111_CERT_EXPIRING",
+            "top3": [
+              "rb-014",
+              "rb-014",
+              "rb-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50121_DNS_RESOLUTION_FAILED",
+            "top3": [
+              "pm-014",
+              "pm-014",
+              "pm-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50131_NTP_DRIFT",
+            "top3": [
+              "rb-010",
+              "rb-010",
+              "pm-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50141_CONNECTION_POOL_EXHAUSTED",
+            "top3": [
+              "pm-001",
+              "pm-001",
+              "rb-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50151_FEIGN_TIMEOUT",
+            "top3": [
+              "rb-005",
+              "order-center-api",
+              "pm-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "50161_SENTINEL_BLOCKED",
+            "top3": [
+              "rb-008",
+              "rb-008",
+              "rb-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51103_H2_CONCURRENT_WRITE_CORRUPTION",
+            "top3": [
+              "rb-105",
+              "pm-104",
+              "rb-105"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51201_CIRCUIT_BREAKER_NO_SELFHEAL",
+            "top3": [
+              "rb-201",
+              "pm-201",
+              "rb-201"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51202_CACHE_EVICTED_EARLY",
+            "top3": [
+              "rb-202",
+              "rb-202",
+              "pm-202"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51203_CONTAINER_MEM_BUDGET",
+            "top3": [
+              "rb-203",
+              "pm-203",
+              "rb-203"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51204_BACKUP_LAYER_MISSING",
+            "top3": [
+              "rb-204",
+              "pm-204",
+              "rb-204"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51205_SINGLEFLIGHT_TENANT_GAP",
+            "top3": [
+              "rb-205",
+              "pm-205",
+              "rb-205"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51206_CLIENT_ERROR_LAYERING",
+            "top3": [
+              "rb-206",
+              "pm-206",
+              "rb-206"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51207_HOSTPORT_PROXY_LATENCY",
+            "top3": [
+              "pm-207",
+              "rb-207",
+              "rb-207"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "51208_DEPENDENCY_DOWN",
+            "top3": [
+              "rb-208",
+              "rb-208",
+              "rb-208"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          }
+        ]
+      },
+      "semantic": {
+        "n": 25,
+        "hit@1": 0.88,
+        "hit@3": 1.0,
+        "mrr": 0.94,
+        "ci95_hit@1": 0.1274,
+        "rows": [
+          {
+            "q": "下单一直超时页面转圈，数据库是不是扛不住了",
+            "top3": [
+              "pm-001",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 1
+          },
+          {
+            "q": "连接池被占满，获取连接等待超时",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "库存扣减的时候事务互相卡住回滚了",
+            "top3": [
+              "rb-002",
+              "order-center-api",
+              "pm-002"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "购物车加载不出来，缓存服务响应太慢",
+            "top3": [
+              "pm-003",
+              "order-center-api",
+              "pm-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "登录失败，连不上会话存储的 Redis",
+            "top3": [
+              "pm-004",
+              "order-center-api",
+              "rb-003"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "支付回调处理特别慢，消息堆积了几十万",
+            "top3": [
+              "pm-005",
+              "pm-005",
+              "order-center-api"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "订单事件发不出去，消息队列投递失败",
+            "top3": [
+              "pm-006",
+              "pm-006",
+              "pm-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "第三方支付渠道挂了，下单付款全部报错",
+            "top3": [
+              "pm-007",
+              "pm-007",
+              "pm-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "回调签名验证不通过，密钥版本对不上",
+            "top3": [
+              "pm-008",
+              "pm-008",
+              "rb-005"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "订单取消和支付撞车了，状态机报错",
+            "top3": [
+              "pm-009",
+              "pm-009",
+              "pm-009"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "明明显示有货，提交订单却说库存不足",
+            "top3": [
+              "rb-007",
+              "rb-007",
+              "rb-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "大促流量太大，接口被限流拒绝请求",
+            "top3": [
+              "rb-008",
+              "pm-001",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "搜索商品报错，说索引不存在",
+            "top3": [
+              "order-center-api",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "用户头像上传失败，对象存储拒绝访问",
+            "top3": [
+              "order-center-api",
+              "rb-013",
+              "rb-013"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "配置中心连不上，服务拉不到最新配置",
+            "top3": [
+              "pm-015",
+              "pm-004",
+              "pm-015"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "发券服务容器被杀掉了，反复重启",
+            "top3": [
+              "pm-010",
+              "rb-203",
+              "rb-203"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "K8s 节点掉线了，Pod 调度不上去",
+            "top3": [
+              "pm-011",
+              "rb-010",
+              "rb-010"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "接口每隔几秒卡一下，像是垃圾回收停顿",
+            "top3": [
+              "rb-011",
+              "pm-012",
+              "pm-012"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "异步任务全部排队，线程池满了拒绝执行",
+            "top3": [
+              "rb-012",
+              "pm-013",
+              "pm-013"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "内部域名解析不了，服务之间调不通",
+            "top3": [
+              "pm-014",
+              "pm-014",
+              "pm-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "机器时间不准，签名被判定为未来时间",
+            "top3": [
+              "rb-010",
+              "rb-010",
+              "pm-011"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "数据库连接泄漏，池子耗尽要重启",
+            "top3": [
+              "rb-001",
+              "rb-001",
+              "pm-001"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "调用下游服务超时，Feign 读超时",
+            "top3": [
+              "pm-007",
+              "pm-013",
+              "pm-007"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "HTTPS 握手失败，证书快要过期了",
+            "top3": [
+              "rb-014",
+              "rb-014",
+              "rb-014"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "热点商品加购被熔断保护挡住了",
+            "top3": [
+              "order-center-api",
+              "rb-008",
+              "pm-002"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          }
+        ]
+      }
+    }
+  },
+  "fusion_marginal": {
+    "exact": {
+      "n": 34,
+      "identical_top3": 13,
+      "identical_top3_ratio": 0.3824,
+      "es_contributed_items_in_top3": 102,
+      "queries_with_es_contribution": 34,
+      "hit@1_delta_vs_base": 0.0,
+      "hit@3_delta_vs_base": 0.0,
+      "mrr_delta_vs_base": 0.0
+    },
+    "semantic": {
+      "n": 25,
+      "identical_top3": 21,
+      "identical_top3_ratio": 0.84,
+      "es_contributed_items_in_top3": 73,
+      "queries_with_es_contribution": 25,
+      "hit@1_delta_vs_base": 0.0,
+      "hit@3_delta_vs_base": 0.0,
+      "mrr_delta_vs_base": 0.0
+    }
+  },
+  "cross_check": {
+    "available": true,
+    "max_abs_delta": 0.0,
+    "matches_within_0.02": true,
+    "deltas": {
+      "es_only.exact.hit@1": 0.0,
+      "es_only.exact.hit@3": 0.0,
+      "es_only.exact.mrr": 0.0,
+      "es_only.semantic.hit@1": 0.0,
+      "es_only.semantic.hit@3": 0.0,
+      "es_only.semantic.mrr": 0.0,
+      "vector_only.exact.hit@1": 0.0,
+      "vector_only.exact.hit@3": 0.0,
+      "vector_only.exact.mrr": 0.0,
+      "vector_only.semantic.hit@1": 0.0,
+      "vector_only.semantic.hit@3": 0.0,
+      "vector_only.semantic.mrr": 0.0,
+      "hybrid.exact.hit@1": 0.0,
+      "hybrid.exact.hit@3": 0.0,
+      "hybrid.exact.mrr": 0.0,
+      "hybrid.semantic.hit@1": 0.0,
+      "hybrid.semantic.hit@3": 0.0,
+      "hybrid.semantic.mrr": 0.0
+    },
+    "note": "两处同源同语料，差异应≈0；>0.02 说明语料/配置已分叉，先查再引用"
+  },
+  "note": "判据读法：`identical_top3_ratio == 1.0` 说明 fusion 与纯向量在这批查询上给出**同一组** top-3；此时若 `queries_with_es_contribution > 0`，则'融合没接线'这一解释被排除（ES 腿的 chunk 确实进了候选池并参与了最终排序），剩下的唯一解释是'融合生效但未改变 top-3'。反过来，若 `queries_with_es_contribution == 0`，那是**接线问题**，不是'贡献测不出'。本报告**不改默认配置**：既有两条读数（es_only 对照 64%→88%、扩语料后 es_only 漂移而 hybrid 不变）都指向'多一条腿提抗漂'，把词法腿当'无用'拆掉的风险远大于收益。"
+}

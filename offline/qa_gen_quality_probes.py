@@ -30,6 +30,7 @@ import secrets
 import sys
 import time
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -348,7 +349,54 @@ def run_longlog(token: str) -> None:
 
 # ---------------- V9：答案接地一致性（防幻觉的**事后**环；判据与单测见 offline/grounding.py） ----------------
 
-def run_grounding(records: list[dict]) -> None:
+def write_grounding_report(*, answers: int, codes_total: int, ungrounded: set, rate: float,
+                           samples: list, admin_tok: str) -> None:
+    """把 V9 的判据结论落盘成带同代戳的报告（OP-R1，2026-09-28）。
+
+    为什么必须落盘：V9 此前只在探针输出里印一行 PASS/FAIL，**跑完就没了**——而"答案接地"是
+    防幻觉链路的**事后**环，也是 mock 后端**验不了**的那一项（mock 的答案是逐字复制 chunk 正文，
+    接地判据在它上面恒真）。于是整个项目里唯一能验它的判据，结论却不留痕、进不了证据包、
+    更没有任何机器守它的同代性。本函数补上这三件事。
+
+    只断言"同代 + 零无据"（`eval/answer_eval.py --check` 侧），**不断言接地率的具体数值**：
+    那是 live 读数，含波动——把它写进 doc_numbers 会让门闩假红，而会假红的门更快被关掉。
+    """
+    try:
+        import provenance
+        ch = provenance.chunks_digest()
+    except Exception as e:                                    # pragma: no cover - 防御
+        ch = {"sha256": None, "lines": 0}
+        print(f"  [warn] 取语料摘要失败（报告仍落盘，但同代判据将不可用）：{e}")
+    backend = None
+    try:
+        backend = localapi.get_json("/api/v1/admin/metrics", admin_tok).get("backend")
+    except Exception as e:                                    # pragma: no cover - 防御
+        print(f"  [warn] 读后端标识失败：{e}")
+    report = {
+        "measured_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+        "produced_by": "offline/qa_gen_quality_probes.py（V9，复用 V2/V4 已产出答案，零额外 chat 预算）",
+        "answers": answers,
+        "codes_total": codes_total,
+        "codes_ungrounded": len(ungrounded),
+        "grounding_rate": round(rate, 4),
+        "ungrounded_samples": samples[:10],
+        "backend": backend,
+        "chunks_sha256": ch.get("sha256"),
+        "chunks_lines": ch.get("lines"),
+        "chat_calls_this_run": chat_calls,
+        "judge": "offline/grounding.py——答案里出现的错误码必须落在本轮 refs 的 error_codes 并集内",
+        "known_boundary": ("只管**错误码**这一种精确符号；runbook 步骤编号（pm-*/rb-*）、配置项名、"
+                           "服务名不在管辖内（要纳入须先给出'有据'的可判读定义，否则门闩变噪音源）。"
+                           "另：mock 后端上本判据恒真（答案是逐字复制 chunk 正文），故本报告只在 live 口径下有意义。"),
+    }
+    out = Path("eval/reports/grounding_report.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"  [V9] 接地报告已落盘 → {out}（answers={answers} codes={codes_total} "
+          f"ungrounded={len(ungrounded)} rate={rate:.0%}）")
+
+
+def run_grounding(records: list[dict], admin_tok: str = "") -> None:
     """核"答案里出现的错误码是否都有据"——复用已产出答案，零额外 chat 预算。
 
     授权来源：该答案自己的 refs（done 帧带 chunkId）回查语料元数据 error_codes。模型只看得见
@@ -378,6 +426,9 @@ def run_grounding(records: list[dict]) -> None:
           f"（接地率 {rate:.0%}）"
           + ("；无据样例 " + "; ".join(samples[:3]) if samples else "")
           + ("  ← 本组答案未出现错误码：判据未被行使（非绿，仅不适用）" if total_codes == 0 else ""))
+    # OP-R1：判据结论落盘（否则"跑完就没了"，而对 mock 恒真的那一项只剩它能验）
+    write_grounding_report(answers=len(records), codes_total=total_codes, ungrounded=ungrounded,
+                           rate=rate, samples=samples, admin_tok=admin_tok)
 
 
 def main() -> int:
@@ -405,7 +456,7 @@ def main() -> int:
         run_longlog(l3)
     if "V9" in groups:
         # 复用 V2/V4 答案（零额外实调）；两组都未跑时素材为空 → 判据未被行使，按 FAIL 报出
-        run_grounding(v2_records + v4_records)
+        run_grounding(v2_records + v4_records, l3)
     fails = [n for n, ok, _ in results if not ok]
     print(f"\n== 生成质量包探针 {len(results) - len(fails)}/{len(results)} PASS | chat 实调 {chat_calls} 次 ==")
     if fails:

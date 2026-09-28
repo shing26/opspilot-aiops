@@ -52,6 +52,13 @@ jobs:
       - name: Doc numbers ⟷ artifacts gate
         working-directory: offline
         run: python doc_numbers.py --check
+      # 答案接地的机器侧（OP-R1，2026-09-28）：判据只断言「同代 + 零无据」——
+      # 报告由 live 探针产出后入库，CI 只读入库产物；**不**断言接地率数值（live 读数含波动，
+      # 纳入 doc_numbers 会让门闩假红）。这一项为什么值得进 CI：接地是防幻觉链路唯一的事后环，
+      # 而它在 mock 后端上恒真（mock 答案是逐字复制 chunk 正文），故 live 之外只剩这份报告能守。
+      - name: Grounding report ⟷ corpus same-generation + zero-ungrounded gate
+        working-directory: offline
+        run: python eval/answer_eval.py --check
       # 把 O1 的验收（"干净检出 + mock 一条命令产出完整归档"）从人工一次性变成每次 CI 复现：
       # 这里同时验证出包不因自检而误拒（分叉时打包器会拒绝出包，正是我们要的行为）。
       - name: Evidence pack smoke (clean checkout, mock)

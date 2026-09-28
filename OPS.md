@@ -89,6 +89,8 @@ cron（Linux 部署版；本机手动跑同样有效）：
 | L1 降级期的门控降级（摘除 Rerank 后无相关性分数可依，相关性门控失效、只剩零召回拒答） | 出现一次"L1 期**误拒或漏拒**造成真实事故"且被真人/QA 复现 → 立项标定 RRF 分数分布并给出 L1 专用阈值 | 取舍与理由见 [ADR-0012](docs/adr/0012-degradation-cost-semantics.md)：RRF 分数无量纲（只依赖排名），照搬 L0 在 Rerank 分布上标定的 `min-relevance: 0.2` 会变成拍脑袋拒答，而未标定阈值造成的**误拒是静默的**（用户只看到拒答，看不到本可作答）——比现状更糟。零召回仍拒答，故并非"完全不门控"；L1≡es_only 的同构关系已由单测锁定 |
 | L2 写入重复 embed（同一请求 embed 两次：检索腿一次、L2 写入一次） | 出现两组析取项任一：① **embedding 调用成本成为瓶颈**（日调用量翻倍触账单异常或上游限流）；② 单请求 `stage_ms.l2_store` 占比 **> 10%**（`/state` 与审计行可测）→ 立项把检索腿算出的向量回传给 L2 写入复用 | 成本已量化：实测一条 10.2s 请求里 `l2_store=232ms`（约 2.3%），延迟上不划算；真正的动机在**上游调用次数减半**。修法要向 `QdrantSearchService` 的返回面回传查询向量（并在 es_only/降级无向量时回退到 embed），接口面确有改动，故按触发线挂起不预防施工。**注**：原代码注释曾写"复用检索时已算好的向量"而实际未复用——那是**宣称失实**，已于 2026-09-25 改为如实描述（那个才是缺陷，已修） |
 
+| SSE 异步上下文错误后继续写（2026-09-28 压测窗口观测到 2 次） | 出现一次**客户可见**的"响应已开始但中途静默截断"且被复现——判据：能指到具体请求的 SSE 流在 done 帧前断掉，且伴随 `IllegalStateException: AsyncContext after error` | 观测到的 2 次都发生在**客户端断开之后**（locust 收尾那一秒；同轮 2700 请求里 2 次），不影响任何已成功响应；属"错误后仍尝试写"的收尾竞态，非数据正确性问题（审计行与缓存写入都在错误之前完成）。原文见 `logs/run-113138.log`；本轮为"记录 + 触发线"而非修复（不在批次二范围内，且无客户可见影响） |
+
 ### 5.1 历史遗留项的触发线收敛（2026-09-17）
 
 > 下面这批此前只有"另排期 / 待酌情 / 记录在案"而**没有可到点执行的触发条件**——按本项目纪律，
@@ -172,10 +174,25 @@ grep '"trace_id":"agent-run-7f3a"' logs/audit.jsonl   # 跨步链路（调用方
 **档位切换复核**（不复盘不宣称）：档位每变一次落 `ev=degrade_transition`（`from`/`to`/`cause` 三字段，`cause` 有限词表见 `CONTEXT.md` 降级域），审计业务行另有 `degrade_level` 列标明该请求所处档位。**`mode=es_only` 不能单独当降级证据**——那个字符串有两个来源（L1 降级 / 检索腿超时）：
 
 ```bash
-# 2026-09-25 那次压测全程未触发降级；重跑后先用这一条看切换有没有真的发生
+python scripts/audit_timeline.py          # 时间线：切换序列 + cause 词表校验 + 链式连续性
 grep '"ev":"degrade_transition"' logs/audit.jsonl
-# 只看负载压出来的（cause=manual 是人工锁的，不算）
-grep '"cause":"inflight"\|"cause":"llm_failure"' logs/audit.jsonl
+grep '"cause":"inflight"\|"cause":"llm_failure"' logs/audit.jsonl   # 只看负载/上游导致的
+# L1 的机器判据：mode=es_only **且** stage_ms.vector==0（单看 mode 会把"腿超时"读成"降级生效"）
+grep '"degrade_level":"L1"' logs/audit.jsonl | grep '"mode":"es_only"' | grep '"vector":0'
+```
+
+**2026-09-28 实测结果（本轮首次真正触发）**：`offline/load/reports/l1_trigger.md`——唯一指纹场景 48 并发 30s，在途峰值 **137**（触发线 40），审计落 `L0→L1 cause=inflight`；同轮上游对 48 并发返回 429，再落 `L1→L2 cause=llm_failure`；60s 冷却到期回 `L0 cause=cooldown_expired`。**两条复现配方**（都要活体栈 + live key）：
+
+```bash
+# ① L1：唯一指纹场景（nonce 必须**纯字母**——数字/UUID 会被指纹归一化掩码掉，那样所有请求同指纹、
+#    被 Single-Flight 折成一个 leader，在途永远到不了触发线）
+cd offline && python load/sweep.py --levels 48 --duration 30s --scenario unique --report l1_trigger
+# ② L2：可控失败注入（`LLM_MODEL` 覆写 → 不存在的模型名 → 上游 404 → 连续失败达阈）
+#    **必须**先清缓存，否则近似 query 会被 L2 语义缓存回放掉、根本不走到 LLM（实测踩过：failures 卡在 2）
+curl -s -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/v1/admin/cache/flush
+LLM_MODEL=__opspilot_probe_invalid__ java -jar target/opspilot-gateway-1.0.0.jar
+# ③ 回滚闸门（在 ①②之间必做）：等 /state 的 cooldown_s==0 且 level=="L0" 再起压，
+#    否则残留熔断态会让压测的 worst 直接读到 L2、L1 实验作废
 ```
 
 **能力边界（勿对外宣传）**：/v1 目前只有 `chat/completions`（stream=true）与 `models`；文件上传/语音/多模态对应端点未实现，任何客户端里点了即报错——协议面的演示只用文本对话。**归因纪律**：外部客户端出现"响应已返回但界面异常"时，先 `tail logs/audit.jsonl` 定位归属（有行且正常=该客户端渲染层的事），再排查——2026-09-11 在嵌入 webview 实测过此判据。
