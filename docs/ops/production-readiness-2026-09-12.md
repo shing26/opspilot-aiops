@@ -548,3 +548,29 @@ CI 侧其余读数与本机一致：`Tests run: 168, Failures: 0` ｜ `145 passe
 
 **配额**：本轮全程默认上限 5000/主体，用掉 **≈2900**（唯一指纹场景占空比≈1，30s 发出 ≈2700 请求——
 这是该场景的设计后果：要压出在途就得放弃思考时间；故报告里的 rps 不是容量上限，是"不等"的结果）。
+
+
+---
+
+## 修补记录（2026-09-28 续：探索性验收后的四项修复）
+
+来源：一次 persona 驱动的探索性验收（read-only，探针落在仓外临时目录）报了 11 条发现，主控逐条复核其中
+6 条承重结论**全部成立**，用户拍板先修 ①②③④（其余三类建议登记为边界）。全程 mock 后端——**上游 DashScope
+当日欠费**（三路全返 `code=Arrearage`），按本项目"别把降级态当基线"的纪律，live 一律未跑。
+
+| 项 | 修了什么 | 实测证据（修前 → 修后） |
+|---|---|---|
+| **① CORS** | `CorsConfig` 曾把 `"http://localhost:"` 这类**前缀**直接喂给 Spring 的 `allowedOriginPatterns`（那个 API 是 **glob 匹配**，无 `*` 即字面量精确匹配）⇒ 任何真实 origin 都不命中，而 `isAllowedOrigin()`（startsWith）却判"允许"——**同一份白名单两套判据互相矛盾**。改为 glob 为权威形态、前缀集合由它**派生**（不可能再分叉），并补上 `X-Trace-Id` 到 `allowedHeaders`（本仓 2026-09-28 新增的调用方关联键，漏了它带该头的跨源请求照样被预检拒） | `OPTIONS Origin: http://localhost:3000` **403 Invalid CORS request → 200 + `Access-Control-Allow-Origin`**；带 `Access-Control-Request-Headers: authorization,content-type,x-trace-id` → 200 且 ACAH 全回显；`http://evil.example.com` 仍 **403** |
+| **② 错误形状** | 声明只有两种（`/v1` 信封 + 其余 `{code,message}`），实测跑着**四种**：非 /v1 的 401 走 `sendError` 落 Spring 默认体（`{timestamp,status,error,path}`）、登录 401 是 `@ExceptionHandler` **返回** `ResponseStatusException` 被 Spring 渲染成 `application/problem+json`（还回显 `instance`）。新增 `gateway/ErrorBodies` 作**单点出口**，`JwtAuthFilter`/`RequestIdFilter`/`GlobalExceptionHandler`/`OpenAiErrorAdvice`/`AuthController` 全部改走它 | 四个受守卫面 + 登录面（错口令）无凭证请求：`401 application/json keys=['code','message']`，**五处全中**；再无 `timestamp`/`path`/`problem+json` |
+| **③ 回指澄清** | 新增 `gateway/ClarificationGate` + 编排分支：单轮系统遇到"刚才那个怎么办"这类**依赖上文**的短句，在**检索前**澄清而不是硬检索（修前实测会命中一篇无关复盘并答得自信——`51204_BACKUP_LAYER_MISSING`）。判据四重合取（≤8 字 ∧ 首部回指短语 ∧ 其后只剩提问尾巴 ∧ 无强标识符），零 LLM、无 refs、审计 `mode=clarify` + `refused=true`、不落 `stage_ms` | `chat("刚才那个怎么办")`：**0 refs + 含"单轮"说明**（修前 3 refs、给无关复盘）；`chat("上面说的第二步呢")` 同样澄清；正常问题仍 **3 refs** 正常作答 |
+| **④ /v1 面 400 留痕** | `OpenAiErrorAdvice` 的 `unreadable()` 与 `status()` 补 `audit.logInvalid`：此前同面 415 落、400 不落（与非 /v1 面 400 类全落不对称） | 打一发畸形体 400 → 审计行 **+1**，`{"ev":"invalid","path":"/v1/chat/completions","msg":"请求体解析失败"}` |
+
+**变异验证（四条，各改坏必红后还原）**：① CORS 常量改回前缀形态 → `CorsConfigTest` 3 处红（含 Spring 真实匹配器返回 `null`——正是原始 bug 形态）；② 非 /v1 改回 `sendError` → body 形状用例红；③ 去掉"尾巴只能是提问词"判据 → `ClarificationGateTest` 2 处红（含 `继续优化索引` 被误澄清）；④ 删掉 400 留痕 → `OpenAiErrorAdviceTest` 红。
+
+**这次收敛顺手修掉的两处"自己刚埋的"**：
+- **`X-Trace-Id` 没进 `allowedHeaders`**：① 修 CORS 时才发现——同一个洞的第二种形态（浏览器要发的头被预检拒）。
+- **澄清门放在了缓存之后**：第一版把门写在 `runPipeline` 里（缓存命中会先回放）⇒ 修前落进 L1 的旧答案继续生效，**实测"清缓存才生效"**。门判的是"输入形态"，与缓存状态无关，故移到**缓存之前**（仅 L2 期让位 SOP），并把"必须在 `try` 之内"写进注释——放到 try 外会让异常路径漏掉 `singleFlight.finish`，同指纹后续请求会阻塞在永不完成的 future 上。
+
+**两条新操作纪律（都写进 OPS §7）**：**打 jar 前必须先停服务**——Windows 上 JVM 锁着 `target/*.jar` 时 `spring-boot:repackage` 覆盖不了它，会**失败并留下被截断的 jar**（实测 84MB → 217KB，此后怎么起都是错的东西）；以及本轮新确认的"停进程按端口杀、启动以日志为准"。
+
+**门禁终态**：`mvn -B test` **188/188**（原 168 → +20 用例）｜ pytest 145 ｜ doc_numbers 23 条 33 处 ｜ provenance OK ｜ 面板契约四层一致 ｜ `bash -n` 全通过 ｜ 证据包 smoke 自洽。

@@ -187,7 +187,6 @@ class ChatOrchestratorTest {
     private static ChatRequest req(String query) {
         return req(query, "manual");
     }
-
     private static ChatRequest req(String query, String source) {
         return new ChatRequest(query, source, null, null);
     }
@@ -404,5 +403,27 @@ class ChatOrchestratorTest {
         Object masked = metrics.snapshot().get("verbatim_masked");
         assertTrue(masked instanceof Number && ((Number) masked).longValue() >= 1,
                 "verbatim_masked 计数未进账: " + metrics.snapshot());
+    }
+
+    /**
+     * 回指澄清（2026-09-28）：单轮系统遇到"刚才那个怎么办"必须**澄清**而不是硬检索。
+     *
+     * 为什么锁：实测把回指句当独立 query 检索，会命中一篇无关复盘并答得很自信
+     * （`51204_BACKUP_LAYER_MISSING`）——对"可信"的伤害大于多问一句。澄清与拒答同族：
+     * 零 LLM、零 refs、零检索，审计用 `mode=clarify` 与拒答区分。
+     */
+    @Test
+    void backReferenceIsClarifiedWithoutRetrievalOrLlm() throws Exception {
+        RecordingSink sink = new RecordingSink();
+        orchestrator.submit(req("刚才那个怎么办"), INTERNAL, sink, "sse");
+        awaitSuccess(sink);
+
+        assertTrue(sink.answer.toString().contains("单轮"), "应是澄清话术: " + sink.answer);
+        assertEquals(List.of(), sink.refs, "澄清不携带引用");
+        verifyNoInteractions(searchService);                       // 没检索
+        verify(llm, never()).streamChat(any(), any());             // 也没调 LLM（零 token）
+        verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), eq("刚才那个怎么办"),
+                anyString(), eq("none"), eq("clarify"), eq(true), eq(0), anyLong(),
+                isNull(), isNull(), isNull(), eq("L0"));
     }
 }

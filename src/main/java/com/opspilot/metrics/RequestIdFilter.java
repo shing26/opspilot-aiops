@@ -83,12 +83,12 @@ public class RequestIdFilter extends OncePerRequestFilter {
     private void reject(HttpServletRequest req, HttpServletResponse resp, String raw) throws IOException {
         String msg = "X-Trace-Id 非法（须 8–64 位 [A-Za-z0-9_-] / malformed X-Trace-Id header）";
         audit.logInvalid(null, req.getRequestURI(), msg);   // 此刻尚未鉴权：sub 留空，不编造身份
-        resp.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-        resp.setContentType("application/json;charset=UTF-8");
+        // 形状取单点定义（ErrorBodies）：filter 短路早于 @RestControllerAdvice，形状必须自己给，
+        // 但"自己给"不等于"各写一份"——那正是本轮收敛掉四种错误形状的根因。
         if (req.getRequestURI().startsWith("/v1")) {
-            resp.getWriter().write("{\"error\":{\"message\":\"" + msg + "\",\"type\":\"invalid_request_error\"}}");
+            com.opspilot.gateway.ErrorBodies.writeOpenAi(resp, 400, msg, "invalid_request_error", null);
             return;
         }
-        resp.getWriter().write("{\"code\":\"INVALID_REQUEST\",\"message\":\"" + msg + "\"}");
+        com.opspilot.gateway.ErrorBodies.writeApi(resp, 400, "INVALID_REQUEST", msg);
     }
 }

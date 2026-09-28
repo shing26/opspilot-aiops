@@ -183,12 +183,23 @@ class JwtAuthFilterTest {
         assertTrue(resp.getContentAsString().contains("\"invalid_api_key\""));
     }
 
-    /** /api 面维持原样（sendError 语义），本修复只收敛 /v1 形状。 */
+    /**
+     * 非 /v1 面（/api/**）的 401 也必须是 `{code,message}`——**2026-09-28 起不再 sendError**。
+     *
+     * 为什么改这条断言：此前它断言的是 `resp.getErrorMessage()`（sendError 的 reason），
+     * 而 sendError 落的是 Spring 默认错误体 `{timestamp,status,error,path}`——与文档声明的形状不符、
+     * 还回显 path。探索性验收把这条不一致实测出来了（同一提交里跑着四种错误形状，文档只声明两种）。
+     * 断言"状态码 + body 形状"比断言 sendError 的内部文案更贴近消费者真正依赖的东西。
+     */
     @Test
-    void apiSurfaceKeepsPlainUnauthorized() throws Exception {
+    void apiSurfaceUsesCodeMessageShape() throws Exception {
         MockHttpServletResponse resp = dispatch(null, new MockFilterChain());
         assertEquals(401, resp.getStatus());
-        assertEquals("missing bearer token", resp.getErrorMessage());
+        String body = resp.getContentAsString();
+        assertTrue(body.contains("\"code\":\"UNAUTHORIZED\"") && body.contains("\"message\":\"missing bearer token\""),
+                "非 /v1 面必须是 {code,message}，实际: " + body);
+        assertFalse(body.contains("timestamp") || body.contains("\"path\""),
+                "不得落 Spring 默认错误体的字段（timestamp/path），实际: " + body);
     }
 
     /** QA 第五轮 P3：RFC 7235 scheme 大小写不敏感 + 多空白容忍；裸值/Basic 仍拒。 */

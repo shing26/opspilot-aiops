@@ -17,8 +17,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * 权限维度（tenant/auth_level/role）以 **DB 为唯一真相**，token claim 仅作定位与卫生检查——
  * 降级用户不可能凭旧 token 维持高等级。/api/v1/copilot|admin/** 受此守卫；/api/v1/auth/login 免凭证
  * （由 AuthService 限流保护）。admin 端点在 Controller 层另有平台门禁（role=platform ∧ level≥3）。
- * 拒绝呈现分面：/v1（OpenAI 兼容面）直写标准 error JSON（filter 短路不经 advice，
- * Spring 默认体标准客户端解析不了——QA P2-3）；其余面维持 sendError。
+ * 拒绝呈现分面（**2026-09-28 收敛形状**）：两面都直写 JSON，形状由 `ErrorBodies` 单点定义——
+ * `/v1`（OpenAI 兼容面）用 `{"error":{...}}` 信封（filter 短路不经 advice，Spring 默认体标准客户端
+ * 解析不了——QA P2-3）；其余面用 `{code,message}`。此前非 /v1 分支用 `sendError`，落的是 Spring 默认
+ * 错误体（`{timestamp,status,error,path}`），与文档声明的形状不符且回显 path——探索性验收实测抓到的
+ * "四种错误形状"里就有它（文档只声明两种）。
  */
 @Component
 @Order(0)   // RequestIdFilter(HIGHEST_PRECEDENCE) 之后——守卫拒绝日志同样携带 request_id
@@ -91,13 +94,14 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 401 呈现按面分叉：/v1 直写 OpenAI 标准 error JSON（不回显 path），其余维持容器 sendError。
+     * 401 按面分叉，形状一律取 `ErrorBodies`（单点定义，避免"修一处漏一处"）：
+     * `/v1` 用 OpenAI 信封（`code=invalid_api_key`），其余面用 `{code,message}`。
      * 全分支留痕（QA P1-2）：守卫拒绝是攻击探测唯一可观测面，ev=auth outcome=denied。
      * /v1 的 401 由 filter 短路（早于 CORS 处理器），Origin 命中白名单时须主动回显 ACAO，
      * 否则浏览器端读不到错误详情（QA 第五轮 P2）。
      */
     private void deny(HttpServletRequest req, HttpServletResponse resp, String path,
-                      String legacyReason, String openAiMessage, String sub, String auditReason)
+                      String apiMessage, String openAiMessage, String sub, String auditReason)
             throws IOException {
         audit.logAuthDenied(sub, path, "denied", auditReason);
         if (path.startsWith("/v1")) {
@@ -105,13 +109,12 @@ public class JwtAuthFilter extends OncePerRequestFilter {
             if (com.opspilot.config.CorsConfig.isAllowedOrigin(origin)) {
                 resp.setHeader("Access-Control-Allow-Origin", origin);
             }
-            resp.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-            resp.setContentType("application/json;charset=UTF-8");
-            resp.getWriter().write("{\"error\":{\"message\":\"" + openAiMessage
-                    + "\",\"type\":\"authentication_error\",\"code\":\"invalid_api_key\"}}");
+            com.opspilot.gateway.ErrorBodies.writeOpenAi(resp, HttpServletResponse.SC_UNAUTHORIZED,
+                    openAiMessage, "authentication_error", "invalid_api_key");
             return;
         }
-        resp.sendError(HttpServletResponse.SC_UNAUTHORIZED, legacyReason);
+        com.opspilot.gateway.ErrorBodies.writeApi(resp, HttpServletResponse.SC_UNAUTHORIZED,
+                "UNAUTHORIZED", apiMessage);
     }
 
     /**

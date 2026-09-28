@@ -134,10 +134,35 @@ public class ChatOrchestrator {
             return;
         }
 
-        // leader：滑动窗口计数（30s 聚合叙事）→ L1 → L2 → 全链路
+        // 回指/追问澄清（2026-09-28，探索性验收查出的摩擦）：本系统单轮无会话，把"刚才那个怎么办"
+        // 当独立 query 硬检索会命中一篇无关复盘且答得自信——对"可信"的伤害远大于多问一句。
+        // **位置在缓存之前**：本门判的是"输入形态"，与缓存状态无关；放在缓存之后会让修复前落进 L1 的
+        // 旧答案继续回放（实测踩到：清缓存才生效，而"下次重灌"不是可靠前提）。
+        // 唯一例外是 L2：过载/熔断时 SOP 直出仍是更好的答案，澄清不该抢在它前面。
+        // 注意必须**在下面的 try 之内**：单飞登记靠 finally 收尾，放到 try 外会让异常路径漏掉
+        // `singleFlight.finish`，同指纹后续请求将阻塞在永不完成的 future 上（90s 超时）。
         try {
             SlidingWindowService.WindowResult win = slidingWindow.tryAcquire(fp, source);
             if (!win.first()) metrics.dedupAggregated();
+
+            Level level = degrade.current();
+            if (level != Level.L2 && ClarificationGate.needsClarification(query)) {
+                String clarify = ClarificationGate.MESSAGE;
+                AnswerPayload p = new AnswerPayload(clarify, List.of(), "clarify", false,
+                        user.authLevel(), user.tenantId());
+                String json = mapper.writeValueAsString(p);
+                sink.meta(fp, "none", level, false, false, 0);
+                long clarifyNano = System.nanoTime();
+                sink.delta(clarify);
+                sink.done(t0, clarifyNano, List.of());
+                l1.put(user.tenantId(), user.authLevel(), query, json);
+                reg.future().complete(json);
+                audit.log(user, "chat", via, source, query, fp, "none", "clarify", true, 0,
+                        (System.nanoTime() - t0) / 1_000_000, null, null,
+                        null,   // 检索与 LLM 都未发生：不落 stage_ms（"没测"≠"测得为 0"，与 SOP 直出同口径）
+                        level.name());
+                return;
+            }
 
             String cached = l1.get(user.tenantId(), user.authLevel(), query);
             if (cached != null) {

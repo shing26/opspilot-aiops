@@ -171,6 +171,12 @@ grep '"request_id":"a1b2c3d4"' logs/audit.jsonl      # 单次请求回查（服�
 grep '"trace_id":"agent-run-7f3a"' logs/audit.jsonl   # 跨步链路（调用方给的，串一次 incident）
 ```
 
+**错误体形状（2026-09-28 收敛）**：全仓只有两种，且由 `gateway/ErrorBodies` **单点定义**——`/v1` 面 `{"error":{message,type}}`（401 带 `code=invalid_api_key`、429 带 `rate_limit_error`），其余面 `{code,message}`（含登录面）。此前实测同一提交里跑着**四种**：还混着 Spring 默认体的 `timestamp/path` 与登录面的 `application/problem+json`——写客户端的人得为四种各写一条解析分支。自查一行（应看到 `code`，不该看到 `timestamp`/`type/title/instance`）：
+
+```bash
+curl -si http://localhost:8081/api/v1/copilot/search -X POST -H 'Content-Type: application/json' -d '{"query":"x"}' | tail -1
+```
+
 **档位切换复核**（不复盘不宣称）：档位每变一次落 `ev=degrade_transition`（`from`/`to`/`cause` 三字段，`cause` 有限词表见 `CONTEXT.md` 降级域），审计业务行另有 `degrade_level` 列标明该请求所处档位。**`mode=es_only` 不能单独当降级证据**——那个字符串有两个来源（L1 降级 / 检索腿超时）：
 
 ```bash
@@ -200,6 +206,7 @@ LLM_MODEL=__opspilot_probe_invalid__ java -jar target/opspilot-gateway-1.0.0.jar
 1. **停进程按端口杀，别按应用自报的 pid**：`netstat -ano | grep :8081 | awk '{print $5}' | sort -u` 取 pid 再 `taskkill //F //PID <pid>`。
    按 pid 杀的前置是先 `source .env`——缺它 `localapi.login` 会抛错 ⇒ 变量为空 ⇒ `taskkill` **空转且不报错**（我连踩两次）。
 2. **启动成功以日志为准**：`grep -q "Started OpsPilotApplication" logs/run-*.log`。
+3. **打 jar 前必须先停服务**：Windows 上 JVM 锁着 `target/*.jar` 时 `spring-boot:repackage` 覆盖不了它——**失败并留下一个被截断的 jar**（实测 84MB → 217KB），此后怎么起都是错的东西。顺序永远是：按端口停 → `mvn package` → 起。
    只看 `/actuator/health` 或 `/state` 会读到**上一个还活着的实例**——本轮因此把"三种配额覆写方式都无效"当成了结论，
    实际是旧实例幽灵（新进程早已因 `Port 8081 was already in use` 而 `APPLICATION FAILED TO START`）。
    **`OPSPILOT_QUOTA_DAILY_LIMIT` 本身是生效的**（干净单实例实测：设 123456 → `/state` 读到 123456）；唯一指纹压测 ~2000 请求会吃掉同一主体的当日预算，

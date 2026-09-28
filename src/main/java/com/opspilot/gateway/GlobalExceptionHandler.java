@@ -1,13 +1,11 @@
 package com.opspilot.gateway;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opspilot.auth.JwtAuthFilter;
 import com.opspilot.auth.UserContext;
 import com.opspilot.metrics.AuditService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
@@ -37,7 +35,6 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
-    private final ObjectMapper mapper = new ObjectMapper();
     private final AuditService audit;
 
     public GlobalExceptionHandler(AuditService audit) {
@@ -136,21 +133,17 @@ public class GlobalExceptionHandler {
     /**
      * 形状分流：/v1 面（OpenAI 协议）一律 {"error":{message,type}}（code 缺省=规范允许的 null；
      * 401 invalid_api_key / 429 rate_limit_error 由各自专属路径携带），其余面维持 {code,message}。
+     *
+     * 形状本体已收进 {@link ErrorBodies}（2026-09-28）：本类此前自己拼 JSON，与 filter、与 /v1 advice、
+     * 与登录面各写一份，于是同一提交里跑着四种形状——而文档只声明两种。现在全仓形状只有一处定义。
      */
     private void write(HttpServletRequest req, HttpServletResponse resp, int status,
                        String code, String message) throws IOException {
         if (req.getRequestURI().startsWith("/v1")) {
-            String type = status >= 500 ? "server_error" : "invalid_request_error";
-            writeRaw(resp, status, mapper.writeValueAsString(Map.of(
-                    "error", Map.of("message", message, "type", type))));
+            ErrorBodies.writeOpenAi(resp, status, message,
+                    status >= 500 ? "server_error" : "invalid_request_error", null);
             return;
         }
-        writeRaw(resp, status, mapper.writeValueAsString(Map.of("code", code, "message", message)));
-    }
-
-    private void writeRaw(HttpServletResponse resp, int status, String json) throws IOException {
-        resp.setStatus(status);
-        resp.setContentType("application/json;charset=UTF-8");
-        resp.getWriter().write(json);
+        ErrorBodies.writeApi(resp, status, code, message);
     }
 }
