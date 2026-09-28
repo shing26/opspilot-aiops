@@ -289,6 +289,18 @@
       "cited_in": [
         {"file": "README.md", "pattern": "P50=(\\d+)ms"}
       ]
+    },
+    {
+      "id": "refuse_samples",
+      "unit": "拒答集样本数（12 幽灵错误码 + 12 域外提问，均在 corpus 之外）——门控混淆矩阵的分母",
+      "derive": {
+        "kind": "jsonl_lines",
+        "path": "offline/eval/refuse_set.jsonl"
+      },
+      "format": "int",
+      "cited_in": [
+        {"file": "docs/ops/production-readiness-2026-09-12.md", "pattern": "refuse_set\\.jsonl`（(\\d+) 条"}
+      ]
     }
   ]
 }

@@ -71,9 +71,9 @@ MIT LICENSE → 09-22 B3 出站超时 + B9 覆盖率棘轮 → 09-23 账外边�
 | 项 | 状态 | 代码依据 |
 |---|---|---|
 | 分级 | 已具备（基础） | `application.yml:68-70` root/com.opspilot INFO |
-| 结构化 | 部分 | 审计面每请求一行 JSON（AUDIT appender，14 天滚动，五类事件全留痕）；**应用日志人读 pattern 非结构化** |
+| 结构化 | 部分 | 审计面每请求一行 JSON（AUDIT appender，14 天滚动，**七类事件**全留痕：`chat`/`search`/`auth`/`admin`/`invalid`/`feedback`/`degrade_transition`，各自独立 schema 但共用 `writeEvent` 唯一出口）；**应用日志人读 pattern 非结构化** |
 | 持久化 | 部分 | audit.jsonl 落盘 ✓；**应用日志仅 CONSOLE——容器重建即丢**，无 totalSizeCap |
-| 关键链路 | 已具备（缺关联） | 五类事件覆盖业务/鉴权/运维/校验；缺请求级 request_id 把生成链日志与审计行关联 |
+| 关键链路 | 已具备 | 七类事件覆盖业务/鉴权/运维/校验/反馈/档位转移；**关联已闭环**——`request_id` 贯穿 app.log 与审计行（H2），2026-09-28 增调用方 `trace_id`（`X-Trace-Id`）把上层 agent 的多步调用串成一次 incident。两个 id 分工见 `CONTEXT.md` 权限域 |
 
 修补：**H1**（APP_FILE 滚动 appender）、**H2**（request_id 贯穿审计与生成链）。
 
@@ -404,3 +404,41 @@ git -c url."git@github.com:".insteadOf="https://github.com/" push origin main
 **结果**：`49db4ed..c7e64d3` 推送成功，本地与 origin 同步。CI run **36318228339 —— success**，五 job 全绿：`panel-contract` 5s ｜ `provenance` 7s ｜ `python` 14s ｜ `java` 33s ｜ `shell` 4s。注解只有早已在案的 Node20 弃用提醒（非失败）。
 
 **这条为什么重要**：本项目有「本机绿≠CI 绿」前科（2026-09-16：单测真发 HTTP，本机有网关故绿、CI 无网关即红）。本轮新增 16 个 Python 测试 + 2 个 Java 测试并改了 /state 契约，**从未在 CI 跑过**——现在跑了，首验即过，没有出现"本机绿≠CI 绿"。
+
+
+---
+
+## 修补记录（2026-09-28：批次一 · 让"发生过的降级"可复核）
+
+来源：《OpsPilot 完整系统化改进计划-20260928》批次一（零活体依赖项，全部门闩本机绿；CI 待推送后复验）。
+定位同轮定为 [ADR-0013](../../docs/adr/0013-trust-base-for-agents-not-an-agent.md)（agent 的可信底座）。
+
+### 四项改动
+
+| 项 | 改了什么 | 为什么非改不可 |
+|---|---|---|
+| **OP-A5** | 审计业务行增 `degrade_level` 列；档位每次变化落 `ev=degrade_transition`（`from`/`to`/`cause`）；状态机在计数器变化处（enter/exit/llmFailure/llmSuccess/manual*）与 `current()` 观察转移 | 复核时实测出一个**会自证的假证据**：`mode=es_only` 有两个来源（L1 降级 / 检索腿超时后 `effectiveMode`），单看它把"检索腿挂了"读成"降级状态机生效"——而那正是本项目最想证明的事。另：压测停止后负载回落那一瞬已无新请求，若只在 `current()` 观察，录屏里的"回落 L0"会永久丢失 |
+| **OP-A7** | 调用方关联键 `X-Trace-Id`（8–64 位词表，空白=未提供，非法即 400）+ MDC + 审计行 `trace_id`；`/v1` 请求体零改动 | 服务端自生的 `request_id` 客户端拿不到（`FeedbackRequest` 注释早已自陈），既有 `fingerprint` 是**内容派生**的"问题身份"——被测 agent 分三步问不同错误码时会散成三个指纹，串不成一次 incident |
+| **OP-R3** | L2 语义缓存写入改投递即返回（原 `.get(5, SECONDS)` 在答案已下发后同步等） | 那是纯缓存写入的等待，却计入用户可见的端到端时延；并经测试确认写的是**专属缓存集合**而非检索主集合 |
+| **OP-R5（零成本判别）** | `HybridSearchServiceTest` 补"两腿不相交"用例 | 既有两条 hybrid 用例的 qdrant 桩都返回空列表 ⇒ 服务层**从未**证明过"向量腿的 chunk 进了 fused→Rerank 池"。而评测报告里 `hybrid` 与 `vector_only` 读数逐位相同，"融合生效但没改变 top-3"与"融合根本没接线"在指标层不可分——本条把后一种解释当场排除 |
+
+### 变异验证（改坏必红，全部实测）
+
+| 变异 | 结果 |
+|---|---|
+| 摘掉 `exit()` 里的转移观察 | `DegradationTransitionTest` 红，且缺的正是 `L1→L0(load_subsided)` 那一条 |
+| `X-Trace-Id` 校验正则放宽为 `.*` | `RequestIdFilterTest` 3 处红（400 → 200），含长度/字符集边界矩阵 |
+| 把 `refuse_set.jsonl` 的 24 改成 25 | 面二门闩红并点名 `production-readiness:236` 真值 24 |
+
+### 同代门闩补的两处空洞（OP-R6）
+
+- `refuse_set.jsonl`（24 条）此前**未登记**于 `doc_numbers.json`，而本文档正文引用它 → 已登记 `refuse_samples`。
+- `gate_matrix.{md,json}` 与 `observed_probe.{md,json}` **不在** `scripts/pack_evidence.py` 的 REGISTRY，而本文档称"代价量化四脚本全部出数" → 已补四条（前提档 `KEY`）。
+
+### 一处自我纠错
+
+改面板表头时先写成"ev 六类"（凭印象），点算 `AuditService` 的 `ev` 取值后实为**七类**（chat/search/auth/admin/invalid/feedback/degrade_transition）——且该表头在我改动前**已经陈旧**（feedback 加入后没跟）。已按点算值改准。教训与门闩系列同源：**类目数要点算，不能凭印象**。
+
+### 门禁终态（本机）
+
+`mvn -B test` 168/168 绿 ｜ `offline` pytest 139 passed ｜ `provenance --check` OK（423 chunks / 59 样本 / 64 篇）｜ `doc_numbers --check` OK（23 条 33 处）｜ 面板契约四层一致 ｜ `bash -n` 全脚本通过 ｜ 证据包 smoke 47 产物 + `sha256sum -c` 47/47 OK + 同代自检通过。

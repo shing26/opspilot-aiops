@@ -62,6 +62,9 @@ _Avoid_: 熔断级别、降级档位（统一 Level 0/1/2）
 **静态 SOP**:
 入库时按 `error_code/service` 预热进 Redis 的止损步骤清单，Level 2 兜底数据源。
 
+**档位转移（Degrade Transition）**:
+档位发生变化这一**事件**本身，落审计 `ev="degrade_transition"`，带 `from`/`to`/`cause`。为什么不能只靠审计行的 `degrade_level` 字段反推：字段答的是"**这次请求时**是几档"，切换时刻要靠请求密度间接推断，无请求的区间里切换会被整段漏掉。`cause` 是**有限词表**：`inflight`（在途超阈→L1）/ `llm_failure`（连续失败达阈→L2）/ `load_subsided`（负载回落→L0）/ `cooldown_expired`（冷却到期半开→L0）/ `manual` / `manual_clear`。**量具边界**：状态机是**拉模型**（无独立定时器），转移在计数器变化处（enter/exit/llmFailure/llmSuccess/manual*）与 `current()` 被调用时被观察到——负载回落因此不依赖后续请求即可落痕，但"既无请求又无人看 `/state`"的静默期内的切换会与下一次观察合并。_Avoid_: 降级日志（日志是过程，这是可复核的事件序列）
+
 ### 权限域
 
 **auth_level**:
@@ -80,7 +83,10 @@ H2 主库中的一行用户记录（sub + bcrypt 口令 + tenant + auth_level + 
 账号行上的整数游标，签进 JWT 的 `tver` claim；`JwtAuthFilter` 每请求比对 DB 值，不等即 401。disable/passwd/rotate 均 bump——改一行即全局失效该用户所有存量 token，无需黑名单。_Avoid_: JWT 黑名单（明确否决的方案）
 
 **审计事件（Audit Event）**:
-每 chat/search 请求落一行 JSON 到 `logs/audit.jsonl`（sub/tenant/level/query 截断/fp/cache_hit/mode/refused/max_level/took_ms），回答"谁查过什么、答案触到哪个密级"，是权限引擎层的可核查闭环。_Avoid_: 应用日志（业务日志非合规留痕）
+每 chat/search 请求落一行 JSON 到 `logs/audit.jsonl`（sub/tenant/level/query 截断/fp/cache_hit/mode/**degrade_level**/refused/max_level/took_ms + 请求关联键），回答"谁查过什么、答案触到哪个密级、**这次请求处在哪一档降级**"，是权限引擎层的可核查闭环。**`degrade_level` 是必需列而非冗余**：`mode` 有两个来源（L1 降级按档位传 `es_only` / 检索腿超时后 `effectiveMode` 也是 `es_only`），单看 `mode` 无法判定"这次是不是负载触发的降级"。_Avoid_: 应用日志（业务日志非合规留痕）
+
+**请求关联键（request_id / trace_id）**:
+审计行上的两个身份键，**并存且互不覆盖**。`request_id` = 服务端为每次 HTTP 请求自生的 8 位短 id（`RequestIdFilter` 注入 MDC，同时进 app.log 与审计行），语义是"这一行是哪个请求产生的"，**服务端权威**、调用方输入顶不掉。`trace_id` = **调用方提供**的调用链 id（请求头 `X-Trace-Id`，8–64 位 `[A-Za-z0-9_-]`，空白按未提供，非法即 400 + 留痕），语义是"这次 incident 分几步问过、都问了什么"——凑不上它时，被测 agent 的多步调用在审计里串不成一次 incident（既有 `fingerprint` 是**内容派生**的"问题身份"，三步问不同错误码即散成三个，担不起调用链身份）。排障时按问题选：查单次请求用 `request_id`，查跨步链路用 `trace_id`。_Avoid_: 会话 id（无状态单轮，见 ADR-0007/ADR-0013）、traceId 大小写混写（落盘统一 `trace_id`）
 
 ### 重建域
 

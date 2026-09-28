@@ -113,6 +113,9 @@ cron（Linux 部署版；本机手动跑同样有效）：
 | 接地判据 V9 的覆盖边界（只管错误码，不管步骤编号/配置名/服务名的无据断言） | 出现一次"答案里**非错误码**的断言无据"且被真人/QA 复现——判据：该事故落在 V9 词法盲区（`pm-*`/`rb-*` 步骤编号、配置项名等），即现有判据结构上抓不到 | 已覆盖错误码：它是精确符号、可做集合运算、无"有据与否"的解释歧义。步骤编号/配置名要纳入，须先给出"有据"的**可判读**定义，否则会引入误报噪音、把门闩变成噪声源（本表纪律：不可判读的触发线等于没有）。**引用正确率**（标号是否真的支撑该句）另属一类，需异构裁判模型或人工标注，不并入本项——判据与裁判同源则无证据价值 |
 | 引用洗白 / 出口引用-内容对齐校验（来源：`docs/qa/2026-09-11-persona-eval.md` P1-5，标"第五轮未复现，待复现再立项"） | 再次出现"答案的 `[参考N]` 标号与所指段落**并不支撑**该句断言"且被真人/QA 复现——判据：能指到具体某条答案的某个标号与它引的段落不匹配（不是"答案整体偏了"，那类归 V9 与门控） | **此前不在任何账上**（2026-09-27 复核时查出：QA 台账标了"待复现"，但本表没有对应行——正是本表纪律所指的"没有触发线的欠账"）。第五轮之后未再复现，故按触发线挂起而非现在做：该判据要判"标号是否支撑句子"，**判据本身需要裁判**，与 V9 的集合运算不是一类；且裁判与选手同源则无证据价值（需异构模型或人工标注小集），成本远高于 V9 |
 
+| Console 档位切换历史面板（**2026-09-28 定形**：只做离线时间线 + 录屏） | 需要在**无录屏场合**按时间回放档位切换——判据：有人要在现场/无录像环境复盘"切换发生在第几秒"，而看实时面板已经不够 | 面板已有实时档位灯 + 审计事件游标流，实验与演示现场的变化由录屏捕获；档位切换的**权威历史**是 14 天滚动的 `logs/audit.jsonl`（`ev=degrade_transition` 行，见 `CONTEXT.md` 降级域）。面板 ring 仅 200 条（`AuditService.RING_CAP`），在高并发那一刻**必然轮转**——用它做历史是选错量具。本项属 ADR-0009 只读面的扩展，届时须连 `scripts/check_panel_contract.sh` 一并扩 |
+| 解析 W3C `traceparent`（OpenTelemetry 生态） | 出现**真实的 OTel 消费方**——判据：有调用方发 `traceparent` 且要求按它串链路，或需要跨服务传播 trace | 现只认自述型 `X-Trace-Id`（8–64 位词表，校验成本 ≈ 0）。W3C 格式固定 55 字符、含版本/标志位，多一层解析与校验分支而当前**无任何消费方**——按"不预防性施工"挂起 |
+
 ## 6. 公开 push 门闩（已执行记录：2026-09-10 清洗并首推 private）
 
 **已了结**：历史 token 残留已于首推前用 `git filter-repo --invert-paths --path scripts/demo_tokens.txt` 抹除（验证 `git log --all -S "eyJhbGci"` 空），仓库以 **private** 推至 `github.com/shing26/opspilot-aiops`。**转公开前动作**：人工过一遍 README/ADR/报告渲染（本项目文档惯例是数字必须真），确认后用 `gh repo edit --visibility public` 切换。以下命令保留作再犯时的标准程序。
@@ -158,6 +161,22 @@ cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');imp
 **故障排查**：401→token 过期或账号被禁用（重新 login；这正是吊销跨面生效的表现，其错误体为 OpenAI 标准 error JSON——QA P2-3 修复后不再回显 path）；连接被拒→`docker compose ps gateway`；无流式→看 `/api/v1/admin/metrics`（平台凭证）的 `reingest_busy` 与 audit `via=openai` 行；CORS→确认环回 origin（CorsConfig 仅放行 localhost/127.0.0.1 任意端口 + compose 内 `gateway:*`）。
 
 **audit `via` 字段**：`sse`（原生面）/`openai`（/v1 面）/`search-api`（检索端点）；旧日志行无此字段，`daily_usage.py` 按 `.get()` 解析天然兼容。按面统计：`grep -c '"via":"openai"' logs/audit.jsonl`。
+
+**调用方关联键 `X-Trace-Id`（2026-09-28）**：任何面都可带此请求头——8–64 位 `[A-Za-z0-9_-]`，**空白按未提供**处理，**非法即 400** 并落 `ev=invalid` 审计行（形状按面分流：`/v1` 保持 OpenAI error 信封）。它经 MDC 落到审计行 `trace_id`，用途是把上层 agent 的多步调用串成一次 incident——**只做关联，不改检索、不注入上下文、不存会话**（本系统无状态单轮，见 ADR-0007 修订注 / ADR-0013）。两个 id 各管一段，别混：
+
+```bash
+grep '"request_id":"a1b2c3d4"' logs/audit.jsonl      # 单次请求回查（服务端自生 8 位，服务端权威）
+grep '"trace_id":"agent-run-7f3a"' logs/audit.jsonl   # 跨步链路（调用方给的，串一次 incident）
+```
+
+**档位切换复核**（不复盘不宣称）：档位每变一次落 `ev=degrade_transition`（`from`/`to`/`cause` 三字段，`cause` 有限词表见 `CONTEXT.md` 降级域），审计业务行另有 `degrade_level` 列标明该请求所处档位。**`mode=es_only` 不能单独当降级证据**——那个字符串有两个来源（L1 降级 / 检索腿超时）：
+
+```bash
+# 2026-09-25 那次压测全程未触发降级；重跑后先用这一条看切换有没有真的发生
+grep '"ev":"degrade_transition"' logs/audit.jsonl
+# 只看负载压出来的（cause=manual 是人工锁的，不算）
+grep '"cause":"inflight"\|"cause":"llm_failure"' logs/audit.jsonl
+```
 
 **能力边界（勿对外宣传）**：/v1 目前只有 `chat/completions`（stream=true）与 `models`；文件上传/语音/多模态对应端点未实现，任何客户端里点了即报错——协议面的演示只用文本对话。**归因纪律**：外部客户端出现"响应已返回但界面异常"时，先 `tail logs/audit.jsonl` 定位归属（有行且正常=该客户端渲染层的事），再排查——2026-09-11 在嵌入 webview 实测过此判据。
 

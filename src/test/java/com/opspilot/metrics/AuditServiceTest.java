@@ -15,7 +15,7 @@ class AuditServiceTest {
 
     private static void writeN(AuditService svc, int n) {
         for (int i = 0; i < n; i++) {
-            svc.log(U, "chat", "sse", "manual", "q" + i, "fp", "none", "hybrid", false, 1, i, null, null, null);
+            svc.log(U, "chat", "sse", "manual", "q" + i, "fp", "none", "hybrid", false, 1, i, null, null, null, null);
         }
     }
 
@@ -86,14 +86,37 @@ class AuditServiceTest {
         AuditService svc = new AuditService();
         org.slf4j.MDC.put("request_id", "abc12345");
         try {
-            svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null, null);
+            svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null, null, null);
         } finally {
             org.slf4j.MDC.remove("request_id");
         }
-        svc.log(U, "chat", "sse", "manual", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null);
+        svc.log(U, "chat", "sse", "manual", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null, null);
         var r = svc.recentSince(0, 10);
         assertEquals("abc12345", r.events().get(0).get("request_id"), "MDC 在场→行携带 id");
         assertFalse(r.events().get(1).containsKey("request_id"), "MDC 缺席→无该字段");
+    }
+
+    /**
+     * OP-A7：调用方关联键与 request_id **并存且互不覆盖**（ADR-0007 修订注）。
+     * 前者=调用链（跨多步调用整段取出），后者=单次请求回查（服务端权威，不因调用方输入而变）。
+     */
+    @Test
+    void auditRowCarriesCallerTraceIdAlongsideServerRequestId() {
+        AuditService svc = new AuditService();
+        org.slf4j.MDC.put("request_id", "srv00001");
+        org.slf4j.MDC.put("trace_id", "agent-run-7f3a");
+        try {
+            svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null, null, null);
+        } finally {
+            org.slf4j.MDC.remove("request_id");
+            org.slf4j.MDC.remove("trace_id");
+        }
+        svc.log(U, "chat", "sse", "manual", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null, null);
+
+        var r = svc.recentSince(0, 10);
+        assertEquals("srv00001", r.events().get(0).get("request_id"));
+        assertEquals("agent-run-7f3a", r.events().get(0).get("trace_id"), "调用链身份必须落盘");
+        assertFalse(r.events().get(1).containsKey("trace_id"), "调用方没给就不落字段（不编造）");
     }
 
     /**
@@ -103,8 +126,8 @@ class AuditServiceTest {
     @Test
     void auditRowCarriesSourceAndBlankNormalizesToManual() {
         AuditService svc = new AuditService();
-        svc.log(U, "chat", "sse", "alert", "q", "fp", "none", "hybrid", false, 1, 1, null, null, null);
-        svc.log(U, "chat", "sse", "   ", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null);
+        svc.log(U, "chat", "sse", "alert", "q", "fp", "none", "hybrid", false, 1, 1, null, null, null, null);
+        svc.log(U, "chat", "sse", "   ", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null, null);
         var r = svc.recentSince(0, 10);
         assertEquals("alert", r.events().get(0).get("source"), "告警请求必须可在审计中辨识");
         assertEquals("manual", r.events().get(1).get("source"),
@@ -119,9 +142,9 @@ class AuditServiceTest {
     void auditRowCarriesStageTimingsOnlyWhenPresent() {
         AuditService svc = new AuditService();
         svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "hybrid", false, 1, 1, null, null,
-                new StageTimings(100, 11, 22, 33, 0, 40, 50, 60));
+                new StageTimings(100, 11, 22, 33, 0, 40, 50, 60), null);
         svc.log(U, "search", "search-api", "manual", "q2", "fp", "none", "hybrid", false, 1, 2,
-                null, null, null);
+                null, null, null, null);
         var r = svc.recentSince(0, 10);
 
         @SuppressWarnings("unchecked")
@@ -129,6 +152,42 @@ class AuditServiceTest {
         assertEquals(8, stages.size(), "chat 行必须携带完整 stage_ms: " + stages.keySet());
         assertEquals(0, stages.get("rerank"), "0 值段仍落字段（未调用≠没测）");
         assertFalse(r.events().get(1).containsKey("stage_ms"), "非 chat 路径（传 null）不得落该字段");
+    }
+
+    /**
+     * OP-A5：`degrade_level` 仅在观察过档位的路径上落字段。
+     *
+     * 为什么必须有这一列：`mode` 有两个来源（L1 降级 / 检索腿超时）都写 `es_only`，"这次是不是
+     * 负载触发的降级"从 `mode` 单字段答不出来——2026-09-28 复核审计断言时实测的判据缺口。
+     * 而 `/search` 不查状态机，传 null（"没观察"≠"观察到 L0"），故不得落字段。
+     */
+    @Test
+    void auditRowCarriesDegradeLevelOnlyWhenObserved() {
+        AuditService svc = new AuditService();
+        svc.log(U, "chat", "sse", "manual", "q", "fp", "none", "es_only", false, 1, 1, null, null, null, "L1");
+        svc.log(U, "search", "search-api", "manual", "q2", "fp", "none", "hybrid", false, 1, 2, null, null, null, null);
+        var r = svc.recentSince(0, 10);
+        assertEquals("L1", r.events().get(0).get("degrade_level"), "chat 行必须显式带档位");
+        assertFalse(r.events().get(1).containsKey("degrade_level"), "未观察档位的路径不得落该字段");
+    }
+
+    /**
+     * OP-A5：档位转移事件。`from/to/cause` 三者缺一即不可复核——离线时间线（读 logs/audit.jsonl）
+     * 与压测结论都建立在这三个字段上，故锁死形状；`cause` 是有限词表（回归锁随状态机同步更新）。
+     */
+    @Test
+    void degradeTransitionEventCarriesFromToAndCause() {
+        AuditService svc = new AuditService();
+        svc.logDegradeTransition("L0", "L1", "inflight");
+        svc.logDegradeTransition("L1", "L0", "load_subsided");
+
+        var r = svc.recentSince(0, 10);
+        var first = r.events().get(0);
+        assertEquals("degrade_transition", first.get("ev"));
+        assertEquals("L0", first.get("from"));
+        assertEquals("L1", first.get("to"));
+        assertEquals("inflight", first.get("cause"));
+        assertEquals("L1", r.events().get(1).get("from"), "第二条的 from 必须是前一条的 to（链式可读）");
     }
 
     /**

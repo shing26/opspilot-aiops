@@ -224,6 +224,14 @@ class ChatOrchestratorTest {
         assertEquals(List.of("rb-001::s1"),
                 chunks.getValue().stream().map(ScoredChunk::chunkId).toList(),
                 "L1 的 prompt 上下文必须与 L0 同构（同一批 chunk）——出现分叉则 ADR-0012 的代价口径失真");
+
+        // ③ OP-A5：审计行必须显式带档位。`mode=es_only` 单独不作为降级证据——它有两个来源
+        //    （L1 降级 / 检索腿超时），degrade_level 才是能分辨的那一列（2026-09-28 复核实测）。
+        //    注意 mode 列落的是 `outcome.mode()`（searchService 的回报），不是入参 mode——
+        //    本用例的 searchService 是 mock，回报 hybrid；"L1 以 es_only 检索"由上面的断言①锁。
+        verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("manual"), anyString(), anyString(), anyString(),
+                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(),
+                any(StageTimings.class), eq("L1"));
     }
 
     /** P0-1 主案：leader(tenant-internal,L3) 在途时，follower(tenant-acme,L3) 绝不可拿到其答案/引用。 */
@@ -278,7 +286,8 @@ class ChatOrchestratorTest {
         assertNotNull(sink.error, "外来租户载荷必须走 error 收尾而非回放");
         assertEquals("", sink.answer.toString(), "绊线触发前不得吐出任何内容");
         verify(audit, AUDIT_WAIT).log(eq(ACME), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
-                eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong(), isNull(), isNull(), isNull());
+                eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong(), isNull(), isNull(), isNull(),
+                eq("L0"));
     }
 
     /** 组键口径：tenant 是第一字段——与 L1 key 的 cache:l1:<tenant>:<level>: 同构（权限维度完备）。 */
@@ -312,7 +321,8 @@ class ChatOrchestratorTest {
                         new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal")),
                 "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse", "manual");
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
-                eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull(), isNull());
+                eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull(), isNull(),
+                eq("L0"));   // 末位=档位：缓存命中在 L0（cache_hit 的 "L1" 与降级档位是两回事，别读混）
     }
 
     /**
@@ -329,7 +339,8 @@ class ChatOrchestratorTest {
         llmGate.countDown();                    // setUp 的 internal 桩阻塞在闸门上，本用例无需跨租户计时
         awaitSuccess(sink);
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("alert"), anyString(), anyString(),
-                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class));
+                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class),
+                eq("L0"));
     }
 
     /** 缺省来源归一（DTO sourceOrDefault）：审计行不得出现 null/空白来源。 */
@@ -342,7 +353,8 @@ class ChatOrchestratorTest {
         llmGate.countDown();
         awaitSuccess(sink);
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
-                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class));
+                eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(), isNull(), any(StageTimings.class),
+                eq("L0"));
     }
 
     /**
@@ -388,7 +400,7 @@ class ChatOrchestratorTest {
 
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), anyString(), anyString(),
                 eq("none"), anyString(), eq(false), anyInt(), anyLong(), isNull(),
-                argThat((Integer n) -> n != null && n >= 1), any(StageTimings.class));
+                argThat((Integer n) -> n != null && n >= 1), any(StageTimings.class), eq("L0"));
         Object masked = metrics.snapshot().get("verbatim_masked");
         assertTrue(masked instanceof Number && ((Number) masked).longValue() >= 1,
                 "verbatim_masked 计数未进账: " + metrics.snapshot());

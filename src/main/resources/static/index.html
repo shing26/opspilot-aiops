@@ -46,6 +46,7 @@
   .ev.auth{color:var(--warn)} .ev.admin{color:#4dd0e1} .ev.invalid{color:var(--err)}
   .ev.badge-l1 .b,.ev.badge-L2 .b{color:var(--ok)}
   .ev.refused{color:var(--err)} .ev.mismatch{background:#3a1010;color:var(--err);font-weight:700}
+  .ev.degrade_transition .b{color:var(--warn)}
   .ev.lost{color:var(--warn)}
   #bounds li{margin:3px 0; list-style:none}
   #bounds .chk{color:var(--dim);font-size:10px}
@@ -93,7 +94,7 @@
       <div class="tiles" id="tiles"></div>
       <div id="sfrow"></div></section>
     <section style="margin-top:12px">
-      <h2>事件流 AUDIT（ev 五类 · 游标增量 · 只读）
+      <h2>事件流 AUDIT（ev 七类 · 游标增量 · 只读）
         <button id="copy" style="float:right;background:none;border:1px solid var(--line);color:var(--dim);border-radius:3px;cursor:pointer;font-size:10px">复制最近 50 条 JSON</button>
       </h2><div id="events"></div></section>
   </div>
@@ -211,11 +212,14 @@ function renderEvents(a) {
       ev.src_tenant && ev.src_tenant !== ev.tenant ? 'mismatch' : '',
       ev.cache_hit === 'L1' || ev.cache_hit === 'L2' ? 'badge-l1' : ''].join(' ');
     const detail = ev.ev === 'auth' || ev.ev === 'admin' ? (ev.outcome + ' ' + (ev.reason || ev.action || '')) :
-      [ev.via, ev.cache_hit !== 'none' ? ev.cache_hit : '', ev.mode, ev.q || ev.path || ev.msg || ''].filter(Boolean).join(' · ');
+      ev.ev === 'degrade_transition' ? (ev.from + '→' + ev.to + '（' + ev.cause + '）') :
+      [ev.via, ev.cache_hit !== 'none' ? ev.cache_hit : '', ev.mode,
+       ev.degrade_level || '', ev.q || ev.path || ev.msg || ''].filter(Boolean).join(' · ');
     const srcAlarm = ev.src_tenant && ev.src_tenant !== ev.tenant ? ' ⚡跨租户回放!' : '';
+    // 身份前缀仅在有身份时渲染：degrade_transition 是系统事件（无 sub/level），别显示 "[?/-]" 噪声
+    const who = (ev.sub || ev.level != null) ? '[' + (ev.sub || '?') + '/' + (ev.level ?? '-') + '] ' : '';
     prepend('<div class="ev ' + cls + '"><span class="t">' + new Date(ev.ts).toLocaleTimeString() +
-      '</span> <span class="b">' + ev.ev + '</span> [' + (ev.sub || '?') + '/' + (ev.level ?? '-') + '] ' +
-      esc(detail) + srcAlarm + '</div>');
+      '</span> <span class="b">' + ev.ev + '</span> ' + who + esc(detail) + srcAlarm + '</div>');
   }
   if (a.max_seq < cursor) cursor = a.max_seq;   // 服务端重启后游标对齐
 }

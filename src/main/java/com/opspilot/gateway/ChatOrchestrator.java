@@ -85,13 +85,17 @@ public class ChatOrchestrator {
     }
 
     /** 异步编排：错误经 sink.error 收尾（协议各自决定呈现），degrade.enter/exit 维护在飞计数。
-     *  H2：MDC 是 thread-local，编排切到虚拟线程后必须显式重挂 request_id——
-     *  异步段日志与审计行才能与 servlet 线程的请求日志用同一 id 关联。 */
+     *  H2 + OP-A7：MDC 是 thread-local，编排切到虚拟线程后必须显式重挂 request_id 与 trace_id——
+     *  异步段日志与审计行才能与 servlet 线程的请求日志用同一组 id 关联。 */
     public void submit(ChatRequest req, UserContext user, ChatSink sink, String via) {
         String requestId = org.slf4j.MDC.get(com.opspilot.metrics.RequestIdFilter.KEY);
+        String traceId = org.slf4j.MDC.get(com.opspilot.metrics.RequestIdFilter.TRACE_KEY);
         vt.execute(() -> {
             if (requestId != null) {
                 org.slf4j.MDC.put(com.opspilot.metrics.RequestIdFilter.KEY, requestId);
+            }
+            if (traceId != null) {
+                org.slf4j.MDC.put(com.opspilot.metrics.RequestIdFilter.TRACE_KEY, traceId);
             }
             degrade.enter();
             try {
@@ -105,6 +109,7 @@ public class ChatOrchestrator {
             } finally {
                 degrade.exit();
                 org.slf4j.MDC.remove(com.opspilot.metrics.RequestIdFilter.KEY);
+                org.slf4j.MDC.remove(com.opspilot.metrics.RequestIdFilter.TRACE_KEY);
             }
         });
     }
@@ -181,7 +186,8 @@ public class ChatOrchestrator {
             sink.done(t0, sopFirstDeltaNano, List.of());
             audit.log(user, "chat", via, source, query, fp, "none", "sop_fallback", false, user.authLevel(),
                     (System.nanoTime() - t0) / 1_000_000, null, null,
-                    null);   // SOP 直出：检索与 LLM 都未发生，无分段可测（null = 没测，非"测得为 0"）
+                    null,   // SOP 直出：检索与 LLM 都未发生，无分段可测（null = 没测，非"测得为 0"）
+                    level.name());
             return json;
         }
 
@@ -212,7 +218,8 @@ public class ChatOrchestrator {
             l1.put(user.tenantId(), user.authLevel(), query, json);
             audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), true, 0,
                     (System.nanoTime() - t0) / 1_000_000, null, null,
-                    stageTimings(outcome, 0, 0, 0));   // 拒答在 LLM 前 return：llm/l2_store 恒 0（测了且为 0）
+                    stageTimings(outcome, 0, 0, 0),   // 拒答在 LLM 前 return：llm/l2_store 恒 0（测了且为 0）
+                    level.name());
             return json;
         }
 
@@ -258,7 +265,7 @@ public class ChatOrchestrator {
             sink.done(t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
             audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), false, maxAuth,
                     (System.nanoTime() - t0) / 1_000_000, null, masked > 0 ? masked : null,
-                    stageTimings(outcome, llmTtftMs, llmMs, l2StoreMs));
+                    stageTimings(outcome, llmTtftMs, llmMs, l2StoreMs), level.name());
             return json;
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();
@@ -282,15 +289,18 @@ public class ChatOrchestrator {
      */
     void replay(ChatSink sink, String json, String cacheHit, boolean deduplicated,
                 String fp, long t0, UserContext user, String query, String via, String source) throws Exception {
+        // 档位只观察一次并复用：current() 现在同时是转移落痕的观察点，重复调用无意义（也不贵，但没必要）
+        Level lvl = degrade.current();
         AnswerPayload p = mapper.readValue(json, AnswerPayload.class);
         if (!user.tenantId().equals(p.tenant())) {
             log.error("shared replay tenant mismatch: payload={} requester={}", p.tenant(), user.tenantId());
             audit.log(user, "chat", via, source, query, fp, "dedup_guard", p.mode(), true, 0,
-                    (System.nanoTime() - t0) / 1_000_000, null, null, null);   // 回放路径：无检索/LLM 分段
+                    (System.nanoTime() - t0) / 1_000_000, null, null, null,   // 回放路径：无检索/LLM 分段
+                    lvl.name());
             sink.error(new IllegalStateException("shared replay tenant mismatch"));
             return;
         }
-        sink.meta(fp, cacheHit, degrade.current(), p.fastPath(), deduplicated, 0);
+        sink.meta(fp, cacheHit, lvl, p.fastPath(), deduplicated, 0);
         long replayFirstDeltaNano = System.nanoTime();
         sink.streamInChunks(p.answer());
         sink.done(t0, replayFirstDeltaNano, p.refs());
@@ -298,7 +308,8 @@ public class ChatOrchestrator {
         // grep 不等即可发现任何新的跨租户共享旁路。
         audit.log(user, "chat", via, source, query, fp, cacheHit + (deduplicated ? "+dedup" : ""),
                 p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant(), null,
-                null);   // 回放路径：无检索/LLM 分段
+                null,   // 回放路径：无检索/LLM 分段
+                lvl.name());
     }
 
     /** G2：把检索分腿 + LLM + L2 写入装配成审计行的 stage_ms（口径见 StageTimings）。 */

@@ -9,6 +9,7 @@ import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -133,5 +134,37 @@ class HybridSearchServiceTest {
         when(es.search(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of(c("A")));
         SearchOutcome out = service().search("数据库连接池耗尽的排查步骤", "tenant-demo", 1, "es_only");
         assertEquals(0, out.legs().rerankMs(), "es_only 未调 Rerank，rerankMs 必须为 0（未调用≠很快）");
+    }
+
+    /**
+     * OP-R5 判别锁（2026-09-28）：**两腿都非空且 chunk 不相交**时，向量腿独有的 chunk 必须真的
+     * 进入 `fused → Rerank` 候选池。
+     *
+     * 为什么必须补这一条：既有两条 hybrid 用例的 qdrant 桩都返回 `List.of()`（空），于是"服务层"
+     * 从未证明过并集进了重排池。而评测报告里 `hybrid` 与 `vector_only` 读数**逐位相同**
+     * （exact 1.0/1.0/1.0；semantic hit@1 0.88 / hit@3 1.0 / MRR 0.940），指标层无法分辨
+     * "融合生效但没改变 top-3"与"ES 腿结果根本没进融合"——本条把后一种解释**当场排除**，
+     * 让"现夹具下测不出融合增益"成为可信结论而不是可疑结论。
+     *
+     * 变异验证（改坏必红）：把 `RrfFuser.apply(esRes, vecRes, rrfK)` 的 `vecRes` 换成 `List.of()`
+     * → "向量腿独有 chunk 未进池" 必红。
+     */
+    @Test
+    void bothLegsNonOverlappingChunksReachRerankPool() throws Exception {
+        when(es.search(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of(c("A"), c("B"), c("C")));
+        when(qdrant.search(anyString(), anyString(), anyInt(), anyInt())).thenReturn(List.of(c("D"), c("E")));
+        when(rerank.rerank(anyString(), anyList(), anyInt()))
+                .thenReturn(List.of(new RerankClient.Ranked(0, 0.9)));
+
+        service().search("数据库连接池耗尽的排查步骤", "tenant-demo", 1, "hybrid");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<String>> pool = ArgumentCaptor.forClass(List.class);
+        verify(rerank, times(1)).rerank(anyString(), pool.capture(), eq(3));   // finalTopK
+        List<String> poolTexts = pool.getValue();
+        assertTrue(poolTexts.contains("text-D") && poolTexts.contains("text-E"),
+                "向量腿独有 chunk 未进入重排池——融合接线断了: " + poolTexts);
+        assertTrue(poolTexts.containsAll(List.of("text-A", "text-B", "text-C")),
+                "ES 腿独有 chunk 也必须进池: " + poolTexts);
     }
 }

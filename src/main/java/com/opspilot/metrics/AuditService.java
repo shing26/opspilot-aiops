@@ -72,10 +72,15 @@ public class AuditService {
      *               被拦了几句"的事后可查面。
      * @param stages 单请求分段耗时（G2），仅 chat 路径携带（{@code /search}、鉴权、管理面传 null）——
      *               与 src_tenant/verbatim_masked 同约定：null 即不落字段，避免全量噪音。
+     * @param degradeLevel 本次请求观察到的降级档位（{@code L0|L1|L2}）。**为什么必须要它**：`mode`
+     *               字段有两个来源——L1 降级（编排按档位传 {@code es_only}）与检索腿超时
+     *               （{@code HybridSearchService} 的 {@code effectiveMode}），两者落进审计行是同一个
+     *               字符串，"这次到底是不是负载触发的降级"从 `mode` 单字段答不出来（2026-09-28 复核
+     *               实测）。显式档位字段把两种解释分开；`/search` 不查状态机，故传 null 不落字段。
      */
     public void log(UserContext user, String kind, String via, String source, String query, String fingerprint,
                     String cacheHit, String mode, boolean refused, int maxResultAuthLevel, long tookMs,
-                    String srcTenant, Integer verbatimMasked, StageTimings stages) {
+                    String srcTenant, Integer verbatimMasked, StageTimings stages, String degradeLevel) {
         Map<String, Object> ev = new LinkedHashMap<>();
         ev.put("ts", System.currentTimeMillis());
         ev.put("ev", kind);
@@ -88,6 +93,7 @@ public class AuditService {
         ev.put("fp", fingerprint);
         ev.put("cache_hit", cacheHit);
         ev.put("mode", mode);
+        if (degradeLevel != null) ev.put("degrade_level", degradeLevel);
         ev.put("refused", refused);
         ev.put("max_level", maxResultAuthLevel);
         ev.put("took_ms", tookMs);
@@ -171,12 +177,43 @@ public class AuditService {
         writeEvent(ev);
     }
 
+    /**
+     * 降级档位转移留痕（2026-09-28，OP-A5）：给"降级发生了什么"一个可复核的事件序列。
+     *
+     * 为什么单独成事件而不只加 `degrade_level` 字段：字段答的是"**这次请求时**档位是几"——
+     * 它靠请求密度间接反推切换时刻，无请求的区间里切换会被漏掉，而且看不出"何时切、为何切"。
+     * 转移事件直接给出 {@code from → to + cause}，离线时间线（读 14 天滚动的 logs/audit.jsonl）
+     * 与压测结论都可据此复核。注意**量具边界**：档位是**拉模型**（无独立定时器），转移在
+     * 计数器变化（enter/exit/llmFailure/llmSuccess/manual）与 current() 被调用时被观察到；
+     * 而 current() 在每请求与 `/state` 轮询时都会调用，故实验与面板在场的场景下不会漏。
+     *
+     * @param from  切换前档位（{@code L0|L1|L2}）
+     * @param to    切换后档位
+     * @param cause 有限词表：{@code inflight}（在途超阈→L1）/ {@code llm_failure}（连续失败达阈→L2）/
+     *              {@code load_subsided}（负载回落→L0）/ {@code cooldown_expired}（冷却到期半开→L0）/
+     *              {@code manual}（人工锁定）/ {@code manual_clear}（解除锁定）
+     */
+    public void logDegradeTransition(String from, String to, String cause) {
+        Map<String, Object> ev = new LinkedHashMap<>();
+        ev.put("ts", System.currentTimeMillis());
+        ev.put("ev", "degrade_transition");
+        ev.put("from", from);
+        ev.put("to", to);
+        ev.put("cause", cause);
+        writeEvent(ev);
+    }
+
     private void writeEvent(Map<String, Object> ev) {
         try {
-            // H2：请求级关联 id 来自 MDC（同步面=filter 注入；编排面=虚拟线程任务内重挂），
-            // 缺省（系统内部触发的审计）不落字段
+            // H2 + OP-A7：请求级关联 id 来自 MDC（同步面=filter 注入；编排面=虚拟线程任务内重挂）。
+            // 两个 id **并存且互不覆盖**（ADR-0007 修订注）：
+            //   request_id = 服务端自生的单次请求 id（服务端权威，调用方输入顶不掉）；
+            //   trace_id   = 调用方提供的调用链 id（agent 分多步调用时用它整段取出）。
+            // 缺省（系统内部触发的审计、调用方没给 trace）不落字段——不编造身份。
             String rid = org.slf4j.MDC.get(com.opspilot.metrics.RequestIdFilter.KEY);
             if (rid != null) ev.put("request_id", rid);
+            String trace = org.slf4j.MDC.get(com.opspilot.metrics.RequestIdFilter.TRACE_KEY);
+            if (trace != null) ev.put("trace_id", trace);
             synchronized (this) {
                 ev.put("seq", ++seq);
                 ring.addLast(ev);
