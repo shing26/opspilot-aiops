@@ -523,5 +523,10 @@ CI 侧读数（**不是本机读数**）：`Tests run: 168, Failures: 0, Errors:
 
 `mvn -B test` 168/168 ｜ `offline` pytest 140 ｜ `provenance --check` OK ｜ `doc_numbers --check` OK ｜
 面板契约四层一致 ｜ `bash -n` 全通过 ｜ 证据包 smoke（含本轮 5 个新登记项）自洽。
+**CI 复验（push `e91a6be`，run `36375199303`）**：五 job 全绿（`java` 33s ｜ `python` 17s ｜ `provenance` 8s ｜ `panel-contract` 4s ｜ `shell` 5s）。
+其中 **`provenance` job 新增第 4 步**（`Grounding report ⟷ corpus same-generation + zero-ungrounded gate`）并首次运行通过：
+`OK 答案接地同代且零无据（answers=11 codes=16 rate=100%，语料摘要与 PROVENANCE 相符）`。
+CI 侧其余读数与本机一致：`Tests run: 168, Failures: 0` ｜ `145 passed` ｜ 证据包 **51 产物** + `同代自检：通过` + `证据快照自洽（51 项）`。
+
 **配额**：本轮全程默认上限 5000/主体，用掉 **≈2900**（唯一指纹场景占空比≈1，30s 发出 ≈2700 请求——
 这是该场景的设计后果：要压出在途就得放弃思考时间；故报告里的 rps 不是容量上限，是"不等"的结果）。
