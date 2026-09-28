@@ -47,11 +47,14 @@ def main():
     # A3-2 语义 Top-3 > 90%
     s3 = hit_at("hybrid", semantic, 3)
     check("A3-2 语义 Top-3 > 90%", s3 > 0.90, f"hit@3={s3:.0%}")
-    # A3-3 hybrid >= vector_only 且语义更优
+    # A3-3 双路**不劣于**纯向量。措辞按实测收紧（2026-09-28）：本夹具上 hybrid 与 vector_only 的聚合
+    # 读数**逐位相同**（exact 1.0/1.0、semantic hit@3 1.0），"优于"是断言不出来的东西，故名字与断言
+    # 对齐为 `>=`。融合本身并非空转——id 级对照（`python eval/mode_ablation.py`）显示两模式 top-3 在
+    # exact 桶 21/34 题不同、ES 腿贡献了 final top-3 的 102 条；"指标测不出增益"的真因是**指标饱和**。
     v_s3 = hit_at("vector_only", semantic, 3)
     h_e1 = e1
     v_e1 = hit_at("vector_only", exact, 1)
-    check("A3-3 双路优于纯向量", h_e1 >= v_e1 and s3 >= v_s3,
+    check("A3-3 双路不劣于纯向量（逐位相等亦算通过；融合贡献见 mode_ablation）", h_e1 >= v_e1 and s3 >= v_s3,
           f"hybrid(e1={h_e1:.0%},s3={s3:.0%}) vs vector(e1={v_e1:.0%},s3={v_s3:.0%})")
     # A3-4 越狱零泄漏
     leaked = 0

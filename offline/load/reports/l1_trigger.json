@@ -1,5 +1,5 @@
 {
-  "measured_at": "2026-09-28T11:34:31+08:00",
+  "measured_at": "2026-09-28T12:49:42+08:00",
   "subject": "sre-full",
   "backend": {
     "llm": "dashscope:qwen-plus",
@@ -9,7 +9,7 @@
   "scenario": "unique",
   "llm_failure_threshold": 3,
   "inflight_threshold": 40,
-  "quota_limit": 5000,
+  "quota_limit": 300000,
   "ramp_seconds": 5,
   "duration_per_level": "30s",
   "points": [
@@ -19,16 +19,16 @@
       "max_users": 48,
       "degradation_worst": "L2",
       "manual_lock_seen": false,
-      "max_inflight": 137,
+      "max_inflight": 151,
       "failure_rate": 0.0,
       "failure_detail": [],
-      "requests": 2789,
+      "requests": 2046,
       "failures": 0,
-      "rps": 91.40600303695517,
-      "p50_ms": 400.0,
-      "p95_ms": 1000.0,
-      "p99_ms": 1300.0,
-      "max_ms": 1755.2277000213508
+      "rps": 66.72084478563045,
+      "p50_ms": 690.0,
+      "p95_ms": 1100.0,
+      "p99_ms": 1400.0,
+      "max_ms": 2763.0378999747336
     }
   ],
   "first_degraded_level": 48,

@@ -519,6 +519,24 @@ CI 侧读数（**不是本机读数**）：`Tests run: 168, Failures: 0, Errors:
 `IllegalStateException: AsyncContext after error` ×2（locust 收尾那一秒，客户端已断开）——属"错误后仍尝试写"
 的收尾竞态，**无客户可见影响**，已按本表纪律写成 OPS §5 的可判读触发线行，不在批次二范围内修。
 
+### 2026-09-28 复跑：一次完整过程（不录屏，只走通全链路）
+
+按本仓自己的口径把过程走了一遍——`demo.sh` 预检 → `acceptance_a2.py` → `acceptance_a3.py` → 降级那一幕。
+
+| 环节 | 结果 |
+|---|---|
+| 预检 `scripts/demo.sh` | **13 项全 PASS**（含"jar 不早于源码/配置"） |
+| **A2 十项** | **10/10 PASS**（A2-1 SSE / A2-3 L1 / A2-4 L2 / A2-5 风暴 / A2-6 降级 / A2-8 权限 / A2-8b 密级 / A2-8c 租户矩阵 / A2-9 跨租户并发 / A2-10 留痕） |
+| **A3 八项** | **8/8 PASS**（含 A3-3 双路对照、A3-6 TTFT client 1.151s / server 1126ms） |
+| 降级那一幕 | 唯一指纹压测 u=48：在途峰值 **151**、`L0→L1(inflight)`；同轮上游并发上限 → `L1→L2(llm_failure)`；`L2→L0(cooldown_expired)`。L1 管线行签名 18/18 全中、反例 0 |
+| 注入腿 + 回滚闸门 | 三条判据全中：`failures=3/cooldown=60 → L2` ｜ L2 期请求 `llm_calls +0 / sop_fallbacks +1` ｜ 冷却 61s 后探测 → `L0`、failures 只 +1 不重开 |
+| 全段时间线 | `python scripts/audit_timeline.py`：**17 条转移**，链式连续、cause 全在词表内；三种来源可区分——`inflight`（A2 的 500 并发风暴也真触发了 L1，不只是手动锁；以及两次唯一指纹压测）、`llm_failure`（上游 429/并发上限 + 注入的 404）、`manual`/`manual_clear`（A2-6） |
+
+**这轮暴露并修掉的两件事**：
+
+1. **一处"宣称大于断言"**：`acceptance_a3.py` 的 A3-3 断言是 `>=`（正确），但**名字与注释写作"双路优于纯向量"**，而它自己的读数两侧逐位相等。已把措辞收紧为"双路不劣于纯向量（逐位相等亦算通过）"，并在注释里指向 `mode_ablation.md` 讲清"融合生效但指标饱和"。
+2. **两条本机操作纪律**（已写进 OPS §7）：① **停进程按端口杀，别按应用自报 pid**——按 pid 杀要先 `source .env`，缺它 `localapi.login` 抛错 ⇒ 变量为空 ⇒ `taskkill` 空转且不报错；② **启动成功以 `Started OpsPilotApplication` 日志为准**——只看 `/health` 或 `/state` 会读到**上一个还活着的实例**。本轮就因此把"三种配额覆写方式都无效"当成结论（实际是旧实例幽灵，新进程早已 `APPLICATION FAILED TO START`）；干净单实例复测确认 `OPSPILOT_QUOTA_DAILY_LIMIT` 生效，且重负载轮次须一并抬高（唯一指纹压测 ~2000 请求会吃掉同一主体当日预算）。
+
 ### 门禁终态与用量
 
 `mvn -B test` 168/168 ｜ `offline` pytest 140 ｜ `provenance --check` OK ｜ `doc_numbers --check` OK ｜

@@ -195,6 +195,16 @@ LLM_MODEL=__opspilot_probe_invalid__ java -jar target/opspilot-gateway-1.0.0.jar
 #    否则残留熔断态会让压测的 worst 直接读到 L2、L1 实验作废
 ```
 
+**启动与停机的两条纪律（2026-09-28 实测踩到，白费三次启动）**：
+
+1. **停进程按端口杀，别按应用自报的 pid**：`netstat -ano | grep :8081 | awk '{print $5}' | sort -u` 取 pid 再 `taskkill //F //PID <pid>`。
+   按 pid 杀的前置是先 `source .env`——缺它 `localapi.login` 会抛错 ⇒ 变量为空 ⇒ `taskkill` **空转且不报错**（我连踩两次）。
+2. **启动成功以日志为准**：`grep -q "Started OpsPilotApplication" logs/run-*.log`。
+   只看 `/actuator/health` 或 `/state` 会读到**上一个还活着的实例**——本轮因此把"三种配额覆写方式都无效"当成了结论，
+   实际是旧实例幽灵（新进程早已因 `Port 8081 was already in use` 而 `APPLICATION FAILED TO START`）。
+   **`OPSPILOT_QUOTA_DAILY_LIMIT` 本身是生效的**（干净单实例实测：设 123456 → `/state` 读到 123456）；唯一指纹压测 ~2000 请求会吃掉同一主体的当日预算，
+   故重负载轮次起服务时一并抬高并在报告里披露 `quota_limit` 真值。
+
 **能力边界（勿对外宣传）**：/v1 目前只有 `chat/completions`（stream=true）与 `models`；文件上传/语音/多模态对应端点未实现，任何客户端里点了即报错——协议面的演示只用文本对话。**归因纪律**：外部客户端出现"响应已返回但界面异常"时，先 `tail logs/audit.jsonl` 定位归属（有行且正常=该客户端渲染层的事），再排查——2026-09-11 在嵌入 webview 实测过此判据。
 
 **环境注记（历史踩坑，若重接 LobeChat 会用到）**：`lobehub/lobe-chat` 在 `mem_limit:512m` 下 node 堆 ~256M、pdfjs 初始化 OOM 崩溃循环，需 2g；Windows Git Bash 的 `curl -d` 发中文按 GBK 出局（客户端 locale 陷阱），脚本发中文一律走 python。
