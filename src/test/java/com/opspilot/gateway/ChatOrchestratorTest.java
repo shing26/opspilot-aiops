@@ -422,6 +422,9 @@ class ChatOrchestratorTest {
         assertEquals(List.of(), sink.refs, "澄清不携带引用");
         verifyNoInteractions(searchService);                       // 没检索
         verify(llm, never()).streamChat(any(), any());             // 也没调 LLM（零 token）
+        // **澄清刻意不写 L1**（2026-09-28 code-review 抓出）：门在 l1.get 之前，写了也读不到（死写）；
+        // 而 L2 期门让位、l1.get 反会回放它——澄清抢在 SOP 直出之前，复刻 A2-6 已修坑。回归锁如下。
+        verify(l1, never()).put(any(), anyInt(), any(), any());
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), eq("刚才那个怎么办"),
                 anyString(), eq("none"), eq("clarify"), eq(true), eq(0), anyLong(),
                 isNull(), isNull(), isNull(), eq("L0"));

@@ -155,7 +155,10 @@ public class ChatOrchestrator {
                 long clarifyNano = System.nanoTime();
                 sink.delta(clarify);
                 sink.done(t0, clarifyNano, List.of());
-                l1.put(user.tenantId(), user.authLevel(), query, json);
+                // **刻意不写 L1**（2026-09-28 code-review 抓出）：本门在 `l1.get` 之前，L0/L1 期刚写的
+                // 条目永不可读＝死写；而 L2 期门让位、`l1.get` 反会回放它——澄清抢在 SOP 直出之前，
+                // 复刻 A2-6 的已修坑（"降级期答案入缓存 → 同 query 仍回放"）。同指纹 follower 已由
+                // `reg.future().complete` 覆盖，缓存没有增益。
                 reg.future().complete(json);
                 audit.log(user, "chat", via, source, query, fp, "none", "clarify", true, 0,
                         (System.nanoTime() - t0) / 1_000_000, null, null,
