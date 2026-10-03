@@ -6,33 +6,61 @@
       "unit": "@Test 声明数（src/test；无参数化展开，故与 surefire 执行数一致）",
       "derive": {
         "kind": "grep_count",
-        "globs": ["src/test/**/*.java"],
+        "globs": [
+          "src/test/**/*.java"
+        ],
         "pattern": "^\\s*@Test\\b"
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 单测"},
-        {"file": "docs/repo-map.md", "pattern": "单测与集成（(\\d+) 用例"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 单测"
+        },
+        {
+          "file": "docs/repo-map.md",
+          "pattern": "单测与集成（(\\d+) 用例"
+        }
       ]
     },
     {
       "id": "adr_count",
       "unit": "架构决策记录份数（docs/adr/*.md）",
-      "derive": {"kind": "file_count", "globs": ["docs/adr/*.md"]},
+      "derive": {
+        "kind": "file_count",
+        "globs": [
+          "docs/adr/*.md"
+        ]
+      },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 项架构决策"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 项架构决策"
+        }
       ]
     },
     {
       "id": "chunks_lines",
       "unit": "切分产物 chunks 行数（offline/corpus/chunks.jsonl）——注意是 **chunk 数**，不是语料篇数",
-      "derive": {"kind": "jsonl_lines", "path": "offline/corpus/chunks.jsonl"},
+      "derive": {
+        "kind": "jsonl_lines",
+        "path": "offline/corpus/chunks.jsonl"
+      },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) chunks"},
-        {"file": "OPS.md", "pattern": "(\\d+) chunks"},
-        {"file": "DEMO.md", "pattern": "(\\d+) chunks"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) chunks"
+        },
+        {
+          "file": "OPS.md",
+          "pattern": "(\\d+) chunks"
+        },
+        {
+          "file": "DEMO.md",
+          "pattern": "(\\d+) chunks"
+        }
       ]
     },
     {
@@ -40,20 +68,36 @@
       "unit": "语料篇数：复盘 + Runbook（不含 OpenAPI）",
       "derive": {
         "kind": "file_count",
-        "globs": ["offline/corpus/runbooks/*.md", "offline/corpus/postmortems/*.md"]
+        "globs": [
+          "offline/corpus/runbooks/*.md",
+          "offline/corpus/postmortems/*.md"
+        ]
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 篇复盘/Runbook"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 篇复盘/Runbook"
+        }
       ]
     },
     {
       "id": "golden_samples",
       "unit": "评测集样本数（offline/eval/golden_dataset.jsonl）",
-      "derive": {"kind": "jsonl_lines", "path": "offline/eval/golden_dataset.jsonl"},
+      "derive": {
+        "kind": "jsonl_lines",
+        "path": "offline/eval/golden_dataset.jsonl"
+      },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 样本"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 样本"
+        },
+        {
+          "file": "CONTEXT.md",
+          "pattern": "(\\d+) 组标注样本"
+        }
       ]
     },
     {
@@ -62,12 +106,24 @@
       "derive": {
         "kind": "jsonl_count_where",
         "path": "offline/eval/golden_dataset.jsonl",
-        "equals": {"type": "exact"}
+        "equals": {
+          "type": "exact"
+        }
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 错误码用例"},
-        {"file": "README.md", "pattern": "(\\d+) 精确码"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 错误码用例"
+        },
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 精确码"
+        },
+        {
+          "file": "CONTEXT.md",
+          "pattern": "（(\\d+) 精确错误码"
+        }
       ]
     },
     {
@@ -76,12 +132,24 @@
       "derive": {
         "kind": "jsonl_count_where",
         "path": "offline/eval/golden_dataset.jsonl",
-        "equals": {"type": "semantic"}
+        "equals": {
+          "type": "semantic"
+        }
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 口语化用例"},
-        {"file": "README.md", "pattern": "(\\d+) 语义"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 口语化用例"
+        },
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 语义"
+        },
+        {
+          "file": "CONTEXT.md",
+          "pattern": "\\+ (\\d+) 口语化语义"
+        }
       ]
     },
     {
@@ -94,8 +162,14 @@
       },
       "format": "percent",
       "cited_in": [
-        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，34 错误码用例"},
-        {"file": "OPS.md", "pattern": "精确符号 Top-1 命中率 \\| 100% \\| \\*\\*(\\d+)%\\*\\*"}
+        {
+          "file": "README.md",
+          "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，34 错误码用例"
+        },
+        {
+          "file": "OPS.md",
+          "pattern": "精确符号 Top-1 命中率 \\| 100% \\| \\*\\*(\\d+)%\\*\\*"
+        }
       ]
     },
     {
@@ -108,8 +182,14 @@
       },
       "format": "percent",
       "cited_in": [
-        {"file": "README.md", "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，25 口语化用例"},
-        {"file": "OPS.md", "pattern": "语义 Top-3 召回率 \\| 100% \\| \\*\\*(\\d+)%\\*\\*"}
+        {
+          "file": "README.md",
+          "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，27 口语化用例"
+        },
+        {
+          "file": "OPS.md",
+          "pattern": "语义 Top-3 召回率 \\| 100% \\| \\*\\*(\\d+)%\\*\\*"
+        }
       ]
     },
     {
@@ -122,8 +202,16 @@
       },
       "format": "percent",
       "cited_in": [
-        {"file": "README.md", "pattern": "仅 64% → hybrid (\\d+)%"},
-        {"file": "README.md", "pattern": "从 64% 拉到 (\\d+)%"}
+        {
+          "file": "README.md",
+          "pattern": "仅 (\\d+(?:\\.\\d+)?)% → hybrid (\\d+(?:\\.\\d+)?)%",
+          "group": 2
+        },
+        {
+          "file": "README.md",
+          "pattern": "从 (\\d+(?:\\.\\d+)?)% 拉到 (\\d+(?:\\.\\d+)?)%",
+          "group": 2
+        }
       ]
     },
     {
@@ -136,8 +224,16 @@
       },
       "format": "percent",
       "cited_in": [
-        {"file": "README.md", "pattern": "仅 (\\d+)% → hybrid 88%"},
-        {"file": "README.md", "pattern": "从 (\\d+)% 拉到 88%"}
+        {
+          "file": "README.md",
+          "pattern": "仅 (\\d+(?:\\.\\d+)?)% → hybrid (\\d+(?:\\.\\d+)?)%",
+          "group": 1
+        },
+        {
+          "file": "README.md",
+          "pattern": "从 (\\d+(?:\\.\\d+)?)% 拉到 (\\d+(?:\\.\\d+)?)%",
+          "group": 1
+        }
       ]
     },
     {
@@ -150,7 +246,11 @@
       },
       "format": "percent",
       "cited_in": [
-        {"file": "README.md", "pattern": "Hit@3 由 100% 降至 (\\d+)%"}
+        {
+          "file": "README.md",
+          "pattern": "`es_only` 语义 Hit\\@3 (\\d+(?:\\.\\d+)?)%、MRR",
+          "group": 1
+        }
       ]
     },
     {
@@ -163,7 +263,11 @@
       },
       "format": "decimal3",
       "cited_in": [
-        {"file": "README.md", "pattern": "语义 MRR (\\d+\\.\\d+)→(\\d+\\.\\d+)", "group": 2}
+        {
+          "file": "README.md",
+          "pattern": "语义 MRR (\\d+\\.\\d+)→(\\d+\\.\\d+)",
+          "group": 2
+        }
       ]
     },
     {
@@ -176,7 +280,11 @@
       },
       "format": "decimal3",
       "cited_in": [
-        {"file": "README.md", "pattern": "语义 MRR (\\d+\\.\\d+)→(\\d+\\.\\d+)", "group": 1}
+        {
+          "file": "README.md",
+          "pattern": "下 `es_only` 语义 Hit\\@3 (\\d+(?:\\.\\d+)?)%、MRR (\\d+\\.\\d+)",
+          "group": 2
+        }
       ]
     },
     {
@@ -189,8 +297,14 @@
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 条越狱用例"},
-        {"file": "README.md", "pattern": "实测 (\\d+) 用例零泄漏"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 条越狱用例"
+        },
+        {
+          "file": "README.md",
+          "pattern": "实测 (\\d+) 用例零泄漏"
+        }
       ]
     },
     {
@@ -203,7 +317,10 @@
       },
       "format": "int",
       "cited_in": [
-        {"file": "OPS.md", "pattern": "权限泄漏率 \\| 0 \\| \\*\\*(\\d+)\\*\\*"}
+        {
+          "file": "OPS.md",
+          "pattern": "权限泄漏率 \\| 0 \\| \\*\\*(\\d+)\\*\\*"
+        }
       ]
     },
     {
@@ -217,7 +334,10 @@
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "\\*\\*(\\d+)ms\\*\\* \\| L1 回放"}
+        {
+          "file": "README.md",
+          "pattern": "\\*\\*(\\d+)ms\\*\\* \\| L1 回放"
+        }
       ]
     },
     {
@@ -231,7 +351,10 @@
       },
       "format": "decimal1",
       "cited_in": [
-        {"file": "README.md", "pattern": "端到端 p99=(\\d+\\.\\d+)ms"}
+        {
+          "file": "README.md",
+          "pattern": "端到端 p99=(\\d+\\.\\d+)ms"
+        }
       ]
     },
     {
@@ -240,12 +363,17 @@
       "derive": {
         "kind": "csv_field",
         "path": "offline/load/reports/locust_a_stats.csv",
-        "where": {"Name": "Aggregated"},
+        "where": {
+          "Name": "Aggregated"
+        },
         "column": "Requests/s"
       },
       "format": "decimal1",
       "cited_in": [
-        {"file": "README.md", "pattern": "\\*\\*(\\d+\\.\\d+) req/s"}
+        {
+          "file": "README.md",
+          "pattern": "\\*\\*(\\d+\\.\\d+) req/s"
+        }
       ]
     },
     {
@@ -254,12 +382,17 @@
       "derive": {
         "kind": "csv_field",
         "path": "offline/load/reports/locust_a_stats.csv",
-        "where": {"Name": "Aggregated"},
+        "where": {
+          "Name": "Aggregated"
+        },
         "column": "Request Count"
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "(\\d+) 请求 0 失败"}
+        {
+          "file": "README.md",
+          "pattern": "(\\d+) 请求 0 失败"
+        }
       ]
     },
     {
@@ -268,12 +401,17 @@
       "derive": {
         "kind": "csv_field",
         "path": "offline/load/reports/locust_a_stats.csv",
-        "where": {"Name": "Aggregated"},
+        "where": {
+          "Name": "Aggregated"
+        },
         "column": "Failure Count"
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "请求 (\\d+) 失败"}
+        {
+          "file": "README.md",
+          "pattern": "请求 (\\d+) 失败"
+        }
       ]
     },
     {
@@ -282,12 +420,17 @@
       "derive": {
         "kind": "csv_field",
         "path": "offline/load/reports/locust_a_stats.csv",
-        "where": {"Name": "Aggregated"},
+        "where": {
+          "Name": "Aggregated"
+        },
         "column": "50%"
       },
       "format": "int",
       "cited_in": [
-        {"file": "README.md", "pattern": "P50=(\\d+)ms"}
+        {
+          "file": "README.md",
+          "pattern": "P50=(\\d+)ms"
+        }
       ]
     },
     {
@@ -299,7 +442,10 @@
       },
       "format": "int",
       "cited_in": [
-        {"file": "docs/ops/production-readiness-2026-09-12.md", "pattern": "refuse_set\\.jsonl`（(\\d+) 条"}
+        {
+          "file": "docs/ops/production-readiness-2026-09-12.md",
+          "pattern": "refuse_set\\.jsonl`（(\\d+) 条"
+        }
       ]
     }
   ]

@@ -57,3 +57,5 @@
 {"id": "sem-23", "type": "semantic", "query": "调用下游服务超时，Feign 读超时", "expected_docs": ["rb-005", "pm-007", "pm-013"], "auth_level": 3}
 {"id": "sem-24", "type": "semantic", "query": "HTTPS 握手失败，证书快要过期了", "expected_docs": ["rb-014"], "auth_level": 3}
 {"id": "sem-25", "type": "semantic", "query": "热点商品加购被熔断保护挡住了", "expected_docs": ["rb-008", "pm-003"], "auth_level": 3}
+{"id": "sem-26", "type": "semantic", "query": "订单创建一直转圈最后失败了", "expected_docs": ["pm-001"], "auth_level": 3}
+{"id": "sem-27", "type": "semantic", "query": "订单一直转圈圈是什么问题", "expected_docs": ["pm-001"], "auth_level": 3}

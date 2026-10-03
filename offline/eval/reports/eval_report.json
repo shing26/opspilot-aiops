@@ -1,8 +1,8 @@
 {
   "backend": {
-    "embedding": "dashscope:text-embedding-v3",
+    "llm": "dashscope:qwen-plus",
     "rerank": "dashscope:gte-rerank-v2",
-    "llm": "dashscope:qwen-plus"
+    "embedding": "dashscope:text-embedding-v3"
   },
   "embedding_backend": "dashscope:text-embedding-v3",
   "modes": {
@@ -13,9 +13,9 @@
         "mrr": 1.0
       },
       "semantic": {
-        "hit@1": 0.64,
-        "hit@3": 0.92,
-        "mrr": 0.7667
+        "hit@1": 0.5926,
+        "hit@3": 0.8889,
+        "mrr": 0.7222
       }
     },
     "vector_only": {
@@ -25,9 +25,9 @@
         "mrr": 1.0
       },
       "semantic": {
-        "hit@1": 0.88,
+        "hit@1": 0.8519,
         "hit@3": 1.0,
-        "mrr": 0.94
+        "mrr": 0.9198
       }
     },
     "hybrid": {
@@ -37,9 +37,9 @@
         "mrr": 1.0
       },
       "semantic": {
-        "hit@1": 0.88,
+        "hit@1": 0.8519,
         "hit@3": 1.0,
-        "mrr": 0.94
+        "mrr": 0.9198
       }
     }
   },

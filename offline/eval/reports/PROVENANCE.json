@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-09-19T14:35:56+08:00",
+  "generated_at": "2026-10-03T15:09:50+08:00",
   "produced_by": "offline/eval/evaluate.py",
   "reproduce": "cd offline && python eval/build_golden.py && python eval/evaluate.py   # 需活体栈；live 数字还需 DASHSCOPE_API_KEY",
   "report_mode": "live",
   "report_backend": {
-    "embedding": "dashscope:text-embedding-v3",
+    "llm": "dashscope:qwen-plus",
     "rerank": "dashscope:gte-rerank-v2",
-    "llm": "dashscope:qwen-plus"
+    "embedding": "dashscope:text-embedding-v3"
   },
   "corpus_docs": {
     "sha256": "da7365490b6ebbd3a1cfd12ec78cbb728c094b28d46b32a87b82d50560a160e7",
@@ -17,7 +17,7 @@
     "lines": 423
   },
   "golden": {
-    "sha256": "46dc12899f96ddb85e831098d2e18d6a98a8519d6eaebf32e3def4ffa1fe7e84",
-    "samples": 59
+    "sha256": "881f474c1ba46d8b5a58f5995b6ea9f7d3f122d86c985e258a5fef628c20a0da",
+    "samples": 61
   }
 }
