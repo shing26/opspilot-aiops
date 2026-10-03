@@ -14,10 +14,15 @@ import jakarta.validation.constraints.Size;
  *
  * 校验口径与 ChatRequest 同范式：注解在 DTO，失败由 GlobalExceptionHandler 转 400 + 留痕
  * （不落 500——错误分层是第五轮 QA 的既有成果）。
+ *
+ * <p><b>形状校验（2026-09-28，live QA F-5）</b>：fingerprint 必须是 **32 位十六进制**
+ * （`FingerprintService` 的 SHA-256 前 128 位）——此前只限长度不限形状，`not-a-fingerprint!!`
+ * 这类值被 200 接受并落审计，治理归档被稀释。**存在性仍宽容**：未知 fingerprint 照常接受
+ * （"这个问题对应的知识是错的"不要求系统认识它），形状非法才是拒绝。
  */
 public record FeedbackRequest(
         @NotBlank(message = "fingerprint 不能为空")
-        @Size(max = 64, message = "fingerprint 最长 64 字符")
+        @Pattern(regexp = "[0-9a-f]{32}", message = "fingerprint 应为 32 位十六进制指纹")
         String fingerprint,
 
         @NotBlank(message = "verdict 不能为空")

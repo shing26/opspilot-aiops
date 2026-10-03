@@ -11,6 +11,8 @@ import org.springframework.web.server.ResponseStatusException;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 反馈端点的三态锁：认证与密级防线不得被绕过，合法反馈必须原样落审计。
@@ -19,6 +21,9 @@ import static org.mockito.Mockito.*;
  * 在案债务的前置。若它静默失效（无痕、或被未认证者灌入），那条债务链会断在这里而无人察觉。
  */
 class FeedbackControllerTest {
+
+    /** 32 位十六进制（与 FingerprintService 的 SHA-256 前 128 位一致）。 */
+    private static final String FP_VALID = "ab3fdc9c0e1a4f8e9c1d2b3a4c5d6e7f";
 
     private final AuditService audit = mock(AuditService.class);
     private final FeedbackController controller = new FeedbackController(audit);
@@ -52,11 +57,11 @@ class FeedbackControllerTest {
 
     @Test
     void validFeedbackIsAuditedWithIdentityAndVerdict() {
-        var resp = controller.feedback(new FeedbackRequest("fp-abc", "down", "答案里的错误码是编的"),
+        var resp = controller.feedback(new FeedbackRequest(FP_VALID, "down", "答案里的错误码是编的"),
                 withUser(2));
         assertEquals(Boolean.TRUE, resp.get("ok"));
         verify(audit).logFeedback(argThat(u -> "tenant-demo".equals(u.tenantId()) && u.authLevel() == 2),
-                eq("fp-abc"), eq("down"), eq("答案里的错误码是编的"));
+                eq(FP_VALID), eq("down"), eq("答案里的错误码是编的"));
     }
 
     /** 未知 fingerprint 不是错误：系统不认识它也不该崩——反馈的价值在"收下"，不在"先校验"。 */
@@ -66,5 +71,28 @@ class FeedbackControllerTest {
                 withUser(1));
         assertEquals(Boolean.TRUE, resp.get("ok"));
         verify(audit).logFeedback(any(), eq("00000000000000000000000000000000"), eq("up"), isNull());
+    }
+
+    /**
+     * F-5（2026-09-28，live QA）：fingerprint 形状非法 → 400 + `ev=invalid` 留痕。
+     *
+     * 为什么值得一条 MockMvc 用例（本类其余都是直调 controller）：形状校验的拒绝发生在
+     * **MVC 校验层**（`@Pattern` → MethodArgumentNotValidException → 全局 advice），直调
+     * controller 锁不住它；而验收口径是"HTTP 400 且 body 含 INVALID_REQUEST、审计 +1"。
+     */
+    @Test
+    void malformedFingerprintIsRejectedWith400AndAudited() throws Exception {
+        AuditService audit2 = mock(AuditService.class);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(new FeedbackController(audit2))
+                .setControllerAdvice(new GlobalExceptionHandler(audit2))
+                .build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/api/v1/copilot/feedback")
+                        .contentType("application/json")
+                        .content("{\"fingerprint\":\"not-a-fingerprint!!\",\"verdict\":\"down\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        verify(audit2).logInvalid(isNull(), eq("/api/v1/copilot/feedback"), contains("fingerprint"));
     }
 }

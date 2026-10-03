@@ -426,9 +426,53 @@ def run_grounding(records: list[dict], admin_tok: str = "") -> None:
           f"（接地率 {rate:.0%}）"
           + ("；无据样例 " + "; ".join(samples[:3]) if samples else "")
           + ("  ← 本组答案未出现错误码：判据未被行使（非绿，仅不适用）" if total_codes == 0 else ""))
+    # OP-R2 第一步（2026-10-03，live QA F-2 兑现触发线后）：非错误码的无据**具体命名**回查。
+    run_speculative_naming(records)
     # OP-R1：判据结论落盘（否则"跑完就没了"，而对 mock 恒真的那一项只剩它能验）
     write_grounding_report(answers=len(records), codes_total=total_codes, ungrounded=ungrounded,
                            rate=rate, samples=samples, admin_tok=admin_tok)
+
+
+# 形如配置键 / 指标名 / 预案名的 token 形状（live QA F-2 实测的四类编造物均落此形态）：
+#   配置赋值（a.b.c=true）、点分键（pay.gateway.fallback）、snake_case 指标（xxx_p99 / xxx_rate）、
+#   书名号预案（《支付通道切换预案》）。判据刻意"宁滥"——本探针是 **warn-only**，不进门禁；
+#   它的职责是把"形似合理但语料中不存在"的具体名字**点名**，供人工判定，而非断言"编造"。
+_SPECULATIVE_TOKEN = re.compile(
+    r"\b[a-z][a-z0-9]*(?:[._][a-z0-9]+)+\s*(?:=|>|<|≥|≤)|"
+    r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+){1,6}\b|"
+    r"《[^》]{2,30}》")
+
+
+def run_speculative_naming(records: list[dict]) -> None:
+    """回查答案里"形似具体命名"的 token 是否真的在语料中出现过——**只 WARN 不 FAIL**。
+
+    为什么 warn-only：与错误码不同，指标名/配置键没有"有据与否"的可判读定义（OPS §5.1 该行
+    原文：纳入须先给出"有据"的可判读定义，否则门闩变噪音源）。本探针的产出是**点名清单**，
+    由人工判定；它不 green/red 任何东西。
+
+    变异验证：把"回查语料"改成"恒命中" → 对 F-2 那条含 4 个编造物的答案本探针应零输出（证明
+    比对真的发生了）；再对语料内真实存在的键（如 `50012_DB_TIMEOUT`）→ 应被点名（证明方向对）。
+    """
+    suspects: list[str] = []
+    for rec in records:
+        allowed = grounding.ref_error_codes(rec.get("refs_raw"), CHUNK_ERROR_CODES)
+        for tok in set(_SPECULATIVE_TOKEN.findall(rec["answer"] or "")):
+            tok = tok.strip()
+            if not tok or tok in allowed:
+                continue
+            # 错误码归 V9 管辖（已另有集合判据）；这里只盯"非错误码的具体命名"
+            if grounding.error_codes_in(tok):
+                continue
+            in_corpus = any(tok in text for text in CHUNKS.values())
+            if not in_corpus:
+                suspects.append(f"{rec.get('tag', '?')}:{tok}")
+    if suspects:
+        print(f"WARN  V10-speculative-naming（warn-only，不进门禁）：{len(suspects)} 个"
+              f"语料外具体命名——请人工判定是否编造（F-2 同型）")
+        for x in suspects[:10]:
+            print(f"      - {x}")
+    else:
+        print("WARN-skip  本组答案无'语料外具体命名'（V10 无发现）")
 
 
 def main() -> int:

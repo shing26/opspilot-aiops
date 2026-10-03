@@ -278,7 +278,7 @@ class ChatOrchestratorTest {
         String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
                 new AnswerPayload("INTERNAL-SECRET", List.of(
                         new AnswerPayload.Ref("rb-001::s1", "面包屑", "svc")),
-                        "hybrid", false, 3, "tenant-internal"));
+                        "hybrid", false, 3, "tenant-internal", false));
         RecordingSink sink = new RecordingSink();
         orchestrator.replay(sink, json, "none", true, "fp1", System.nanoTime(), ACME, q(), "sse", "manual");
 
@@ -317,7 +317,7 @@ class ChatOrchestratorTest {
         RecordingSink follower = new RecordingSink();
         orchestrator.replay(follower,
                 new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
-                        new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal")),
+                        new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal", false)),
                 "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse", "manual");
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
                 eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull(), isNull(),
@@ -428,5 +428,34 @@ class ChatOrchestratorTest {
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), eq("刚才那个怎么办"),
                 anyString(), eq("none"), eq("clarify"), eq(true), eq(0), anyLong(),
                 isNull(), isNull(), isNull(), eq("L0"));
+    }
+
+    /**
+     * F-1 回归锁（2026-10-03，live QA）：缓存拒答回放的审计行必须携带 `refused=true`、`max_level=0`。
+     *
+     * 为什么锁：拒答会写进 L1（TTL 2h），重发同 query 走回放——此前 `replay()` 硬编码
+     * `refused=false` 且取 payload 的 maxAuthLevel（拒答写缓存时存的是请求者级别）⇒ 同一拒答
+     * 在审计里被翻转成"未拒答、触达密级 3"（live 实测三次），`daily_usage` 的 refuse_rate
+     * 被系统性低估、OPS §4 的 0.10 告警线失真。客户端语义不变（收到的仍是拒答话术），
+     * 变的只是审计行必须如实。
+     * 变异验证：把 `replay()` 的 `p.refused()` 改回 `false` → 本用例必红。
+     */
+    @Test
+    void cachedRefusalReplayKeepsAuditSemantics() throws Exception {
+        // 载荷 = 拒答分支真实写进 L1 的形状：maxAuthLevel=0、refused=true
+        String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                new AnswerPayload("当前知识库无足够相关的参考（检索置信度不足），无法可靠作答。",
+                        List.of(), "hybrid", false, 0, "tenant-internal", true));
+        RecordingSink sink = new RecordingSink();
+        orchestrator.replay(sink, json, "L1", false, "fp-refusal", System.nanoTime(),
+                INTERNAL, "今天天气怎么样", "sse", "manual");
+        awaitSuccess(sink);
+
+        assertTrue(sink.answer.toString().contains("无足够相关的参考"),
+                "客户端收到的仍是拒答话术: " + sink.answer);
+        verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), eq("sse"), eq("manual"), eq("今天天气怎么样"),
+                anyString(), eq("L1"), anyString(), eq(true), eq(0), anyLong(),
+                eq("tenant-internal"),   // src_tenant 随行（回放路径既有特性）：载荷租户=请求者租户
+                isNull(), isNull(), eq("L0"));
     }
 }

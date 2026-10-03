@@ -47,7 +47,7 @@ Reciprocal Rank Fusion，倒数排名融合（k=60），将双路排名无量纲
 ### 缓存域
 
 **L1 精确缓存**:
-`tenant + authLevel + SHA-256(normalize(query))` 为 Key 的 Redis 哈希缓存，TTL 2h。_Avoid_: 热缓存
+`tenant + authLevel + SHA-256(normalize(query))` 为 Key 的 Redis 哈希缓存，TTL 2h。**已知边界（2026-10-03 登记，live QA F-4）**：门控拒答**也写 L1**（同 query 重发直接回放拒答，省一次检索）——代价是语料重灌补上新内容后，同 query 最长 2h 内仍回放旧拒答；运维 SOP：reingest 后用**改变措辞**的 query（不同指纹）验证新语料，别复用旧原句。触发线：若该 2h 窗口内发生"补了内容仍漏检"的漏检事故 → 缩短拒答类条目的 TTL。_Avoid_: 热缓存
 
 **L2 语义缓存**:
 Qdrant 专属 Collection，余弦相似度 > 0.95 判定命中，跳过检索与 LLM 直接回放答案；payload 携带 `max_auth_level` 防权限泄漏。_Avoid_: 向量缓存

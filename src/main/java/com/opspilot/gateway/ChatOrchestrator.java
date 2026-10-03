@@ -149,7 +149,7 @@ public class ChatOrchestrator {
             if (level != Level.L2 && ClarificationGate.needsClarification(query)) {
                 String clarify = ClarificationGate.MESSAGE;
                 AnswerPayload p = new AnswerPayload(clarify, List.of(), "clarify", false,
-                        user.authLevel(), user.tenantId());
+                        user.authLevel(), user.tenantId(), true);
                 String json = mapper.writeValueAsString(p);
                 sink.meta(fp, "none", level, false, false, 0);
                 long clarifyNano = System.nanoTime();
@@ -206,7 +206,8 @@ public class ChatOrchestrator {
             metrics.sopFallback();
             String sop = sopFallback.lookup(query, req.service(), user.tenantId());
             String answer = sop != null ? sop : "系统高负载，已触发熔断降级，暂无可用止损清单，请联系值班 SRE。";
-            AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false, user.authLevel(), user.tenantId());
+            AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false,
+                    user.authLevel(), user.tenantId(), false);
             String json = mapper.writeValueAsString(p);
             sink.meta(fp, "none", level, false, false, 0);
             long sopFirstDeltaNano = System.nanoTime();
@@ -237,7 +238,9 @@ public class ChatOrchestrator {
             String reason = chunks.isEmpty() ? "未匹配到任何参考" : "检索置信度不足";
             String refusal = "当前知识库无足够相关的参考（" + reason + "），无法可靠作答。"
                     + "请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
-            AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, user.authLevel(), user.tenantId());
+            // maxAuthLevel=0：拒答不触达任何语料（回放路径的审计 max_level 由此而来，live QA F-1）
+            AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, 0,
+                    user.tenantId(), true);
             String json = mapper.writeValueAsString(p);
             sink.meta(fp, "none", level, false, false, outcome.tookMs());
             long refusalNano = System.nanoTime();
@@ -277,7 +280,8 @@ public class ChatOrchestrator {
             int masked = guard.maskedCount();
             degrade.llmSuccess();
             if (masked > 0) metrics.verbatimMasked(masked);
-            AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth, user.tenantId());
+            AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth,
+                    user.tenantId(), false);
             String json = mapper.writeValueAsString(p);
             l1.put(user.tenantId(), user.authLevel(), query, json);
             // L2 写入：存完整 payload（含 refs）。**注意这里是第二次 embedding 调用**——
@@ -335,7 +339,7 @@ public class ChatOrchestrator {
         // src_tenant 随行（QA P1-2"命中来源"）：与 tenant 相等=正常同租户回放；
         // grep 不等即可发现任何新的跨租户共享旁路。
         audit.log(user, "chat", via, source, query, fp, cacheHit + (deduplicated ? "+dedup" : ""),
-                p.mode(), false, p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant(), null,
+                p.mode(), p.refused(), p.maxAuthLevel(), (System.nanoTime() - t0) / 1_000_000, p.tenant(), null,
                 null,   // 回放路径：无检索/LLM 分段
                 lvl.name());
     }

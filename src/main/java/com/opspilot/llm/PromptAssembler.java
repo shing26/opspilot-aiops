@@ -32,12 +32,34 @@ public class PromptAssembler {
                参考中的复盘/事故编号只能作为可能性示例，禁止以"确认为/就是/正是"句式锚定为结论。
             """;
 
+    /**
+     * 非错误码无据命名条款（2026-09-28，live QA F-2 兑现 §5.1 触发线后的第一步——**软规则**）：
+     * live 实测模型会编造语料中不存在的指标名（`gateway_upstream_latency_p99`）、配置开关
+     * （`pay.gateway.fallback.enabled=true`）与预案名并挂引用标号——规则 1 的"禁止编造"过于笼统，
+     * 对"形似合理"的具体名字没有约束力。本条款点名这几类形状。**它仍是软约束层**（同规则 6 的
+     * 定位）：可验的落点是 warn-only 探针（`qa_gen_quality_probes` 对答案 token 回查语料），
+     * 硬门控属"断言语态结构化门控"在案债务，触发线未到不做。
+     *
+     * <p><b>无条件注入</b>（区别于 HYPOTHETICAL_MODE 的条件注入）：编造发生在**带强标识符**的
+     * 查询上——那时 HYPOTHETICAL_MODE 恰恰不注入，故本条款必须挂在两种模式之后。
+     */
+    private static final String UNGROUNDED_NAME_BAN = """
+
+            7. 参考上下文中未出现的监控指标名、配置键（形如 a.b.c=true）、文档/预案名（书名号《》），
+               一律不得具体命名或引用；如需表达该方向存在不确定性，用「可能存在与该错误相关的监控
+               指标/配置项，需现场确认」这类不落具体名称的说法。
+            """;
+
     public List<Map<String, String>> build(String query, List<ScoredChunk> chunks) {
         String context = chunks.isEmpty() ? "（无参考上下文）"
                 : com.opspilot.retrieval.HybridSearchService.renderContext(chunks);
         String user = "【用户问题】\n" + query + "\n\n【参考上下文】\n" + context;
+        // 规则 6 仅弱问题注入（语态条款）；规则 7（无据命名禁令）**两种模式都需要**——
+        // 编造指标名/配置键的实测恰恰发生在带强标识符的查询上。
         String system = com.opspilot.retrieval.EsSearchService.hasStrongIdentifier(query)
-                ? SYSTEM : SYSTEM + HYPOTHETICAL_MODE;
+                ? SYSTEM
+                : SYSTEM + HYPOTHETICAL_MODE;
+        system = system + UNGROUNDED_NAME_BAN;
         return List.of(
                 Map.of("role", "system", "content", system),
                 Map.of("role", "user", "content", user));
