@@ -91,7 +91,15 @@
          background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
   .chart .b{flex:1;min-width:2px;background:var(--accent);border-radius:2px 2px 0 0;opacity:.85}
   .chart .b.zero{background:var(--line);opacity:1}
-  .legend{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:8px}
+  .chart .b.gap{background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 6px);
+                opacity:.6}   /* 采集中断的时段：斜纹=没数据，与"真的是零"区分开 */
+  .legend{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:8px;
+          gap:10px;flex-wrap:wrap}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;
+       margin-left:10px;vertical-align:middle}
+  .seg button{background:var(--surface-2);border:0;color:var(--muted);font:inherit;font-size:11px;
+              padding:2px 10px;cursor:pointer}
+  .seg button.on{background:var(--accent);color:#06121f;font-weight:600}
 
   /* ---------- 计数墙 ---------- */
   .tiles{display:grid;gap:1px;background:var(--line-soft);border:1px solid var(--line-soft);
@@ -192,9 +200,16 @@
 
   <div class="row split">
     <section>
-      <h2>请求到达率 <span class="tag">本次会话内 · 每格=一次轮询的真实增量</span></h2>
+      <h2>请求到达率
+        <span class="tag">采样持久化在本地 · 刷新与重启不丢
+          <span class="seg" id="windows">
+            <button data-win="300000" class="on">5 分钟</button
+            ><button data-win="3600000">1 小时</button>
+          </span>
+        </span>
+      </h2>
       <div class="chart" id="chart"></div>
-      <div class="legend"><span>← 较早</span><span id="chartpeak"></span><span>现在 →</span></div>
+      <div class="legend"><span id="chartwin">← 较早</span><span id="chartpeak"></span><span>现在 →</span></div>
     </section>
 
     <section>
@@ -238,10 +253,9 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const CAP = 200;                    // 审计游标每拉 200，DOM 保 60
-const CHART_N = 60;                 // 速率柱保留的轮询点数（= 约 2 分钟前台视界）
 let token = localStorage.getItem('opspilot.jwt') || '';
 let cursor = 0, prevMetrics = null, pollTimer = null, pollPeriod = 0, alive = false, lastPollFailed = false;
-let rate = [];                      // 请求到达率序列（每次轮询的真实增量，非插值）
+let rate = loadRate();                // 请求到达率序列：持久化在本地，刷新/关页不丢
 
 async function api(path) {
   const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
@@ -326,7 +340,7 @@ function renderState(s) {
 
   renderKpis(s.metrics);
   renderTiles(s.metrics);
-  pushRate(s.metrics);
+  pushRate(s.metrics, s.ts);
   $('sfrow').innerHTML = '在途指纹 ' + (s.runtime.sf_keys_top || []).map(
     k => '<span class="num">' + esc(maskKey(k)) + '</span>').join(' · ') || '无在途指纹';
 }
@@ -365,19 +379,71 @@ function renderTiles(m) {
   prevMetrics = m;
 }
 
-/* 速率柱：每格 = 相邻两次轮询之间 total_requests 的真实增量。
-   不做补间、不做平滑——空白即"那两秒真的没有请求"。 */
-function pushRate(m) {
+/* ---------- 请求到达率 ----------
+   三条纪律（ADR-0009 的"无假动画/无假数据"在这段的具体化）：
+     1. **只画真实增量**：格高 = 该时间桶内 total_requests 的真实增量之和。不补间、不平滑。
+     2. **空白分两种且必须可区分**：真的是零 → 实心矮条；采集中断（网关不可达/标签页关闭）
+        → 斜纹条。把"没数据"画成"零"是监控里最常见也最有害的一种撒谎。
+     3. **计数归零要显式**：total_requests 是进程内计数器，网关重启即归零。
+        检测到回退就丢弃旧序列并标注，而不是让它画出一段假的悬崖。
+   采样持久化在 localStorage：刷新页面、关标签页都不丢（1 小时窗 = 1800 点 ≈ 50KB）。 */
+const RATE_KEY = 'opspilot.rate.v1';
+const RATE_MAXAGE = 3600000;          // 只留 1 小时；更早的桶对两个时间窗都没用
+let rateWin = 300000;                 // 当前时间窗（默认 5 分钟）
+
+function loadRate() {
+  try { return JSON.parse(localStorage.getItem(RATE_KEY)) || []; }
+  catch (e) { return []; }
+}
+function saveRate() {
+  const cutoff = Date.now() - RATE_MAXAGE;
+  rate = rate.filter(r => r.t >= cutoff);
+  try { localStorage.setItem(RATE_KEY, JSON.stringify(rate)); } catch (e) { /* 配额满就算了，图还在内存里 */ }
+}
+
+function pushRate(m, ts) {
   const total = m.total_requests | 0;
   const last = rate.length ? rate[rate.length - 1] : null;
-  const inc = last ? Math.max(0, total - last.total) : 0;
-  rate.push({ total: total, inc: inc });
-  if (rate.length > CHART_N) rate.shift();
-  const peak = Math.max(1, ...rate.map(r => r.inc));
-  $('chart').innerHTML = rate.map(r =>
-    '<div class="b' + (r.inc ? '' : ' zero') + '" style="height:' +
-    (r.inc ? Math.max(8, r.inc / peak * 100) : 2) + '%"></div>').join('');
-  $('chartpeak').textContent = '峰值 ' + peak + ' 次/轮询';
+  let reset = false;
+  if (last && total < last.req) reset = true;      // 计数器归零 ⇒ 网关重启过
+  if (reset) rate = [];                            // 丢弃跨重启的序列，别画假悬崖
+  rate.push({ t: ts, req: total, inc: last ? Math.max(0, total - last.req) : 0 });
+  saveRate();
+  drawRate(reset);
+}
+
+function drawRate(reset) {
+  const now = Date.now();
+  const span = rateWin;
+  const buckets = 30;
+  const bw = span / buckets;                        // 每格覆盖的毫秒数
+  const start = now - span;
+  const cells = [];                                 // {n:增量, gap:是否缺采样}
+  for (let i = 0; i < buckets; i++) cells.push({ n: 0, gap: true, from: start + i * bw, to: start + (i + 1) * bw });
+  for (let i = 0; i < rate.length; i++) {
+    const s = rate[i];
+    if (s.t < start) continue;
+    // 该采样点代表 [s.t, 下一采样点] 这段区间内的增量
+    const next = rate[i + 1];
+    const segEnd = next ? Math.min(next.t, s.t + 3 * bw) : Math.min(now, s.t + bw);
+    const idx = Math.floor((s.t - start) / bw);
+    if (idx < 0 || idx >= buckets) continue;
+    cells[idx].n += s.inc;
+    cells[idx].gap = false;
+    if (segEnd > cells[idx].to) cells[idx].to = segEnd;
+  }
+  // 末格：若最后一个采样点比窗口右沿早，说明采集中断在尾部——如实标 gap
+  const peak = Math.max(1, ...cells.map(c => c.n));
+  const totalReq = cells.reduce((a, c) => a + c.n, 0);
+  $('chart').innerHTML = cells.map(c => {
+    const cls = c.n ? 'b' : (c.gap ? 'b gap' : 'b zero');
+    const h = c.n ? Math.max(8, c.n / peak * 100) : (c.gap ? 6 : 2);
+    return '<div class="' + cls + '" style="height:' + h + '%"></div>';
+  }).join('');
+  const secs = Math.round(bw / 1000);
+  $('chartpeak').textContent = (reset ? '⚠ 网关重启，计数归零，旧序列已丢弃 · ' : '') +
+    '合计 ' + totalReq + ' 次 · 峰值 ' + peak + ' 次/' + secs + 's';
+  $('chartwin').textContent = '← ' + (span / 60000) + ' 分钟前 · 每格 ' + secs + 's';
 }
 
 function renderEvents(a) {
@@ -435,6 +501,14 @@ $('spectrum').innerHTML = SPECTRUM.map(x =>
   '<li><span class="st ' + x[1] + '">' + x[2] + '</span><b>' + esc(x[0]) + '</b>' +
   '<span class="ev">' + esc(x[3]) + '</span></li>').join('') +
   '<li class="chk">同源核验 2026-09-16 · 完整证据指针（文件/ADR/测试）见 README「AIOps 谱系定位」</li>';
+
+// 时间窗切换：只改聚合粒度，不改采样数据本身（切回来还是同一批真实采样）
+$('windows').onclick = (e) => {
+  const b = e.target.closest('button[data-win]'); if (!b) return;
+  rateWin = +b.dataset.win;
+  $('windows').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+  drawRate(false);
+};
 
 $('copy').onclick = async () => {
   const a = await api('/api/v1/admin/audit/recent?since=' + Math.max(0, cursor - 50) + '&limit=50')

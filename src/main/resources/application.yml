@@ -4,6 +4,17 @@ server:
 spring:
   application:
     name: opspilot-gateway
+  web:
+    resources:
+      # 面板是"部署形态"的一部分，不是可缓存的静态库：改完版重新部署后拿到旧 HTML，
+      # 运维看到的仍是上一版布局，还会误以为改动没生效（2026-10-05 连续两次撞到）。
+      # 无 Cache-Control 时浏览器靠 Last-Modified 启发式缓存，故显式关掉。
+      # 代价≈0：本面板是单文件 HTML、零 CDN 零外部依赖（ADR-0009），没有可缓存的第二份产物。
+      cache:
+        period: 0
+        cachecontrol:
+          no-cache: true
+          must-revalidate: true
   # P2 账号体系主库：H2 文件模式，AUTO_SERVER 允许 CLI 与服务并存时同库读写；
   # 口令只从环境注入（H2_DB_PASSWORD），源码/示例零凭据字面量
   datasource:
