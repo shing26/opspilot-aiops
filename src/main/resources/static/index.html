@@ -23,6 +23,11 @@
     --txt:#e6edf3; --txt-2:#b6c2cf; --muted:#7d8894;
     --ok:#3fb950; --warn:#d29922; --err:#f85149; --accent:#58a6ff;
     --r:10px;
+    /* 间距刻度：管辖**块级节奏**（section/card/grid 之间的 margin 与 gap）。
+       组件内部的微观间距（chip 内边距、日志行内边距等）仍按手感值给——那些地方
+       9/10px 是对的，硬套刻度只会让日志行变松。原版真正的问题是没有刻度这件事本身：
+       块级间距散在 12/14/16/18 四档，肉眼齐而代码不齐，改一处就破一处。 */
+    --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
     --mono:ui-monospace,"Cascadia Mono",Consolas,"Liberation Mono",monospace;
   }
@@ -31,6 +36,10 @@
   body{background:var(--bg);color:var(--txt);font:14px/1.55 var(--sans);
        -webkit-font-smoothing:antialiased}
   .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* 键盘可达性：所有可点的东西都必须有可见焦点环。原版只有鼠标样式，
+     Tab 走过去什么也看不到——面板是值班时长时间盯着的屏幕，键盘可达不是装饰。 */
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 
   /* ---------- 顶栏 ---------- */
   header{display:flex;align-items:center;justify-content:space-between;gap:16px;
@@ -47,21 +56,28 @@
   @media(min-width:1100px){ .row.split{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr)} }
   section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
           padding:16px 18px;min-width:0}
-  h2{margin:0 0 14px;font-size:12px;font-weight:600;letter-spacing:.6px;color:var(--muted);
-     text-transform:uppercase;display:flex;align-items:center;gap:10px}
-  h2 .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;font-size:11px}
+  /* 中日韩标题不加分隔字母：汉字本身是等宽方块，加字距会让字距看起来忽宽忽窄
+     （原版 letter-spacing:.6px 是照搬拉丁大写标题的观感，用在中文上就是松垮）。
+     只给纯拉丁片段（KPI/DEGRADE 这类词条）保留字距。 */
+  h2{margin:0 0 var(--s3);font-size:12px;font-weight:600;color:var(--muted);
+     display:flex;align-items:center;gap:var(--s2)}
+  h2 .tag{margin-left:auto;font-weight:400;font-size:11px}
 
   /* ---------- KPI 条 ---------- */
-  .kpis{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
-  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
-  .kpi .label{font-size:12px;color:var(--muted);margin-bottom:6px}
-  .kpi .value{font-size:30px;font-weight:600;line-height:1.1}
-  .kpi .foot{margin-top:6px;font-size:11px;color:var(--muted);min-height:15px}
+  .kpis{display:grid;gap:var(--s4);grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+       padding:var(--s4) 18px}
+  .kpi .label{font-size:12px;color:var(--muted);margin-bottom:var(--s1)}
+  .kpi .value{font-size:30px;font-weight:600;line-height:1.15}
+  .kpi .foot{margin-top:var(--s1);font-size:11px;color:var(--muted);min-height:16px}
   .kpi .foot .up{color:var(--ok)}
+  /* 主指标（每请求 LLM 调用）承担结论，给一道左侧色条做视觉锚——不靠放大数字，
+     那会和旁边四个"也是大数字"的读数抢注意力；色条宽度恒定，不引入新配色。 */
+  .kpi.lead{border-left:2px solid var(--accent);padding-left:16px}
 
   /* ---------- 依赖灯 ---------- */
-  .deps{display:grid;gap:10px 18px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
-  .dep{display:flex;align-items:center;gap:9px;padding:9px 11px;
+  .deps{display:grid;gap:var(--s2) var(--s4);grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .dep{display:flex;align-items:center;gap:var(--s2);padding:var(--s2) 12px;
        background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
   .dep .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
   .dot.UP{background:var(--ok)} .dot.DOWN{background:var(--err)} .dot.DEGRADED{background:var(--warn)}
@@ -87,8 +103,13 @@
   .track i{display:block;height:100%;background:var(--accent)}
 
   /* ---------- 速率柱（每次轮询的真实增量） ---------- */
-  .chart{display:flex;align-items:flex-end;gap:2px;height:104px;padding:10px 12px 0;
-         background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
+  .chart{display:flex;align-items:flex-end;gap:2px;height:104px;padding:10px 12px 4px;
+         background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
+         position:relative}
+  /* 零位基线：柱子原本直接坐在边框上，看着像"贴边"。一条 1px 基线把"零"这件事画出来，
+     同时给不足 2px 的零值柱一个落脚点。 */
+  .chart::after{content:"";position:absolute;left:12px;right:12px;bottom:4px;height:1px;
+                background:var(--line)}
   .chart .b{flex:1;min-width:2px;background:var(--accent);border-radius:2px 2px 0 0;opacity:.85}
   .chart .b.zero{background:var(--line);opacity:1}
   .chart .b.gap{background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 6px);
@@ -98,8 +119,10 @@
   .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;
        margin-left:10px;vertical-align:middle}
   .seg button{background:var(--surface-2);border:0;color:var(--muted);font:inherit;font-size:11px;
-              padding:2px 10px;cursor:pointer}
+              padding:2px 10px;cursor:pointer;transition:color .12s,background .12s}
+  .seg button:hover:not(.on){color:var(--txt-2);background:#232a34}
   .seg button.on{background:var(--accent);color:#06121f;font-weight:600}
+  .seg button.on:hover{background:var(--accent)}   /* 已选中时 hover 不变浅，否则会像"可点" */
 
   /* ---------- 计数墙 ---------- */
   .tiles{display:grid;gap:1px;background:var(--line-soft);border:1px solid var(--line-soft);
@@ -130,13 +153,14 @@
 
   /* ---------- 文档块（折叠） ---------- */
   details{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
-  summary{cursor:pointer;padding:14px 18px;font-size:12px;font-weight:600;letter-spacing:.6px;
-          color:var(--muted);text-transform:uppercase;list-style:none}
+  summary{cursor:pointer;padding:var(--s3) 18px;font-size:12px;font-weight:600;color:var(--muted);
+          list-style:none;display:flex;align-items:center;gap:var(--s2)}
   summary::-webkit-details-marker{display:none}
-  summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+  summary::before{content:"▸";display:inline-block;transition:transform .15s;color:var(--muted)}
   details[open] summary::before{transform:rotate(90deg)}
   summary:hover{color:var(--txt-2)}
-  .details-body{padding:0 18px 16px;font-size:13px;color:var(--txt-2)}
+  summary:hover::before{color:var(--txt-2)}
+  .details-body{padding:0 18px var(--s4);font-size:13px;color:var(--txt-2)}
   #bounds{list-style:none;margin:0;padding:0;display:grid;gap:8px;
           grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
   #bounds li{padding-left:18px;position:relative}
@@ -350,8 +374,9 @@ function renderKpis(m) {
   const req = m.total_requests | 0, llm = m.llm_calls | 0, dedup = m.dedup_aggregated | 0;
   const hits = (m.l1_cache_hits | 0) + (m.l2_cache_hits | 0);
   const d = k => prevMetrics ? (m[k] | 0) - (prevMetrics[k] | 0) : 0;
-  const card = (label, value, foot) =>
-    '<div class="kpi"><div class="label">' + label + '</div><div class="value num">' + value +
+  const card = (label, value, foot, lead) =>
+    '<div class="kpi' + (lead ? ' lead' : '') + '"><div class="label">' + label +
+    '</div><div class="value num">' + value +
     '</div><div class="foot">' + foot + '</div></div>';
   $('kpis').innerHTML =
     card('请求总数', req.toLocaleString(), plus(d('total_requests'))) +
@@ -360,7 +385,7 @@ function renderKpis(m) {
          '占请求 <b>' + (req ? (dedup / req * 100).toFixed(1) : '0.0') + '%</b>') +
     card('缓存命中', hits.toLocaleString(), 'L1 ' + (m.l1_cache_hits | 0) + ' · L2 ' + (m.l2_cache_hits | 0)) +
     card('每请求 LLM 调用', req ? (llm / req).toFixed(3) : '—',
-         llm > 0 && req > 20 && llm / req < 0.2 ? '<span class="up">收敛生效</span>' : '');
+         llm > 0 && req > 20 && llm / req < 0.2 ? '<span class="up">收敛生效</span>' : '', true);
 }
 function plus(n) { return n > 0 ? '<span class="up">+' + n + ' 本轮</span>' : ''; }
 
