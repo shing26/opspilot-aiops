@@ -59,6 +59,9 @@
 | --- | --- |
 | `quickstart.sh` | 公开入口：一键冷启动（预检 buildx / compose 插件） |
 | `run.sh` | 开发态起服务（加载 `.env` + `mvn spring-boot:run`，可透传 `--opspilot.ingest=true`） |
+| `start_gateway.sh` | **jar 形态起网关（本机生产/演示形态，OPS §6 形态取舍）**：端口占用预检并点名占用者 → jar 缺失拒启 → 轮询到日志 `Started` 才算成（不信 `/actuator/health`，它可能属于别的项目）。覆盖口 `SERVER_PORT`（默认 8081）/ `GATEWAY_HEAP` |
+| `java_home.sh` | JDK 探测跨平台单点，被 `run.sh` 与 `start_gateway.sh` 共用（PATH 默认是 18，两者都要 21+） |
+| `console_token.sh` | 取面板凭证（`role=platform` 的 JWT，`--copy` 进剪贴板）；只在本机终端打印，不写盘 |
 | `demo.sh` | 演示前自检（健康 / 权限 / 面板契约 / live 键集合等七检） |
 | `demo_self_alert.sh` | 自举告警闭环的一键演练（起生产者 → 观察收敛 → 命中自写复盘；对应 DEMO 幕⑧） |
 | `backup.sh` | users 备份 + audit 打包（HTTP 优先，容器内 CLI 兜底） |
@@ -66,6 +69,7 @@
 | `seed_demo_users.sh` | 幂等初始化四个账号：三演示角色（含跨租户矩阵靶）+ 告警主体 `sre-watcher` |
 | `gen_tokens.py` | 生成红队畸形 token 样本（合法账号走 login，不预签 token） |
 | `check_upstream.py` | **核色前置**：DashScope 三路（LLM / embedding / rerank）探活，全通过才 exit 0——降级会静默掩盖上游故障，故核色前必跑 |
+| `liveness.py` | **外部存活探测**（补 OPS §5.1 盲区）：身份（`/` 的 `OpsPilot` 锚点）+ 存活（health）双信号，只探不修，退出码给 cron/任务计划程序。**身份先于存活**是实测反推的——本机另一个 Spring Boot 应用的 health 同样回 `{"status":"UP"}`，只探 health 会在 OpsPilot 全死时**报健康** |
 | `check_coverage.py` | 覆盖率棘轮（读 jacoco 产物按 LINE 设闸、BRANCH 只报不闸；门槛贴实测值留 1pp 抖动余量） |
 | `daily_usage.py` | 从审计日志聚合当日用量（cron 友好） |
 | `check_panel_contract.sh` | 面板↔后端字面量契约（CI 零依赖，后端改名即红） |
