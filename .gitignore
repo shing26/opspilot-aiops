@@ -50,3 +50,8 @@ backup/
 # - 一次性演练产物（drill-container / s1-verify / qa-* 快照）
 _archive/
 .workbuddy/
+
+# 录屏产物（docs/demo/*.webm）：**可再生**——它录的是本机活体栈，重录即可，
+# 而二进制进公开仓只增体积不增证据力（证据在 offline/load/reports 与 audit.jsonl 里）。
+# 脚本与讲解稿入库（DEMO.md §5「3 分钟一镜到底录屏讲解稿」），录出来的东西不入库。
+docs/demo/*.webm

@@ -5,7 +5,13 @@
 
 ## 0. 启动
 
-**Git Bash**：
+**推荐（一行，自带端口占用预检 + 就绪判据 + 自动 export OPSPILOT_BASE）**：
+
+```bash
+bash scripts/start_gateway.sh          # 就绪判据 = 日志出现 Started OpsPilotApplication
+```
+
+**手工起（Git Bash）**：
 
 ```bash
 cd "/d/OpsPilot — AIOps" && set -a && . ./.env && set +a && /e/java/jdk21/bin/java -jar target/opspilot-gateway-1.0.0.jar
@@ -153,6 +159,12 @@ curl -s -X POST http://localhost:8081/api/v1/admin/cache/flush -H "Authorization
 ## 5. 3 分钟一镜到底录屏讲解稿
 
 > 原则：不剪辑、不回头；每幕敲命令前先说这句口播。开演前完成 §0 复位。
+>
+> **只录面板那一路时**：录屏产物落 `docs/demo/*.webm`，**不入库**（可再生——它录的是本机活体栈，
+> 而二进制进公开仓只增体积不增证据力；证据在 `offline/load/reports/` 与 `logs/audit.jsonl` 里）。
+> 面板侧的三个数最值得指：顶栏 build 指纹、「数据流」区的**累计计数墙**（风暴后
+> `total_requests=301 / llm_calls=2 / dedup_aggregated=299` —— 300 个并发只换 1 次 LLM 就是幕④的落点）、
+> 以及「降级状态机」的 L0/L1/L2 灯（幕⑥现场把灯打到 L2 看 MANUAL LOCK）。
 
 | 时点 | 口播（照读即可） |
 |---|---|
