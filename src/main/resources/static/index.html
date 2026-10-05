@@ -10,109 +10,237 @@
   无任何写操作、无假动画、无外部依赖（离线演示可断网开）。
   HTML 本体不受守卫（零信息壳）；数据需 role=platform 的 JWT——面板粘贴后即入 localStorage
   （浏览器本地，OPS §9 有记载与清理方法）。
+
+  视觉层约定（2026-10-05 重做）：**颜色只承载状态，不做装饰**——绿/黄/红仅出现在
+  依赖灯、降级档位、事件级别三处；其余一律中性面。字体分职：标签与正文用系统无衬线，
+  等宽只留给数字、键名与日志行（原版全页等宽，是"极客工具"观感的主因）。
+  能力边界与谱系定位是**文档而非监控**，收进 <details> 默认折叠——它们不该和活数据抢注意力。
+  所有图形（KPI、速率柱、配额条）都来自真实计数器，无插值动画、无假数据。
 -->
 <style>
-  :root { --bg:#0b0f14; --panel:#111823; --line:#1d2a3a; --txt:#c9d7e6; --dim:#5c708a;
-          --ok:#3ddc84; --warn:#ffb020; --err:#ff5d5d; --accent:#4da3ff; }
-  * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--txt);
-         font:13px/1.5 ui-monospace,"Cascadia Mono",Consolas,monospace; }
-  header { display:flex; justify-content:space-between; align-items:center;
-           padding:10px 16px; border-bottom:1px solid var(--line); }
-  header b { color:var(--accent); letter-spacing:.5px }
-  #fingerprint { color:var(--dim); font-size:11px }
-  main { display:grid; grid-template-columns:1fr 1.4fr; gap:12px; padding:12px 16px; }
-  /* min-width:0 阻断 nowrap 长行沿 grid 列传播（QA P1：一条长日志把整页撑成横向卷轴） */
-  main > div { min-width:0 }
-  section { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 12px; }
-  h2 { margin:0 0 8px; font-size:11px; color:var(--dim); font-weight:600; letter-spacing:1px; }
-  .lights { display:flex; gap:14px; flex-wrap:wrap }
-  .lamp { display:flex; align-items:center; gap:6px }
-  .dot { width:9px; height:9px; border-radius:50%; background:var(--dim) }
+  :root{
+    --bg:#0e1117; --surface:#161b22; --surface-2:#1c2129; --line:#262d38; --line-soft:#1f252e;
+    --txt:#e6edf3; --txt-2:#b6c2cf; --muted:#7d8894;
+    --ok:#3fb950; --warn:#d29922; --err:#f85149; --accent:#58a6ff;
+    --r:10px;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,"Cascadia Mono",Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--txt);font:14px/1.55 var(--sans);
+       -webkit-font-smoothing:antialiased}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* ---------- 顶栏 ---------- */
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px;
+         padding:14px 24px;border-bottom:1px solid var(--line);background:var(--surface)}
+  header .brand{display:flex;align-items:baseline;gap:10px}
+  header .brand b{font-size:15px;font-weight:600;letter-spacing:.2px}
+  header .brand span{font-size:12px;color:var(--muted)}
+  #fingerprint{font-size:12px;color:var(--muted)}
+
+  /* ---------- 布局 ---------- */
+  main{max-width:1560px;margin:0 auto;padding:20px 24px 32px;
+       display:flex;flex-direction:column;gap:16px}
+  .row{display:grid;gap:16px}
+  @media(min-width:1100px){ .row.split{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr)} }
+  section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+          padding:16px 18px;min-width:0}
+  h2{margin:0 0 14px;font-size:12px;font-weight:600;letter-spacing:.6px;color:var(--muted);
+     text-transform:uppercase;display:flex;align-items:center;gap:10px}
+  h2 .tag{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:400;font-size:11px}
+
+  /* ---------- KPI 条 ---------- */
+  .kpis{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px}
+  .kpi .label{font-size:12px;color:var(--muted);margin-bottom:6px}
+  .kpi .value{font-size:30px;font-weight:600;line-height:1.1}
+  .kpi .foot{margin-top:6px;font-size:11px;color:var(--muted);min-height:15px}
+  .kpi .foot .up{color:var(--ok)}
+
+  /* ---------- 依赖灯 ---------- */
+  .deps{display:grid;gap:10px 18px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .dep{display:flex;align-items:center;gap:9px;padding:9px 11px;
+       background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
+  .dep .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
   .dot.UP{background:var(--ok)} .dot.DOWN{background:var(--err)} .dot.DEGRADED{background:var(--warn)}
-  .tiles { display:grid; grid-template-columns:repeat(5,1fr); gap:6px }
-  .tile { border:1px solid var(--line); border-radius:4px; padding:6px 8px; }
-  .tile .v { font-size:17px } .tile .k { color:var(--dim); font-size:10px }
-  .delta { color:var(--ok); font-size:10px; min-height:12px }
-  #sfrow { margin-top:8px; color:var(--dim) }
-  .chip { display:inline-block; border:1px solid var(--accent); color:var(--accent);
-          border-radius:3px; padding:0 6px; margin:2px 3px 0 0; font-size:11px }
-  .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:4px }
-  .bar i { display:block; height:100%; background:var(--accent) }
-  #events { max-height:46vh; overflow-x:hidden; overflow-y:auto; font-size:11px }
-  .ev { padding:2px 4px; border-bottom:1px dashed var(--line); white-space:nowrap;
-        overflow:hidden; text-overflow:ellipsis }
-  .ev .t{color:var(--dim)} .ev.chat .b{color:var(--accent)} .ev.search .b{color:#9a6bff}
-  .ev.auth{color:var(--warn)} .ev.admin{color:#4dd0e1} .ev.invalid{color:var(--err)}
-  .ev.badge-l1 .b,.ev.badge-L2 .b{color:var(--ok)}
-  .ev.refused{color:var(--err)} .ev.mismatch{background:#3a1010;color:var(--err);font-weight:700}
+  .dep .k{font-size:12px;color:var(--txt-2)}
+  .dep .v{margin-left:auto;font-size:13px;color:var(--txt)}
+  .sub{color:var(--muted);font-size:11px;margin-top:10px}
+
+  /* ---------- 降级档位（分段控件） ---------- */
+  .steps{display:flex;gap:6px}
+  .step{flex:1;text-align:center;padding:9px 0;border-radius:8px;font-size:12px;
+        background:var(--surface-2);border:1px solid var(--line-soft);color:var(--muted)}
+  .step.on{background:rgba(63,185,80,.12);border-color:var(--ok);color:var(--ok);font-weight:600}
+  .facts{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:14px;font-size:12px;color:var(--txt-2)}
+  .facts b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;
+         border:1px solid var(--warn);color:var(--warn)}
+
+  /* ---------- 配额条 ---------- */
+  .meter{margin-top:14px}
+  .meter .cap{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .track{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden;
+         border:1px solid var(--line-soft)}
+  .track i{display:block;height:100%;background:var(--accent)}
+
+  /* ---------- 速率柱（每次轮询的真实增量） ---------- */
+  .chart{display:flex;align-items:flex-end;gap:2px;height:104px;padding:10px 12px 0;
+         background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
+  .chart .b{flex:1;min-width:2px;background:var(--accent);border-radius:2px 2px 0 0;opacity:.85}
+  .chart .b.zero{background:var(--line);opacity:1}
+  .legend{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:8px}
+
+  /* ---------- 计数墙 ---------- */
+  .tiles{display:grid;gap:1px;background:var(--line-soft);border:1px solid var(--line-soft);
+         border-radius:8px;overflow:hidden;grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
+  .tile{background:var(--surface);padding:10px 12px}
+  .tile .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:16px}
+  .tile .k{font-size:11px;color:var(--muted);margin-top:2px}
+  .tile .delta{font-family:var(--mono);font-size:10px;color:var(--ok);min-height:13px}
+
+  /* ---------- 事件流 ---------- */
+  #events{max-height:44vh;overflow-y:auto;font-family:var(--mono);font-size:12px;
+          background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
+  #events .ev{display:flex;gap:10px;padding:4px 10px;border-bottom:1px solid var(--line-soft);
+              white-space:nowrap;overflow:hidden}
+  #events .ev:last-child{border-bottom:0}
+  #events .t{color:var(--muted);flex:none}
+  #events .b{flex:none;font-weight:600}
+  #events .d{overflow:hidden;text-overflow:ellipsis;color:var(--txt-2)}
+  .ev.chat .b{color:var(--accent)} .ev.search .b{color:#a371f7} .ev.auth .b{color:var(--warn)}
+  .ev.admin .b{color:#39c5cf} .ev.invalid .b{color:var(--err)} .ev.refused .d{color:var(--err)}
   .ev.degrade_transition .b{color:var(--warn)}
-  .ev.lost{color:var(--warn)}
-  #bounds li{margin:3px 0; list-style:none}
-  #bounds .chk{color:var(--dim);font-size:10px}
-  /* AIOps 谱系自证块（静态，同源 README「AIOps 谱系定位」） */
-  #spectrum{margin:0;padding:0}
-  #spectrum li{list-style:none;margin:4px 0;display:flex;gap:8px;align-items:baseline}
-  #spectrum .st{flex:none;border:1px solid var(--line);border-radius:3px;padding:0 6px;font-size:10px}
+  .ev.mismatch{background:rgba(248,81,73,.14)} .ev.mismatch .d{color:var(--err);font-weight:600}
+  .ev.lost{color:var(--warn);padding:6px 10px}
+  button.ghost{background:var(--surface-2);border:1px solid var(--line);color:var(--txt-2);
+               border-radius:6px;padding:4px 10px;font:inherit;font-size:11px;cursor:pointer}
+  button.ghost:hover{border-color:var(--muted);color:var(--txt)}
+
+  /* ---------- 文档块（折叠） ---------- */
+  details{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+  summary{cursor:pointer;padding:14px 18px;font-size:12px;font-weight:600;letter-spacing:.6px;
+          color:var(--muted);text-transform:uppercase;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+  details[open] summary::before{transform:rotate(90deg)}
+  summary:hover{color:var(--txt-2)}
+  .details-body{padding:0 18px 16px;font-size:13px;color:var(--txt-2)}
+  #bounds{list-style:none;margin:0;padding:0;display:grid;gap:8px;
+          grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  #bounds li{padding-left:18px;position:relative}
+  #bounds li::before{content:"✗";position:absolute;left:0;color:var(--muted)}
+  #bounds .chk{font-size:11px;color:var(--muted);margin-top:2px}
+  #spectrum{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  #spectrum li{display:grid;grid-template-columns:78px minmax(0,1fr);gap:4px 12px;align-items:baseline}
+  #spectrum .st{font-size:11px;padding:1px 0;text-align:center;border-radius:4px;
+                border:1px solid var(--line);color:var(--muted)}
   #spectrum .done{color:var(--ok);border-color:var(--ok)}
   #spectrum .debt{color:var(--warn);border-color:var(--warn)}
-  #spectrum .no{color:var(--dim)}
-  #spectrum .ev{color:var(--dim);font-size:11px;min-width:0;word-break:break-all}
-  #spectrum li.chk{color:var(--dim);font-size:10px}
-  #auth { position:fixed; inset:0; background:#0b0f14e6; display:none; place-items:center }
-  #auth .card { background:var(--panel); border:1px solid var(--line); border-radius:8px;
-                padding:24px 28px; width:min(560px,92vw) }
-  #auth input { width:100%; background:#0d1420; color:var(--txt); border:1px solid var(--line);
-                border-radius:4px; padding:8px; font:inherit; margin:10px 0 }
-  #auth button { background:var(--accent); color:#04121f; border:0; border-radius:4px;
-                 padding:8px 18px; font:inherit; cursor:pointer }
-  #auth .msg { color:var(--warn); min-height:18px }
-  .sat { filter:saturate(.15) brightness(.7) }
-  footer { padding:6px 16px; color:var(--dim); font-size:11px; display:flex;
-           justify-content:space-between; border-top:1px solid var(--line) }
+  #spectrum .ev{font-size:12px;color:var(--muted);grid-column:2}
+  #spectrum li.chk{display:block;font-size:11px;color:var(--muted)}
+
+  /* ---------- 凭证门 ---------- */
+  #auth{position:fixed;inset:0;background:rgba(8,11,16,.82);display:none;place-items:center;
+        backdrop-filter:blur(3px);z-index:9}
+  #auth .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;
+              padding:28px 30px;width:min(520px,92vw);box-shadow:0 18px 50px rgba(0,0,0,.45)}
+  #auth .card b{font-size:15px}
+  #auth .msg{color:var(--warn);font-size:12px;min-height:18px;margin-top:6px}
+  #auth input{width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);
+              border-radius:8px;padding:10px 12px;font:inherit;font-size:13px;margin:12px 0}
+  #auth input:focus{outline:none;border-color:var(--accent)}
+  #auth button{background:var(--accent);color:#06121f;border:0;border-radius:8px;
+               padding:9px 20px;font:inherit;font-weight:600;cursor:pointer}
+  #auth p{color:var(--muted);font-size:11px;margin:14px 0 0;line-height:1.6}
+  .sat{filter:saturate(.15) brightness(.7)}
+
+  footer{border-top:1px solid var(--line);background:var(--surface);
+         padding:10px 24px;display:flex;justify-content:space-between;
+         font-size:11px;color:var(--muted)}
 </style>
 </head>
 <body>
 <header>
-  <b>OpsPilot · Ops Console</b>
-  <span id="fingerprint">build —</span>
+  <div class="brand"><b>OpsPilot</b><span>Ops Console</span></div>
+  <span id="fingerprint" class="num">build —</span>
 </header>
+
 <main>
-  <div>
-    <section id="status"><h2>运行状态 · RUNTIME</h2><div class="lights" id="lights"></div>
-      <div id="reingest" style="margin-top:6px;color:var(--dim)"></div></section>
-    <section style="margin-top:12px"><h2>降级状态机 · DEGRADE</h2>
-      <div class="lights" id="deg"></div>
-      <div id="quota" style="margin-top:8px"></div></section>
-    <section style="margin-top:12px"><h2>能力边界 · 本系统不做的事（债务带验证日期）</h2>
-      <ul id="bounds"></ul></section>
-    <section style="margin-top:12px"><h2>AIOps 谱系定位 · 五域自证（静态 · 同源 README）</h2>
-      <ul id="spectrum"></ul></section>
+  <!-- KPI 条：全部为真实累计量的即时读数，delta 是相邻两次轮询的真差 -->
+  <div class="kpis" id="kpis"></div>
+
+  <div class="row split">
+    <section>
+      <h2>运行状态 <span class="tag" id="reingest"></span></h2>
+      <div class="deps" id="lights"></div>
+    </section>
+
+    <section>
+      <h2>降级状态机 <span class="tag" id="degtag"></span></h2>
+      <div class="steps" id="deg"></div>
+      <div class="facts" id="degfacts"></div>
+      <div class="meter">
+        <div class="cap"><span id="quotalab">当日配额</span><span class="num" id="quotaval"></span></div>
+        <div class="track"><i id="quotabar"></i></div>
+      </div>
+    </section>
   </div>
-  <div>
-    <section><h2>数据流 · PIPELINE</h2>
+
+  <div class="row split">
+    <section>
+      <h2>请求到达率 <span class="tag">本次会话内 · 每格=一次轮询的真实增量</span></h2>
+      <div class="chart" id="chart"></div>
+      <div class="legend"><span>← 较早</span><span id="chartpeak"></span><span>现在 →</span></div>
+    </section>
+
+    <section>
+      <h2>数据流 · 累计计数 <span class="tag">右上角为本次轮询增量</span></h2>
       <div class="tiles" id="tiles"></div>
-      <div id="sfrow"></div></section>
-    <section style="margin-top:12px">
-      <h2>事件流 AUDIT（ev 七类 · 游标增量 · 只读）
-        <button id="copy" style="float:right;background:none;border:1px solid var(--line);color:var(--dim);border-radius:3px;cursor:pointer;font-size:10px">复制最近 50 条 JSON</button>
-      </h2><div id="events"></div></section>
+      <div class="sub" id="sfrow"></div>
+    </section>
   </div>
+
+  <section>
+    <h2>事件流 · AUDIT
+      <span class="tag">ev 七类 · 游标增量 · 只读
+        <button class="ghost" id="copy">复制最近 50 条 JSON</button></span>
+    </h2>
+    <div id="events"></div>
+  </section>
+
+  <details>
+    <summary>能力边界 · 本系统不做的事（债务带验证日期）</summary>
+    <div class="details-body"><ul id="bounds"></ul></div>
+  </details>
+
+  <details>
+    <summary>AIOps 谱系定位 · 五域自证（静态 · 同源 README）</summary>
+    <div class="details-body"><ul id="spectrum"></ul></div>
+  </details>
 </main>
-<footer><span id="pollstate">idle</span><span id="lastts"></span></footer>
+
+<footer><span id="pollstate">idle</span><span id="lastts" class="num"></span></footer>
+
 <div id="auth"><div class="card">
-  <b>Ops Console 凭证</b><div class="msg" id="authmsg"></div>
+  <b>Ops Console 凭证</b>
+  <div class="msg" id="authmsg"></div>
   <input id="jwt" type="password" placeholder="粘贴 sre-full（role=platform）login 的 JWT" autocomplete="off">
   <button id="go">接入面板</button>
-  <p style="color:var(--dim);font-size:11px">token 仅存本浏览器 localStorage；取 token 命令见 OPS.md §9。
+  <p>token 仅存本浏览器 localStorage；取 token 跑 <code>bash scripts/console_token.sh</code>（OPS.md §9）。
   面板只读，不会消耗配额。</p>
 </div></div>
+
 <script>
 'use strict';
 const $ = id => document.getElementById(id);
 const CAP = 200;                    // 审计游标每拉 200，DOM 保 60
+const CHART_N = 60;                 // 速率柱保留的轮询点数（= 约 2 分钟前台视界）
 let token = localStorage.getItem('opspilot.jwt') || '';
 let cursor = 0, prevMetrics = null, pollTimer = null, pollPeriod = 0, alive = false, lastPollFailed = false;
+let rate = [];                      // 请求到达率序列（每次轮询的真实增量，非插值）
 
 async function api(path) {
   const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
@@ -158,38 +286,71 @@ async function poll() {
   renderState(s); if (a) renderEvents(a);
 }
 
+/* ---------- 渲染 ---------- */
+
 function renderState(s) {
   const b = s.build;
   $('fingerprint').textContent = 'build ' + b.version + ' · jvm ' + b.jvm +
     ' · uptime ' + Math.floor(b.uptime_s / 3600) + 'h' + Math.floor(b.uptime_s % 3600 / 60) +
     'm · pid ' + b.pid;
   $('lastts').textContent = 'server ts ' + new Date(s.ts).toLocaleTimeString();
+
+  // 依赖灯：颜色是唯一的状态语义，不做装饰
   const h = s.health;
-  const lamp = (k, c) => '<span class="lamp"><span class="dot ' + c.status + '"></span>' + k +
-    (c.value != null ? ' <b>' + c.value.toLocaleString() + '</b>' : '') + '</span>';
-  $('lights').innerHTML = lamp('总', { status: h.status }) + lamp('ES docs', h.es) +
-    lamp('Qdrant pts', h.qdrant) + lamp('Redis', h.redis) +
-    '<span class="lamp">' + (h.live_mode ? '🟢 live' : '🟡 mock') + '</span>';
+  const dep = (k, st, v) =>
+    '<div class="dep"><span class="dot ' + st + '"></span><span class="k">' + k +
+    '</span><span class="v num">' + (v == null ? '—' : v.toLocaleString()) + '</span></div>';
+  $('lights').innerHTML =
+    dep('整体', h.status, null) + dep('Elasticsearch', h.es.status, h.es.value) +
+    dep('Qdrant', h.qdrant.status, h.qdrant.value) + dep('Redis', h.redis.status, null) +
+    dep('后端', h.live_mode ? 'UP' : 'DEGRADED', h.live_mode ? 'live' : 'mock');
   const ri = s.runtime.reingest;
-  $('reingest').textContent = 'reingest: ' + (ri.busy ? '⏳ 执行中' : '空闲') + ' · last: ' + ri.last;
+  $('reingest').textContent = 'reingest ' + (ri.busy ? '执行中' : '空闲') + ' · last ' + ri.last;
+
+  // 降级档位：分段控件比三个圆点更易读"当前处在哪一档"
   const d = s.runtime.degradation;
   $('deg').innerHTML = ['L0', 'L1', 'L2'].map(l =>
-    '<span class="lamp"><span class="dot ' + (d.level === l ? 'UP' : '') + '"></span>' + l + '</span>'
-  ).join('') + '<span class="lamp">熔断 K/' + d.llm_failure_threshold + ' = <b>' + d.failures + '</b></span>' +
-    '<span class="lamp">在途 <b>' + s.runtime.inflight + '</b>/' + d.inflight_threshold + '</span>' +
-    (d.cooldown_s > 0 ? '<span class="lamp">冷却 <b>' + d.cooldown_s + 's</b></span>' : '') +
-    (d.manual ? '<span class="chip">MANUAL LOCK</span>' : '');
+    '<div class="step' + (d.level === l ? ' on' : '') + '">' + l + '</div>').join('');
+  $('degtag').innerHTML = d.manual ? '<span class="badge">MANUAL LOCK</span>' : '';
+  $('degfacts').innerHTML =
+    '<span>熔断 K/' + d.llm_failure_threshold + ' = <b>' + d.failures + '</b></span>' +
+    '<span>在途 <b>' + s.runtime.inflight + '</b> / ' + d.inflight_threshold + '</span>' +
+    (d.cooldown_s > 0 ? '<span>冷却剩余 <b>' + d.cooldown_s + '</b>s</span>' : '') +
+    '<span>Single-Flight 组 <b>' + s.runtime.sf_groups + '</b></span>';
+
   const q = s.runtime.quota;
-  $('quota').innerHTML = '当日配额 ' + q.sub + '：<b>' + q.used.toLocaleString() + '</b> / ' +
-    q.limit.toLocaleString() +
-    '<div class="bar"><i style="width:' + Math.min(100, q.used / q.limit * 100).toFixed(1) + '%"></i></div>';
+  $('quotalab').textContent = '当日配额 · ' + q.sub;
+  $('quotaval').textContent = q.used.toLocaleString() + ' / ' + q.limit.toLocaleString();
+  $('quotabar').style.width = Math.min(100, q.used / q.limit * 100).toFixed(1) + '%';
+
+  renderKpis(s.metrics);
   renderTiles(s.metrics);
-  $('sfrow').innerHTML = 'Single-Flight 在途组 <b>' + s.runtime.sf_groups + '</b> · inflight ' +
-    s.runtime.inflight + ' ' + (s.runtime.sf_keys_top || []).map(
-      k => '<span class="chip">' + esc(maskKey(k)) + '</span>').join('');
+  pushRate(s.metrics);
+  $('sfrow').innerHTML = '在途指纹 ' + (s.runtime.sf_keys_top || []).map(
+    k => '<span class="num">' + esc(maskKey(k)) + '</span>').join(' · ') || '无在途指纹';
 }
 function maskKey(k) { const p = k.split(':'); return p.length > 2 ? p[0] + ':' + p[1].slice(0, 8) + ':' + p[2] : k; }
+
+function renderKpis(m) {
+  const req = m.total_requests | 0, llm = m.llm_calls | 0, dedup = m.dedup_aggregated | 0;
+  const hits = (m.l1_cache_hits | 0) + (m.l2_cache_hits | 0);
+  const d = k => prevMetrics ? (m[k] | 0) - (prevMetrics[k] | 0) : 0;
+  const card = (label, value, foot) =>
+    '<div class="kpi"><div class="label">' + label + '</div><div class="value num">' + value +
+    '</div><div class="foot">' + foot + '</div></div>';
+  $('kpis').innerHTML =
+    card('请求总数', req.toLocaleString(), plus(d('total_requests'))) +
+    card('LLM 调用', llm.toLocaleString(), plus(d('llm_calls'))) +
+    card('风暴收敛请求', dedup.toLocaleString(),
+         '占请求 <b>' + (req ? (dedup / req * 100).toFixed(1) : '0.0') + '%</b>') +
+    card('缓存命中', hits.toLocaleString(), 'L1 ' + (m.l1_cache_hits | 0) + ' · L2 ' + (m.l2_cache_hits | 0)) +
+    card('每请求 LLM 调用', req ? (llm / req).toFixed(3) : '—',
+         llm > 0 && req > 20 && llm / req < 0.2 ? '<span class="up">收敛生效</span>' : '');
+}
+function plus(n) { return n > 0 ? '<span class="up">+' + n + ' 本轮</span>' : ''; }
+
 function renderTiles(m) {
+  // 契约面：这一组键名必须与 OpsMetrics 逐一对应（scripts/check_panel_contract.sh 层 2/3）
   const keys = [['total_requests', '请求'], ['llm_calls', 'LLM'], ['llm_retries', '重试'],
     ['llm_network_errors', '网络错'], ['l1_cache_hits', 'L1 命中'],
     ['l2_cache_hits', 'L2 命中'], ['dedup_aggregated', '收敛'], ['low_confidence_refusals', '拒答'],
@@ -198,10 +359,26 @@ function renderTiles(m) {
   $('tiles').innerHTML = keys.map(([k, label]) => {
     const v = m[k] | 0, d = prevMetrics ? v - (prevMetrics[k] | 0) : 0;
     return '<div class="tile"><div class="v">' + v.toLocaleString() + '</div><div class="k">' + label +
-      ' ' + k + '</div><div class="delta">' + (d > 0 ? '+' + d : '') + '</div></div>';
+      '</div><div class="delta">' + (d > 0 ? '+' + d : '') + '</div></div>';
   }).join('');
   prevMetrics = m;
 }
+
+/* 速率柱：每格 = 相邻两次轮询之间 total_requests 的真实增量。
+   不做补间、不做平滑——空白即"那两秒真的没有请求"。 */
+function pushRate(m) {
+  const total = m.total_requests | 0;
+  const last = rate.length ? rate[rate.length - 1] : null;
+  const inc = last ? Math.max(0, total - last.total) : 0;
+  rate.push({ total: total, inc: inc });
+  if (rate.length > CHART_N) rate.shift();
+  const peak = Math.max(1, ...rate.map(r => r.inc));
+  $('chart').innerHTML = rate.map(r =>
+    '<div class="b' + (r.inc ? '' : ' zero') + '" style="height:' +
+    (r.inc ? Math.max(8, r.inc / peak * 100) : 2) + '%"></div>').join('');
+  $('chartpeak').textContent = '峰值 ' + peak + ' 次/轮询';
+}
+
 function renderEvents(a) {
   if (a.truncated) {
     prepend('<div class="ev lost">⚠️ 事件丢失（缓冲轮转或服务重启，游标已跳至 ' + a.max_seq + '）</div>');
@@ -209,8 +386,7 @@ function renderEvents(a) {
   for (const ev of a.events) {
     cursor = Math.max(cursor, ev.seq | 0);
     const cls = [ev.ev, ev.refused ? 'refused' : '',
-      ev.src_tenant && ev.src_tenant !== ev.tenant ? 'mismatch' : '',
-      ev.cache_hit === 'L1' || ev.cache_hit === 'L2' ? 'badge-l1' : ''].join(' ');
+      ev.src_tenant && ev.src_tenant !== ev.tenant ? 'mismatch' : ''].join(' ');
     const detail = ev.ev === 'auth' || ev.ev === 'admin' ? (ev.outcome + ' ' + (ev.reason || ev.action || '')) :
       ev.ev === 'degrade_transition' ? (ev.from + '→' + ev.to + '（' + ev.cause + '）') :
       [ev.via, ev.cache_hit !== 'none' ? ev.cache_hit : '', ev.mode,
@@ -219,11 +395,11 @@ function renderEvents(a) {
     // 身份前缀仅在有身份时渲染：degrade_transition 是系统事件（无 sub/level），别显示 "[?/-]" 噪声
     const who = (ev.sub || ev.level != null) ? '[' + (ev.sub || '?') + '/' + (ev.level ?? '-') + '] ' : '';
     prepend('<div class="ev ' + cls + '"><span class="t">' + new Date(ev.ts).toLocaleTimeString() +
-      '</span> <span class="b">' + ev.ev + '</span> ' + who + esc(detail) + srcAlarm + '</div>');
+      '</span><span class="b">' + ev.ev + '</span><span class="d">' + who + esc(detail) + srcAlarm +
+      '</span></div>');
   }
   if (a.max_seq < cursor) cursor = a.max_seq;   // 服务端重启后游标对齐
 }
-let evBuf = [];
 function prepend(html) {
   const box = $('events');
   box.insertAdjacentHTML('afterbegin', html);
@@ -242,7 +418,7 @@ const BOUNDS = [
   ['遥测采集/异常检测（AIOps 谱系①②）＝永久非目标，刻意不列债务表', 'README 谱系定位', '2026-09-14'],
   ['本面板只读：零写操作、零假数据、轮询不污染审计', 'ADR-0009', '2026-09-12']];
 $('bounds').innerHTML = BOUNDS.map(x =>
-  '<li>✗ ' + esc(x[0]) + '<div class="chk">依据 ' + esc(x[1]) + ' · 最后验证 ' + x[2] + '</div></li>').join('');
+  '<li>' + esc(x[0]) + '<div class="chk">依据 ' + esc(x[1]) + ' · 最后验证 ' + x[2] + '</div></li>').join('');
 
 // AIOps 谱系自证块：与 README「AIOps 谱系定位」五域表静态同源；改文档两处同步，checked 日期随复验
 const SPECTRUM = [
@@ -271,11 +447,10 @@ $('go').onclick = async () => {
     if (probe.status === 403) { token = ''; showAuth(403); return; }
     if (!probe.ok) { $('authmsg').textContent = '网关返回 ' + probe.status + '，稍后重试'; return; }
   } catch (e) { $('authmsg').textContent = '网关不可达，稍后重试'; return; }
-  token = t; localStorage.setItem('opspilot.jwt', t); cursor = 0; prevMetrics = null;
+  token = t; localStorage.setItem('opspilot.jwt', t); cursor = 0; prevMetrics = null; rate = [];
   $('events').innerHTML = ''; poll().then(() => { if (alive) startPoll(); });
 };
 if (token) { poll().then(resyncInterval); } else showAuth(0);
-
 </script>
 </body>
 </html>
