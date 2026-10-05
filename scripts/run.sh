@@ -7,14 +7,8 @@ cd "$(dirname "$0")/.."
 if [ -f .env ]; then
   set -a; . ./.env; set +a
 fi
-# JAVA_HOME 三档探测（跨平台单点，与 py.sh / user_admin.sh 同款思路）：
-# 显式传入 > 本机默认位置 > 让 mvn 用 PATH 上的 java。此前硬编码 E:\java\jdk21，
-# 他机/Linux 会把 JAVA_HOME 指到不存在的路径而报错难懂。
-if [ -z "${JAVA_HOME:-}" ]; then
-  for d in /e/java/jdk21 "$HOME/java/jdk21" /usr/lib/jvm/java-21-openjdk-amd64 /opt/java/openjdk; do
-    [ -x "$d/bin/java" ] && { export JAVA_HOME="$d"; break; }
-  done
-fi
-[ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ] \
-  || echo "warn: 未探测到 JDK 21（用 PATH 上的 java：$(command -v java || echo 无)）——需 21+"
+# JAVA_HOME 探测见 scripts/java_home.sh（跨平台单点：显式传入 > 本机默认位置 > PATH；
+# 此前硬编码 E:\java\jdk21，他机/Linux 会把 JAVA_HOME 指到不存在的路径而报错难懂）
+# shellcheck source=scripts/java_home.sh
+. "$(dirname "$0")/java_home.sh"
 exec mvn -q spring-boot:run -Dspring-boot.run.arguments="$*"

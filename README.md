@@ -181,7 +181,11 @@ cd offline && python3 -m venv .venv && .venv/bin/pip install pytest
 python ../scripts/gen_tokens.py > ../scripts/redteam_tokens.txt
 
 # 5. 构建 + 启动（首启若读别名缺失会自动入库）
-mvn package -DskipTests && java -jar target/opspilot-gateway-1.0.0.jar
+#    打包与启动分两步是硬要求：Windows 上 JVM 锁着 jar 时 `mvn package` 会失败并留下
+#    一个被截断的 jar（能起，但起的是错的东西）⇒ 顺序永远是 停服 → 打包 → 起。
+mvn package -DskipTests
+bash scripts/start_gateway.sh      # 端口占用预检 + 以日志 Started 为唯一成功判据（--foreground 前台跑）
+                                  # 端口/堆可用 .env 的 SERVER_PORT / GATEWAY_HEAP 覆盖，默认 8081
 
 # 6. 初始化演示账号（幂等，读取 DEMO_PASSWORD）：sre-limited/sre-full/sre-acme/sre-watcher
 bash scripts/seed_demo_users.sh

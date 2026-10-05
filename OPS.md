@@ -234,6 +234,19 @@ LLM_MODEL=__opspilot_probe_invalid__ java -jar target/opspilot-gateway-1.0.0.jar
    Qdrant 约 45s 完成 collection 重解析，health 才会回 200）→ ④ 最后重启网关。
    注意 Redis 容器**没有挂卷**：重启它会清空当日配额与 SOP 预热（L1/L2 缓存随之冷启动），审计 JSONL 在盘上不受影响。
    **JVM 被外部杀掉时日志没有 OOM 异常**——日志停在启动横幅就断，说明是进程被杀而非内部错误，别顺着 JVM 内存方向查。
+6. **端口定案 = 8081，启动一律走 `scripts/start_gateway.sh`**（2026-10-05 定案）。此前每次启动都要现场探测端口，
+   因为本机有别的项目在抢：实测 `8080`=nexus-web、`8091`=ShopPilot 的 biz-mock（**它的 `/actuator/health` 回 503**，
+   极易被误读成"自己网关半死"）、`8092` 占用；8080/8091/8092 都不是本项目的。**规范端口仍是 8081**
+   （`application.yml` 默认、`docker-compose.yml` 映射、README 与本文档三处同口径），不为绕开邻居而改端口——
+   改端口会让文档与 compose 分叉，代价大于收益。
+   `scripts/start_gateway.sh` 把三件曾经踩坑的事做死：① **端口占用预检并点名占用者**（含命令行，一眼认出是不是自己的旧实例）
+   ② jar 缺失即拒启（打 jar 前必须停服，见纪律 3）③ **以日志里的 `Started OpsPilotApplication` 为唯一成功判据**。
+   覆盖口在 `.env`（不入库）：`SERVER_PORT`（默认 8081）、`GATEWAY_HEAP`（默认 1024m，内存紧张时调小）。
+   脚本同时 export `OPSPILOT_BASE`，避免第 4 条那种"漏导导致打错端口"。
+
+**形态取舍（在案，勿顺手改回容器）**：本机 Docker 拉不到 base 镜像（`maven:3.9-eclipse-temurin-21` 超时），
+故**网关走宿主裸进程 jar**，中间件仍走容器——这是 2026-09-16 实测后的取舍，不是遗漏。`scripts/quickstart.sh`
+（容器全栈）仍是"clone 到任何机器"的可复现入口；本机演示/生产形态走 `start_gateway.sh`。
 
 **能力边界（勿对外宣传）**：/v1 目前只有 `chat/completions`（stream=true）与 `models`；文件上传/语音/多模态对应端点未实现，任何客户端里点了即报错——协议面的演示只用文本对话。**归因纪律**：外部客户端出现"响应已返回但界面异常"时，先 `tail logs/audit.jsonl` 定位归属（有行且正常=该客户端渲染层的事），再排查——2026-09-11 在嵌入 webview 实测过此判据。
 
@@ -281,11 +294,13 @@ docker compose start gateway
 **接入**：面板需 **role=platform** 的 JWT（数据端点全部受守卫；HTML 壳本身匿名可开、零信息）。取 token：
 
 ```bash
-set -a && . ./.env && set +a    # DEMO_PASSWORD 只从 .env 来
-cd offline && .venv/Scripts/python.exe -c "import sys;sys.path.insert(0,'.');import localapi;print(localapi.login('sre-full'))"
+bash scripts/console_token.sh            # 打印 role=platform（sre-full）的 JWT
+bash scripts/console_token.sh --copy     # 顺带放进 Windows 剪贴板，直接粘进凭证框
 ```
 
-粘进面板凭证框→localStorage 持久（仅存本浏览器，不入库；清理=面板右上退出或 `localStorage.removeItem('opspilot.jwt')`）。
+脚本内部即"source .env → `localapi.login('sre-full')`"（`DEMO_PASSWORD`/`JWT_SECRET` 只从 `.env` 来，不落盘）。
+token 只在**本机终端**打印，粘进面板后存该浏览器 localStorage（不入库；清理=面板右上退出或
+`localStorage.removeItem('opspilot.jwt')`）。**别把输出转发到聊天或工单**——它是可用的运维凭据。
 
 **三态排障**（文案各不同，别互窜）：
 - 401 → token 过期/无效，重新 login（面板降饱和 + 提示"OPS §9"）。
