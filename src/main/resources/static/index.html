@@ -113,6 +113,7 @@
   .ev.chat .b{color:var(--accent)} .ev.search .b{color:#a371f7} .ev.auth .b{color:var(--warn)}
   .ev.admin .b{color:#39c5cf} .ev.invalid .b{color:var(--err)} .ev.refused .d{color:var(--err)}
   .ev.degrade_transition .b{color:var(--warn)}
+  .ev.badge-l1 .b{color:var(--ok)}
   .ev.mismatch{background:rgba(248,81,73,.14)} .ev.mismatch .d{color:var(--err);font-weight:600}
   .ev.lost{color:var(--warn);padding:6px 10px}
   button.ghost{background:var(--surface-2);border:1px solid var(--line);color:var(--txt-2);
@@ -386,7 +387,10 @@ function renderEvents(a) {
   for (const ev of a.events) {
     cursor = Math.max(cursor, ev.seq | 0);
     const cls = [ev.ev, ev.refused ? 'refused' : '',
-      ev.src_tenant && ev.src_tenant !== ev.tenant ? 'mismatch' : ''].join(' ');
+      ev.src_tenant && ev.src_tenant !== ev.tenant ? 'mismatch' : '',
+      // 缓存命中是状态而非装饰，故复用状态色（口径：绿=有状态含义，非"好看"）。
+      // 这一条在视觉重做时一度被漏掉——事件流里"这条是回放不是新算的"是运维要看的关键信息。
+      ev.cache_hit === 'L1' || ev.cache_hit === 'L2' ? 'badge-l1' : ''].join(' ');
     const detail = ev.ev === 'auth' || ev.ev === 'admin' ? (ev.outcome + ' ' + (ev.reason || ev.action || '')) :
       ev.ev === 'degrade_transition' ? (ev.from + '→' + ev.to + '（' + ev.cause + '）') :
       [ev.via, ev.cache_hit !== 'none' ? ev.cache_hit : '', ev.mode,
