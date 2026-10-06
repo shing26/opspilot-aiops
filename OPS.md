@@ -70,7 +70,7 @@ cron（Linux 部署版；本机手动跑同样有效）：
 
 ## 5. 知识库运维与债务闹钟表
 
-- 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 423 chunks 22.3s，live、服务端日志口径；mock 后端 8.0s；live+账户限流最坏 ~6min）。**动语料后 `build_golden.py` 必须与 `evaluate.py` 同批跑**——只改语料不重生成评测集，会让报告与语料悄悄分叉（旧 golden 的 `exact-50012` 就是这样与入库语料不自洽的）。
+- 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 448 chunks 24.4s，live、服务端日志口径；mock 后端 8.0s；live+账户限流最坏 ~6min）。**动语料后 `build_golden.py` 必须与 `evaluate.py` 同批跑**——只改语料不重生成评测集，会让报告与语料悄悄分叉（旧 golden 的 `exact-50012` 就是这样与入库语料不自洽的）。
 - **同代性不必靠记性**（2026-09-18 起）：`cd offline && python provenance.py --check` 当场判定"报告是否仍是当前语料的报告"（内容摘要判据，零凭据零网络），CI 的 `provenance` job 跑的就是它。漏跑评测时它会点名哪个输入变了并给出修复命令：`python eval/build_golden.py && python eval/evaluate.py`；`evaluate.py` 会自动刷新出处登记 `eval/reports/PROVENANCE.json`。
 - **交接/对外给证据**：`python scripts/pack_evidence.py`（加 `--zip` 出压缩包）产出自述快照到 `_archive/evidence/`，入口 `MANIFEST.md` 逐项写明出处与"当前模式下能否复核"。默认**不含**本机运行态证据（`logs/`）；要看运行史用 `--include-local-evidence`——**该档含查询内容与租户标识，别原样对外发**。
 - `scripts/gen_tokens.py` **是红队畸形 token 签发器**（A2-8b/8c 与 demo.sh 预检依赖）——不是遗留脚本，勿删。
@@ -107,7 +107,7 @@ cron（Linux 部署版；本机手动跑同样有效）：
 |---|---|---|
 | 别名回滚 admin 端点（ADR-0006 承诺"可秒级回退"，端点未实现） | 首次出现"重灌后需要回滚"的真实需求，或任何一次 reingest 质量事故 | 物理库名带时间戳 + 手工改别名指向即秒级回退（见上表 SOP 第 2 步）；**无端点 ≠ 无退路** |
 | 外部监控 adapter（评估 M3 剩余项） | 三组析取项任一成立即到期：① 拿到**可读且被授权**的外部告警/监控 API（Alertmanager / 云监控 webhook，有文档化契约与可用测试凭据）；② 产品方向转为含外部集成，且 ≥1 个外部消费者书面要求以 webhook 接入；③ 一次真实故障因缺外部告警接入而被漏掉（判据：该故障落在自举源盲区内，且复盘结论指向"没接外部源"）。**2026-09-21 改写**：原触发线"出现真实告源"不可判读——没有任何时刻会让它到期，等于没有到期日，违反本表自订纪律 | 自举源已满足"真实输入"诉求（ADR-0011）；外部集成明确为当前非目标 |
-| 复盘 → 知识回灌（真实排障结论沉淀为可检索语料） | 两组析取项任一成立即到期：① **同一根因的故障被人工复盘 ≥2 次**（判据：台账或审计里出现两次人工撰写的同一根因复盘——第二次就该沉淀复用，而不是再写一遍）；② 外部监控 adapter 触发后同批处理（见上一行）。**2026-09-21 登记**：此环此前**不在任何账上**——既非"已覆盖"、也非在案债务，是复核"业务闭环了没有"时查出的账外边界。它之所以还没造成问题，只是因为今天系统里还没有真实故障流可沉淀 | 语料为人工撰写的合成 fixture（63 篇复盘/Runbook），运行期**无"结论→语料"写路径**：`IngestionRunner` 只读 `chunks.jsonl` 写派生索引，全仓唯一写 `chunks.jsonl` 的是 `offline/chunkers/build_chunks.py`。自举闭环那 17 篇语料即"人工合上闭环"的实证。**陷阱提醒**：这批复盘/Runbook 是喂检索的 fixture，不是做过的故障 |
+| 复盘 → 知识回灌（真实排障结论沉淀为可检索语料） | 两组析取项任一成立即到期：① **同一根因的故障被人工复盘 ≥2 次**；② 外部监控 adapter 触发后同批处理。**【2026-10-06 触发线①兑现·已完成第一次真实回灌】**：2026-10-04 宿主 OOM 连杀容器**两次**（同一根因），2026-10-06 写成复盘 `rb-102` 入语料——第二次就该沉淀复用，本条正是这么做的。同批复盘共 5 篇（rb-101 本机辖区清单 / rb-102 容器 OOM / rb-103 端口占用 / rb-104 面板旧缓存 / rb-105 截断 jar），**全部是本机真实发生过的事故**（签名/命令/处置均当晚实测），走 `build_chunks → reingest → evaluate` 全链路入库（448 chunks，live 24.4s 零空窗），并接上**真实 Docker 告警源** `scripts/watchdog_alerts.py`（容器状态翻转 → `source=alert` 走完整编排链，实测 exit 137 告警 → 检索命中 rb-102）。**仍未做（如实登记）**：回灌仍是**人工离线**写 md → 重灌，运行期依旧**无"结论→语料"写路径**（`IngestionRunner` 只读 `chunks.jsonl`；全仓唯一写它的仍是 `build_chunks.py`）——要不要做运行期自动回灌是新决策，不在本触发线范围内；告警看门狗也未进 CI 常驻（与 liveness 同批，待部署环境接线） | 语料现含 68 篇复盘/Runbook（5 篇真实 + 63 篇 fixture），运行期**无"结论→语料"写路径**不变。**陷阱提醒修订**：rb-101~105 **是**做过的故障（当晚实录），其余 63 篇仍是喂检索的 fixture——两者在语料里并存，检索时不区分，但对外引用证据时必须分得清 |
 | 拒答路径 TTFT（persona-eval P2-6） | 拒答延迟进入对外 SLO，或被真人/QA 作为体验问题复现 | 拒答在 LLM 前 return（不烧 token）；慢在检索自身耗时，属检索优化非生成链 |
 | metrics 观测缺口：5xx 计数 / 延迟分位 / 别名指向 / H2 健康 / 最近成功备份时间 | 任一项成为排障瓶颈——判据：再次出现"**只能靠翻日志才能判断**"的事故（2026-09-17 的登录 500 正是此类） | 面板已吸收依赖灯 / 降级档位 / 配额水位 / 在途组；`daily_usage` 有磁盘哨兵 |
 | 超长 query 软上限（persona-eval P2） | 出现超长输入导致的成本或延迟事故，或对外提供公网入口 | 拒答门控 + 单主体日配额 5000 + LLM 调用超时 |
@@ -271,7 +271,7 @@ python scripts/liveness.py --interval 30
 |---|---|---|
 | H2 `./data/users.mv.db`（口令散列 + token_ver 吊销状态） | **唯一不可再生** | `scripts/backup.sh` 每日（网关活着走 `POST /admin/backup`、DB 所有者在线 `BACKUP TO` 事务一致；网关停了走 CLI 嵌入式。**禁止 cp 热拷运行中的库文件**） |
 | `logs/audit.jsonl` | 合规留痕，logback 14 天滚动会回收 | backup.sh 一并 tar（保 14 天） |
-| ES / Qdrant | **派生索引，不备份**——chunks.jsonl 在 git（ADR-0001），恢复=reingest（实测 423 chunks 22.3s，live、服务端日志口径；mock 8.0s） | 无需动作 |
+| ES / Qdrant | **派生索引，不备份**——chunks.jsonl 在 git（ADR-0001），恢复=reingest（实测 448 chunks 24.4s，live、服务端日志口径；mock 8.0s） | 无需动作 |
 
 cron（Linux 部署）：
 

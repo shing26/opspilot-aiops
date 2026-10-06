@@ -14,7 +14,7 @@
   5. **弹性**——三级降级状态机，LLM 429 熔断直出静态 SOP；
   6. **权限**——`auth_level` + `tenant` 双维在引擎层硬过滤，缓存与回放全链路携带权限维度。
   - *过程*：五轮 QA 红队 + 双轴 code-review 闭环（P0 提权绕过 / TDD 锁；第四轮三 Persona 全系统测评揪出 Single-Flight 缺租户与 admin 信任域两处 P0；第五轮生成质量包立逐字导出出口硬护栏与熔断半开自愈）→ v1.0.0 冻结 → DashScope live 实测 → 四 Sprint 生产化（H2 账号+实时吊销、中间件凭据+环回、blue/green 原子切流、审计/配额/CI）→ 转公开前全模块独立+集成复验（台账 `docs/qa/2026-09-13-module-verification.md`），债务带触发线记录在案。
-- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 59.3% 拉到 85.2%，2026-10-03 评测集扩至 61 样本后的现值；扩样前为 64%→88%）、热点命中 TP99 16ms（服务端 TTFT，产物 `offline/load/reports/l1_hit_latency.md`）、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏（双向判别语料 + 跨租户并发用例锁死）、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测零中断（切流期间 27 个在线探针 0 失败、全程约 40s；复测 423 chunks 22.3s）。**上表与本节的具体数字另见下方「核心指标」**。
+- **R**：精确 Top-1 100%、语义 Hit@3 100%（hybrid 较纯 ES 把语义 Top-1 从 66.7% 拉到 85.2%，2026-10-06 语料扩至 68 篇后的现值；61 样本 64 篇语料时为 59.3%→85.2%，再前为 64%→88%）、热点命中 TP99 16ms（服务端 TTFT，产物 `offline/load/reports/l1_hit_latency.md`）、500 并发 LLM 仅 1 次、越狱与跨租户零泄漏（双向判别语料 + 跨租户并发用例锁死）、场景 A 0 失败——均以 DashScope live 实测；生产化改造后 live 评测**逐位一致（零质量回退）**，蓝绿在线切流实测零中断（切流期间 27 个在线探针 0 失败、全程约 40s；复测 448 chunks 22.3s 同量级）。**上表与本节的具体数字另见下方「核心指标」**。
 
 ## 核心指标（实测）
 
@@ -29,7 +29,7 @@
 
 > **读表前先看三条口径**：① 以上均为 **DashScope live** 后端实测——`text-embedding-v3`（1024 维神经语义）+ `gte-rerank-v2`（精排）+ `qwen-plus`（流式生成）；无 key 时自动切本地词法 mock 后端（同代码路径，双模自动切换），**mock 下不承诺这些数字**。② 「场景 A 吞吐」与「风暴」**不是同一种负载**：前者是混合查询（80% 热 + 20% 冷），后者是**同指纹风暴**（全量去重、请求极快）。③ 这两行来自 **2026-09-09** 的运行，早于 P2 账号体系；后来的 `concurrency_sweep` 曲线（拐点在 200→300 并发，且降级状态机在实测中未触发，见「三级自适应降级状态机」节）测的是另一件事——**三者的数字不可互相推广**。
 >
-> **live 独有的论证价值**：评测集显示语义查询的 **Top-1 命中率 `es_only` 仅 59.3% → hybrid 85.2%**（语义 MRR 0.722→0.920；历次基线：303 篇前 72%→88%、423 篇 64%→88%、61 样本 59.3%→85.2%——样本越口语、纯词法腿越低，向量路的捞回越值钱）——向量路把纯词法在首位漏掉的约 26 个百分点口语化查询捞了回来。这是 mock 词法后端无法暴露、也只有接入神经向量后才成立的混合检索核心卖点。**扩语料与扩样都会让纯词法腿漂移，hybrid 稳得多**：当前 golden（61 样本，含口语极值）下 `es_only` 语义 Hit@3 88.9%、MRR 0.722，而 hybrid 逐位不变（语义 Hit@3 100%、MRR 0.920）——纯词法腿对措辞与语料变化敏感，混合检索的稳健性正体现在这里（E1 教训两次实测复现；历史：423 chunks 时 `es_only` 语义 Hit@3 由 100% 降至 92%、MRR 0.813→0.767）。报告出处与生成时刻见 `offline/eval/reports/PROVENANCE.json`（内容摘要判据，CI 强制同代）。
+> **live 独有的论证价值**：评测集显示语义查询的 **Top-1 命中率 `es_only` 仅 66.7% → hybrid 85.2%**（语义 MRR 0.759→0.920；历次基线：303 篇前 72%→88%、423 篇 64%→88%、61 样本+64 篇 59.3%→85.2%、61 样本+68 篇 66.7%→85.2%——样本越口语、纯词法腿越低，向量路的捞回越值钱）——向量路把纯词法在首位漏掉的约 18.5 个百分点口语化查询捞了回来。这是 mock 词法后端无法暴露、也只有接入神经向量后才成立的混合检索核心卖点。**扩语料与扩样都会让纯词法腿漂移，hybrid 稳得多**：当前 golden（61 样本，含口语极值）下 `es_only` 语义 Hit@3 88.9%、MRR 0.759，而 hybrid 逐位不变（语义 Hit@3 100%、MRR 0.920）——纯词法腿对措辞与语料变化敏感，混合检索的稳健性正体现在这里（E1 教训两次实测复现；历史上扩语料曾让 `es_only` 语义 Hit@3 由 100% 降至 92%、MRR 0.813→0.767，hybrid 逐位不动）。报告出处与生成时刻见 `offline/eval/reports/PROVENANCE.json`（内容摘要判据，CI 强制同代）。
 
 ## AIOps 谱系定位 · 是什么，以及明确不是什么
 
@@ -40,7 +40,7 @@
 | ① 遥测采集（metrics/traces/topology） | **永久非目标** | 输入恒为一段文本 query（人贴堆栈或告警系统 POST），无指标流/事件总线/拓扑图；做成采集平台是另一个产品，不是本系统的缺口 | 「架构」节图入口面（三入口皆文本协议）；`gateway/CopilotController.java`、`gateway/OpenAiController.java`（全部入参=文本+元数据） |
 | ② 异常检测（统计/ML） | **永久非目标** | 全仓无检测算法路径——"何时算异常"的判定权恒归上游告警系统，本系统消费其结果 | `grep -riE "anomal|forecast" src/main` 为空；CONTEXT.md 术语表无此词条（有词条必先入术语表，反向可验） |
 | ③ 告警降噪 / 事件收敛 | **已覆盖（同指纹域）**，边界明示 | `来源×指纹` 滑窗计数 + 进程内 Single-Flight：500 并发同指纹 → LLM 仅 1 次。**跨指纹 incident 关联未覆盖**——但 2026-09-16 起**前置已满足**（自举告警源提供了真实告警流，[ADR-0011](docs/adr/0011-self-bootstrapped-alert-source.md)），该边界已入债务账并带触发线（OPS §5），不再"未在账" | `storm/FingerprintService.java`、`storm/SingleFlightRegistry.java`；[ADR-0003](docs/adr/0003-single-instance-inprocess-single-flight.md)；A2-5（`offline/acceptance_a2.py`）；台账 `docs/qa/2026-09-16-self-alert-loop.md` §2.1（11 条同故障告警 → 指纹一致、LLM 增量 0） |
-| ④ 知识化根因辅助 | **已覆盖（检索域）**，边界明示 | 双路召回 + RRF + 精排 over 63 篇复盘/Runbook + OpenAPI；置信度不足显式拒答而非硬编。**边界：知识库是只读的**——运行期没有任何「结论→语料」回灌路径，语料由人工撰写、重建靠 `POST /admin/reingest` 从既有 `chunks.jsonl` 重灌；"真实排障结论沉淀回知识库"这一环**未覆盖**，已按触发线登记（OPS §5.1） | `retrieval/HybridSearchService.java`；[ADR-0001](docs/adr/0001-java-online-python-offline-split-at-jsonl.md)/[ADR-0002](docs/adr/0002-dashscope-one-stop-1024-dim.md)；`offline/eval/reports/eval_report.md`（es_only 64%→hybrid 88%，现报告版）；`ingest/IngestionRunner.java`（只读 chunks → 写派生索引） |
+| ④ 知识化根因辅助 | **已覆盖（检索域）**，边界明示 | 双路召回 + RRF + 精排 over 68 篇复盘/Runbook + OpenAPI（**2026-10-06 起含 5 篇本机真实事故复盘**——见「复盘→知识回灌」边界的第一次真实兑现）；置信度不足显式拒答而非硬编。**边界：知识库是只读的**——运行期没有任何「结论→语料」回灌路径，语料由人工撰写、重建靠 `POST /admin/reingest` 从既有 `chunks.jsonl` 重灌；"真实排障结论沉淀回知识库"这一环**未覆盖**，已按触发线登记（OPS §5.1） | `retrieval/HybridSearchService.java`；[ADR-0001](docs/adr/0001-java-online-python-offline-split-at-jsonl.md)/[ADR-0002](docs/adr/0002-dashscope-one-stop-1024-dim.md)；`offline/eval/reports/eval_report.md`（es_only 64%→hybrid 88%，现报告版）；`ingest/IngestionRunner.java`（只读 chunks → 写派生索引） |
 | ⑤ 处置闭环（动作执行/自愈） | **待还债（触发线在案）** | 当前形态=输出可溯源排障步骤供**人**执行；对目标系统零写操作是产品承诺非缺陷。触发线（合取）：接入可审计执行通道（runbook 执行引擎 + 审批链/HITL 门）后立项。**告警接入侧已解除挂起**——自举告警源已上线（ADR-0011，换源而非 adapter）；面向外部监控系统的 adapter 仍按硬约束挂起 | OPS §5 债务闹钟表"处置闭环"行（含 2026-09-16 状态注）；`docs/ops/production-readiness-2026-09-12.md` M3 |
 
 **一句话口径**：OpsPilot 做的是 AIOps 的 **③④ 两个子域的网关入口层**——"让告警风暴里的一条 query 得到可信、可溯源、越不了权的排障建议"。标题词 AIOps 指的是这个可验证子集；①②⑤ 上表三分类各归其位，欢迎按证据列逐行核验。
@@ -108,7 +108,7 @@ flowchart TD
 ```
 
 - **权限是引擎层硬过滤不是 Prompt 约束**：tenant 与 auth_level 以 term/range 注入 ES Query DSL 与 Qdrant Filter，越权话术无法跨越数据级过滤；role 只在平台管理面生效（ADR-0008：权限三元组必须同构存在于每一条共享路径）。
-- **知识库零空窗重建**：`POST /admin/reingest` 走 blue/green 别名原子切流（ADR-0006），失败保留旧库在线，实测 423 chunks 22.3s 零中断（live，服务端日志口径；mock 后端 8.0s）。
+- **知识库零空窗重建**：`POST /admin/reingest` 走 blue/green 别名原子切流（ADR-0006），失败保留旧库在线，实测 448 chunks 24.4s 零中断（live，服务端日志口径；mock 后端 8.0s）。
 
 ### 三级自适应降级状态机
 
@@ -319,7 +319,7 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 
 ## 规模与目录
 
-**规模**：190 单测（`@Test` 声明数）· 13 项架构决策（ADR）· 423 chunks（切分产物行数）· 63 篇复盘/Runbook 语料（另加 OpenAPI 文档，共 64 篇）· 评测集 61 样本（34 精确码 + 27 语义）· 14 个运维脚本。CI 五 job：`java` / `panel-contract` / `provenance` / `python` / `shell`。
+**规模**：190 单测（`@Test` 声明数）· 13 项架构决策（ADR）· 448 chunks（切分产物行数）· 68 篇复盘/Runbook 语料（另加 OpenAPI 文档，共 69 篇）· 评测集 61 样本（34 精确码 + 27 语义）· 15 个运维脚本。CI 五 job：`java` / `panel-contract` / `provenance` / `python` / `shell`。
 
 **四份根文档按读者分工**（互不重复）：判断值不值得看 → 本文；起服务/跑演示 → [DEMO.md](DEMO.md)；日常运维与**债务触发线** → [OPS.md](OPS.md)；领域词汇 → [CONTEXT.md](CONTEXT.md)。
 
