@@ -6,16 +6,22 @@
 <link rel="icon" href="data:,">
 <title>OpsPilot · Ops Console</title>
 <!--
-  只读可观测面（ADR-0009）：渲染 /admin/state 与 /admin/audit/recent 的真实计数器，
+  只读可观测面（ADR-0009）：渲染 /admin/state 与 /admin/audit/recent 的真实计数器与事件，
   无任何写操作、无假动画、无外部依赖（离线演示可断网开）。
   HTML 本体不受守卫（零信息壳）；数据需 role=platform 的 JWT——面板粘贴后即入 localStorage
   （浏览器本地，OPS §9 有记载与清理方法）。
 
-  视觉层约定（2026-10-05 重做）：**颜色只承载状态，不做装饰**——绿/黄/红仅出现在
-  依赖灯、降级档位、事件级别三处；其余一律中性面。字体分职：标签与正文用系统无衬线，
-  等宽只留给数字、键名与日志行（原版全页等宽，是"极客工具"观感的主因）。
-  能力边界与谱系定位是**文档而非监控**，收进 <details> 默认折叠——它们不该和活数据抢注意力。
-  所有图形（KPI、速率柱、配额条）都来自真实计数器，无插值动画、无假数据。
+  2026-10-06 改版要点（用户判断：原版"体现不了具体功能"）：
+  原来的两块静态声明（能力边界 / AIOps 谱系定位）已撤出面板——它们一字不变地挂在
+  监控屏上不产生任何信息，且抢注意力；内容仍在 README「AIOps 谱系定位」与 OPS §5 债务表。
+  腾出的位置给了「请求处理轨迹」：**审计流里本来就带着系统"刚才做了什么"的全部事实**
+  （查询原文、检索模式、缓存档、降级档、是否拒答、权限上限、分段耗时），原版把它们
+  压成一行日志字符串，等于有货却不给人看。现在每笔请求摊成一张卡，附分段耗时条。
+
+  视觉纪律：颜色只承载含义——状态（绿/黄/红）与分段类别（同一色相的不同明度），
+  没有装饰性色彩；标签正文用系统无衬线，等宽只留给数字/键名/日志行；
+  CJK 标题不加字距；块级间距走刻度（--s1..s5）；可点元素都有 hover 与 :focus-visible。
+  诚实性红线：不补间、不平滑、无插值、无假数据；采样/聚合口径逐条写在 OPS §9。
 -->
 <style>
   :root{
@@ -23,10 +29,6 @@
     --txt:#e6edf3; --txt-2:#b6c2cf; --muted:#7d8894;
     --ok:#3fb950; --warn:#d29922; --err:#f85149; --accent:#58a6ff;
     --r:10px;
-    /* 间距刻度：管辖**块级节奏**（section/card/grid 之间的 margin 与 gap）。
-       组件内部的微观间距（chip 内边距、日志行内边距等）仍按手感值给——那些地方
-       9/10px 是对的，硬套刻度只会让日志行变松。原版真正的问题是没有刻度这件事本身：
-       块级间距散在 12/14/16/18 四档，肉眼齐而代码不齐，改一处就破一处。 */
     --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s5:24px;
     --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;
     --mono:ui-monospace,"Cascadia Mono",Consolas,"Liberation Mono",monospace;
@@ -36,31 +38,24 @@
   body{background:var(--bg);color:var(--txt);font:14px/1.55 var(--sans);
        -webkit-font-smoothing:antialiased}
   .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
-
-  /* 键盘可达性：所有可点的东西都必须有可见焦点环。原版只有鼠标样式，
-     Tab 走过去什么也看不到——面板是值班时长时间盯着的屏幕，键盘可达不是装饰。 */
   :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
 
   /* ---------- 顶栏 ---------- */
-  header{display:flex;align-items:center;justify-content:space-between;gap:16px;
-         padding:14px 24px;border-bottom:1px solid var(--line);background:var(--surface)}
+  header{display:flex;align-items:center;justify-content:space-between;gap:var(--s4);
+         padding:var(--s3) var(--s5);border-bottom:1px solid var(--line);background:var(--surface)}
   header .brand{display:flex;align-items:baseline;gap:10px}
-  header .brand b{font-size:15px;font-weight:600;letter-spacing:.2px}
+  header .brand b{font-size:15px;font-weight:600}
   header .brand span{font-size:12px;color:var(--muted)}
   #fingerprint{font-size:12px;color:var(--muted)}
 
-  /* ---------- 布局 ---------- */
-  main{max-width:1560px;margin:0 auto;padding:20px 24px 32px;
-       display:flex;flex-direction:column;gap:16px}
-  .row{display:grid;gap:16px}
+  main{max-width:1560px;margin:0 auto;padding:var(--s4) var(--s5) var(--s5);
+       display:flex;flex-direction:column;gap:var(--s4)}
+  .row{display:grid;gap:var(--s4)}
   @media(min-width:1100px){ .row.split{grid-template-columns:minmax(0,1fr) minmax(0,1.35fr)} }
   section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
-          padding:16px 18px;min-width:0}
-  /* 中日韩标题不加分隔字母：汉字本身是等宽方块，加字距会让字距看起来忽宽忽窄
-     （原版 letter-spacing:.6px 是照搬拉丁大写标题的观感，用在中文上就是松垮）。
-     只给纯拉丁片段（KPI/DEGRADE 这类词条）保留字距。 */
+          padding:var(--s4) 18px;min-width:0}
   h2{margin:0 0 var(--s3);font-size:12px;font-weight:600;color:var(--muted);
-     display:flex;align-items:center;gap:var(--s2)}
+     display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
   h2 .tag{margin-left:auto;font-weight:400;font-size:11px}
 
   /* ---------- KPI 条 ---------- */
@@ -71,71 +66,89 @@
   .kpi .value{font-size:30px;font-weight:600;line-height:1.15}
   .kpi .foot{margin-top:var(--s1);font-size:11px;color:var(--muted);min-height:16px}
   .kpi .foot .up{color:var(--ok)}
-  /* 主指标（每请求 LLM 调用）承担结论，给一道左侧色条做视觉锚——不靠放大数字，
-     那会和旁边四个"也是大数字"的读数抢注意力；色条宽度恒定，不引入新配色。 */
   .kpi.lead{border-left:2px solid var(--accent);padding-left:16px}
 
   /* ---------- 依赖灯 ---------- */
   .deps{display:grid;gap:var(--s2) var(--s4);grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
-  .dep{display:flex;align-items:center;gap:var(--s2);padding:var(--s2) 12px;
+  .dep{display:flex;align-items:center;gap:var(--s2);padding:var(--s2) var(--s3);
        background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
   .dep .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
   .dot.UP{background:var(--ok)} .dot.DOWN{background:var(--err)} .dot.DEGRADED{background:var(--warn)}
   .dep .k{font-size:12px;color:var(--txt-2)}
   .dep .v{margin-left:auto;font-size:13px;color:var(--txt)}
-  .sub{color:var(--muted);font-size:11px;margin-top:10px}
 
-  /* ---------- 降级档位（分段控件） ---------- */
+  /* ---------- 降级档位 ---------- */
   .steps{display:flex;gap:6px}
-  .step{flex:1;text-align:center;padding:9px 0;border-radius:8px;font-size:12px;
+  .step{flex:1;text-align:center;padding:var(--s2) 0;border-radius:8px;font-size:12px;
         background:var(--surface-2);border:1px solid var(--line-soft);color:var(--muted)}
   .step.on{background:rgba(63,185,80,.12);border-color:var(--ok);color:var(--ok);font-weight:600}
-  .facts{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:14px;font-size:12px;color:var(--txt-2)}
+  .facts{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s4);margin-top:var(--s3);font-size:12px;color:var(--txt-2)}
   .facts b{font-family:var(--mono);font-variant-numeric:tabular-nums}
   .badge{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600;
          border:1px solid var(--warn);color:var(--warn)}
 
-  /* ---------- 配额条 ---------- */
-  .meter{margin-top:14px}
+  /* ---------- 配额 ---------- */
+  .meter{margin-top:var(--s3)}
   .meter .cap{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:6px}
   .track{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden;
          border:1px solid var(--line-soft)}
   .track i{display:block;height:100%;background:var(--accent)}
 
-  /* ---------- 速率柱（每次轮询的真实增量） ---------- */
-  .chart{display:flex;align-items:flex-end;gap:2px;height:104px;padding:10px 12px 4px;
+  /* ---------- 请求处理轨迹（本版主角） ---------- */
+  .tracks{display:flex;flex-direction:column;gap:var(--s2)}
+  /* 轨迹卡用 .req 而非 .track：配额进度条已经占了 .track（见上），同名会让两组规则互相覆盖 */
+  .req{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
+         padding:var(--s3);border-left:2px solid var(--line)}
+  .req.refused{border-left-color:var(--err)}
+  .req.cached{border-left-color:var(--ok)}
+  .req .q{font-size:13px;color:var(--txt);margin-bottom:6px;
+            display:flex;gap:var(--s3);align-items:baseline}
+  .req .q .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .req .q .ms{flex:none;color:var(--txt-2);font-size:12px}
+  /* 路由链：这条请求走了哪条路。全部来自审计行字段，无推断。 */
+  .chain{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s2);font-size:11px;color:var(--muted)}
+  .chain b{font-family:var(--mono);color:var(--txt-2);font-weight:500}
+  .chain .hit{color:var(--ok)} .chain .no{color:var(--txt-2)} .chain .rfs{color:var(--err)}
+  /* 分段耗时条：一色相不同明度=categorical，legend 承载映射（不引新配色） */
+  .bar{display:flex;height:8px;margin-top:var(--s2);border-radius:4px;overflow:hidden;
+       background:var(--line-soft)}
+  .bar i{display:block;height:100%}
+  .legend{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s3);margin-top:6px;font-size:10px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend i{width:8px;height:8px;border-radius:2px;display:inline-block}
+  .empty{color:var(--muted);font-size:12px;padding:var(--s3) 0}
+
+  /* ---------- 速率柱 ---------- */
+  .chart{display:flex;align-items:flex-end;gap:2px;height:104px;padding:10px var(--s3) var(--s1);
          background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
          position:relative}
-  /* 零位基线：柱子原本直接坐在边框上，看着像"贴边"。一条 1px 基线把"零"这件事画出来，
-     同时给不足 2px 的零值柱一个落脚点。 */
-  .chart::after{content:"";position:absolute;left:12px;right:12px;bottom:4px;height:1px;
-                background:var(--line)}
+  .chart::after{content:"";position:absolute;left:var(--s3);right:var(--s3);bottom:var(--s1);
+                height:1px;background:var(--line)}
   .chart .b{flex:1;min-width:2px;background:var(--accent);border-radius:2px 2px 0 0;opacity:.85}
   .chart .b.zero{background:var(--line);opacity:1}
-  .chart .b.gap{background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 6px);
-                opacity:.6}   /* 采集中断的时段：斜纹=没数据，与"真的是零"区分开 */
-  .legend{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:8px;
-          gap:10px;flex-wrap:wrap}
+  .chart .b.gap{background:repeating-linear-gradient(135deg,var(--line) 0 3px,transparent 3px 6px);opacity:.6}
+  .caption{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+           font-size:11px;color:var(--muted);margin-top:var(--s2)}
   .seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;
        margin-left:10px;vertical-align:middle}
   .seg button{background:var(--surface-2);border:0;color:var(--muted);font:inherit;font-size:11px;
               padding:2px 10px;cursor:pointer;transition:color .12s,background .12s}
   .seg button:hover:not(.on){color:var(--txt-2);background:#232a34}
   .seg button.on{background:var(--accent);color:#06121f;font-weight:600}
-  .seg button.on:hover{background:var(--accent)}   /* 已选中时 hover 不变浅，否则会像"可点" */
 
   /* ---------- 计数墙 ---------- */
   .tiles{display:grid;gap:1px;background:var(--line-soft);border:1px solid var(--line-soft);
          border-radius:8px;overflow:hidden;grid-template-columns:repeat(auto-fit,minmax(132px,1fr))}
-  .tile{background:var(--surface);padding:10px 12px}
+  .tile{background:var(--surface);padding:10px var(--s3)}
   .tile .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:16px}
   .tile .k{font-size:11px;color:var(--muted);margin-top:2px}
   .tile .delta{font-family:var(--mono);font-size:10px;color:var(--ok);min-height:13px}
+  .sub{color:var(--muted);font-size:11px;margin-top:10px}
 
   /* ---------- 事件流 ---------- */
-  #events{max-height:44vh;overflow-y:auto;font-family:var(--mono);font-size:12px;
+  #events{max-height:40vh;overflow-y:auto;font-family:var(--mono);font-size:12px;
           background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px}
-  #events .ev{display:flex;gap:10px;padding:4px 10px;border-bottom:1px solid var(--line-soft);
+  #events .ev{display:flex;gap:10px;padding:var(--s1) 10px;border-bottom:1px solid var(--line-soft);
               white-space:nowrap;overflow:hidden}
   #events .ev:last-child{border-bottom:0}
   #events .t{color:var(--muted);flex:none}
@@ -143,37 +156,13 @@
   #events .d{overflow:hidden;text-overflow:ellipsis;color:var(--txt-2)}
   .ev.chat .b{color:var(--accent)} .ev.search .b{color:#a371f7} .ev.auth .b{color:var(--warn)}
   .ev.admin .b{color:#39c5cf} .ev.invalid .b{color:var(--err)} .ev.refused .d{color:var(--err)}
-  .ev.degrade_transition .b{color:var(--warn)}
-  .ev.badge-l1 .b{color:var(--ok)}
+  .ev.degrade_transition .b{color:var(--warn)} .ev.badge-l1 .b{color:var(--ok)}
   .ev.mismatch{background:rgba(248,81,73,.14)} .ev.mismatch .d{color:var(--err);font-weight:600}
   .ev.lost{color:var(--warn);padding:6px 10px}
   button.ghost{background:var(--surface-2);border:1px solid var(--line);color:var(--txt-2);
-               border-radius:6px;padding:4px 10px;font:inherit;font-size:11px;cursor:pointer}
+               border-radius:6px;padding:var(--s1) 10px;font:inherit;font-size:11px;cursor:pointer;
+               transition:border-color .12s,color .12s}
   button.ghost:hover{border-color:var(--muted);color:var(--txt)}
-
-  /* ---------- 文档块（折叠） ---------- */
-  details{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
-  summary{cursor:pointer;padding:var(--s3) 18px;font-size:12px;font-weight:600;color:var(--muted);
-          list-style:none;display:flex;align-items:center;gap:var(--s2)}
-  summary::-webkit-details-marker{display:none}
-  summary::before{content:"▸";display:inline-block;transition:transform .15s;color:var(--muted)}
-  details[open] summary::before{transform:rotate(90deg)}
-  summary:hover{color:var(--txt-2)}
-  summary:hover::before{color:var(--txt-2)}
-  .details-body{padding:0 18px var(--s4);font-size:13px;color:var(--txt-2)}
-  #bounds{list-style:none;margin:0;padding:0;display:grid;gap:8px;
-          grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
-  #bounds li{padding-left:18px;position:relative}
-  #bounds li::before{content:"✗";position:absolute;left:0;color:var(--muted)}
-  #bounds .chk{font-size:11px;color:var(--muted);margin-top:2px}
-  #spectrum{list-style:none;margin:0;padding:0;display:grid;gap:10px}
-  #spectrum li{display:grid;grid-template-columns:78px minmax(0,1fr);gap:4px 12px;align-items:baseline}
-  #spectrum .st{font-size:11px;padding:1px 0;text-align:center;border-radius:4px;
-                border:1px solid var(--line);color:var(--muted)}
-  #spectrum .done{color:var(--ok);border-color:var(--ok)}
-  #spectrum .debt{color:var(--warn);border-color:var(--warn)}
-  #spectrum .ev{font-size:12px;color:var(--muted);grid-column:2}
-  #spectrum li.chk{display:block;font-size:11px;color:var(--muted)}
 
   /* ---------- 凭证门 ---------- */
   #auth{position:fixed;inset:0;background:rgba(8,11,16,.82);display:none;place-items:center;
@@ -183,15 +172,15 @@
   #auth .card b{font-size:15px}
   #auth .msg{color:var(--warn);font-size:12px;min-height:18px;margin-top:6px}
   #auth input{width:100%;background:var(--bg);color:var(--txt);border:1px solid var(--line);
-              border-radius:8px;padding:10px 12px;font:inherit;font-size:13px;margin:12px 0}
+              border-radius:8px;padding:10px var(--s3);font:inherit;font-size:13px;margin:var(--s3) 0}
   #auth input:focus{outline:none;border-color:var(--accent)}
   #auth button{background:var(--accent);color:#06121f;border:0;border-radius:8px;
-               padding:9px 20px;font:inherit;font-weight:600;cursor:pointer}
-  #auth p{color:var(--muted);font-size:11px;margin:14px 0 0;line-height:1.6}
+               padding:var(--s2) 20px;font:inherit;font-weight:600;cursor:pointer}
+  #auth p{color:var(--muted);font-size:11px;margin:var(--s3) 0 0;line-height:1.6}
   .sat{filter:saturate(.15) brightness(.7)}
 
   footer{border-top:1px solid var(--line);background:var(--surface);
-         padding:10px 24px;display:flex;justify-content:space-between;
+         padding:10px var(--s5);display:flex;justify-content:space-between;
          font-size:11px;color:var(--muted)}
 </style>
 </head>
@@ -202,7 +191,6 @@
 </header>
 
 <main>
-  <!-- KPI 条：全部为真实累计量的即时读数，delta 是相邻两次轮询的真差 -->
   <div class="kpis" id="kpis"></div>
 
   <div class="row split">
@@ -222,6 +210,12 @@
     </section>
   </div>
 
+  <section>
+    <h2>请求处理轨迹 <span class="tag">每笔请求实际走的路与时间去向（数据源：审计行，非推断）</span></h2>
+    <div class="tracks" id="tracks"></div>
+    <div class="legend" id="stagelegend"></div>
+  </section>
+
   <div class="row split">
     <section>
       <h2>请求到达率
@@ -233,7 +227,7 @@
         </span>
       </h2>
       <div class="chart" id="chart"></div>
-      <div class="legend"><span id="chartwin">← 较早</span><span id="chartpeak"></span><span>现在 →</span></div>
+      <div class="caption"><span id="chartwin">← 较早</span><span id="chartpeak"></span><span>现在 →</span></div>
     </section>
 
     <section>
@@ -245,21 +239,11 @@
 
   <section>
     <h2>事件流 · AUDIT
-      <span class="tag">ev 七类 · 游标增量 · 只读
+      <span class="tag">ev 七类全量流水（含鉴权/非法/降级切换）· 游标增量 · 只读
         <button class="ghost" id="copy">复制最近 50 条 JSON</button></span>
     </h2>
     <div id="events"></div>
   </section>
-
-  <details>
-    <summary>能力边界 · 本系统不做的事（债务带验证日期）</summary>
-    <div class="details-body"><ul id="bounds"></ul></div>
-  </details>
-
-  <details>
-    <summary>AIOps 谱系定位 · 五域自证（静态 · 同源 README）</summary>
-    <div class="details-body"><ul id="spectrum"></ul></div>
-  </details>
 </main>
 
 <footer><span id="pollstate">idle</span><span id="lastts" class="num"></span></footer>
@@ -279,7 +263,15 @@ const $ = id => document.getElementById(id);
 const CAP = 200;                    // 审计游标每拉 200，DOM 保 60
 let token = localStorage.getItem('opspilot.jwt') || '';
 let cursor = 0, prevMetrics = null, pollTimer = null, pollPeriod = 0, alive = false, lastPollFailed = false;
-let rate = loadRate();                // 请求到达率序列：持久化在本地，刷新/关页不丢
+
+// 分段耗时的展示顺序与配色（同一色相的明度阶梯 = categorical，靠 legend 承载映射，
+// 不引新配色——面板的配色纪律是"颜色只承载含义"，六个新色相会把这个纪律变成six种装饰）
+const STAGES = [
+  ['es', 'ES 词法', 1.00], ['vector', 'Qdrant 向量', 0.72], ['rrf', 'RRF 融合', 0.52],
+  ['rerank', '精排', 0.38], ['l2_store', 'L2 写入', 0.24], ['llm', 'LLM 生成', 0.86],
+];
+const TRACK_N = 8;
+let tracks = [];
 
 async function api(path) {
   const r = await fetch(path, { headers: token ? { Authorization: 'Bearer ' + token } : {} });
@@ -304,7 +296,7 @@ function cadence() {
   if (document.visibilityState !== 'visible') return 30000;
   return lastPollFailed ? 30000 : 2000;   // 失败真降频（QA P3：文案与行为一致）
 }
-function resyncInterval() {                // cadence 变化（失败降频/恢复/切后台）时重排 interval
+function resyncInterval() {
   const c = cadence();
   if (pollTimer && pollPeriod === c) return;
   stopPoll(); pollPeriod = c; pollTimer = setInterval(poll, c);
@@ -325,7 +317,7 @@ async function poll() {
   renderState(s); if (a) renderEvents(a);
 }
 
-/* ---------- 渲染 ---------- */
+/* ---------- 运行态 ---------- */
 
 function renderState(s) {
   const b = s.build;
@@ -334,7 +326,6 @@ function renderState(s) {
     'm · pid ' + b.pid;
   $('lastts').textContent = 'server ts ' + new Date(s.ts).toLocaleTimeString();
 
-  // 依赖灯：颜色是唯一的状态语义，不做装饰
   const h = s.health;
   const dep = (k, st, v) =>
     '<div class="dep"><span class="dot ' + st + '"></span><span class="k">' + k +
@@ -346,7 +337,6 @@ function renderState(s) {
   const ri = s.runtime.reingest;
   $('reingest').textContent = 'reingest ' + (ri.busy ? '执行中' : '空闲') + ' · last ' + ri.last;
 
-  // 降级档位：分段控件比三个圆点更易读"当前处在哪一档"
   const d = s.runtime.degradation;
   $('deg').innerHTML = ['L0', 'L1', 'L2'].map(l =>
     '<div class="step' + (d.level === l ? ' on' : '') + '">' + l + '</div>').join('');
@@ -404,66 +394,84 @@ function renderTiles(m) {
   prevMetrics = m;
 }
 
-/* ---------- 请求到达率 ----------
-   三条纪律（ADR-0009 的"无假动画/无假数据"在这段的具体化）：
-     1. **只画真实增量**：格高 = 该时间桶内 total_requests 的真实增量之和。不补间、不平滑。
-     2. **空白分两种且必须可区分**：真的是零 → 实心矮条；采集中断（网关不可达/标签页关闭）
-        → 斜纹条。把"没数据"画成"零"是监控里最常见也最有害的一种撒谎。
-     3. **计数归零要显式**：total_requests 是进程内计数器，网关重启即归零。
-        检测到回退就丢弃旧序列并标注，而不是让它画出一段假的悬崖。
-   采样持久化在 localStorage：刷新页面、关标签页都不丢（1 小时窗 = 1800 点 ≈ 50KB）。 */
-const RATE_KEY = 'opspilot.rate.v1';
-const RATE_MAXAGE = 3600000;          // 只留 1 小时；更早的桶对两个时间窗都没用
-let rateWin = 300000;                 // 当前时间窗（默认 5 分钟）
+/* ---------- 请求处理轨迹 ----------
+   全部字段取自审计行本身（q / mode / cache_hit / degrade_level / refused /
+   max_level / took_ms / stage_ms），**没有任何推断或补算**。它回答的是
+   "这台机器刚才替我做了什么、花在哪儿"，这是计数器回答不了的。 */
+function renderTracks() {
+  if (!tracks.length) {
+    $('tracks').innerHTML = '<div class="empty">还没有请求。发一笔 ' +
+      '<code>python offline/console_client.py "50012_DB_TIMEOUT 怎么排查"</code> 看它走的路。</div>';
+    return;
+  }
+  $('tracks').innerHTML = tracks.map(t => {
+    const st = t.stage_ms || {};
+    const total = STAGES.reduce((a, [k]) => a + (st[k] | 0), 0) || 1;
+    const bar = STAGES.filter(([k]) => st[k] > 0).map(([k, , op]) =>
+      '<i style="width:' + (st[k] / total * 100).toFixed(2) + '%;opacity:' + op +
+      '" title="' + k + ' ' + st[k] + 'ms"></i>').join('');
+    const cls = t.refused ? 'refused' : (t.cache_hit && t.cache_hit !== 'none' ? 'cached' : '');
+    return '<div class="req ' + cls + '">' +
+      '<div class="q"><span class="txt">' + esc(t.q || '(无查询文本)') + '</span>' +
+        '<span class="ms num">' + (t.took_ms | 0) + 'ms</span></div>' +
+      '<div class="chain">' +
+        '<span>检索 <b>' + esc(t.mode || '—') + '</b></span>' +
+        '<span>缓存 <b class="' + (t.cache_hit && t.cache_hit !== 'none' ? 'hit' : 'no') + '">' +
+          esc(t.cache_hit || 'none') + '</b></span>' +
+        '<span>降级 <b>' + esc(t.degrade_level || '—') + '</b></span>' +
+        '<span>权限上限 <b>L' + (t.max_level != null ? t.max_level : '—') + '</b></span>' +
+        '<span>主体 <b>' + esc(t.sub || '—') + '</b></span>' +
+        (t.refused ? '<span class="rfs">置信度门控拒答</span>' : '') +
+        (t.verbatim_masked ? '<span class="rfs">逐字拦截</span>' : '') +
+        (t.fp ? '<span>指纹 <b>' + esc(String(t.fp).slice(0, 12)) + '</b></span>' : '') +
+      '</div>' +
+      '<div class="bar">' + bar + '</div></div>';
+  }).join('');
+}
+$('stagelegend').innerHTML = STAGES.map(([, label, op]) =>
+  '<span><i style="background:var(--accent);opacity:' + op + '"></i>' + label + '</span>').join('') +
+  '<span style="color:var(--txt-2)">段宽 = 该段真实耗时；未列出的零值段（如快路径不调精排）不占宽度</span>';
 
+/* ---------- 速率柱（口径见 OPS §9 三条诚实性纪律） ---------- */
+const RATE_KEY = 'opspilot.rate.v1';
+const RATE_MAXAGE = 3600000;
+let rateWin = 300000;
 function loadRate() {
-  try { return JSON.parse(localStorage.getItem(RATE_KEY)) || []; }
-  catch (e) { return []; }
+  try { return JSON.parse(localStorage.getItem(RATE_KEY)) || []; } catch (e) { return []; }
 }
 function saveRate() {
   const cutoff = Date.now() - RATE_MAXAGE;
   rate = rate.filter(r => r.t >= cutoff);
-  try { localStorage.setItem(RATE_KEY, JSON.stringify(rate)); } catch (e) { /* 配额满就算了，图还在内存里 */ }
+  try { localStorage.setItem(RATE_KEY, JSON.stringify(rate)); } catch (e) { /* 配额满就算了 */ }
 }
+let rate = loadRate();
 
 function pushRate(m, ts) {
   const total = m.total_requests | 0;
   const last = rate.length ? rate[rate.length - 1] : null;
   let reset = false;
   if (last && total < last.req) reset = true;      // 计数器归零 ⇒ 网关重启过
-  if (reset) rate = [];                            // 丢弃跨重启的序列，别画假悬崖
+  if (reset) rate = [];
   rate.push({ t: ts, req: total, inc: last ? Math.max(0, total - last.req) : 0 });
   saveRate();
   drawRate(reset);
 }
-
 function drawRate(reset) {
-  const now = Date.now();
-  const span = rateWin;
-  const buckets = 30;
-  const bw = span / buckets;                        // 每格覆盖的毫秒数
-  const start = now - span;
-  const cells = [];                                 // {n:增量, gap:是否缺采样}
-  for (let i = 0; i < buckets; i++) cells.push({ n: 0, gap: true, from: start + i * bw, to: start + (i + 1) * bw });
+  const now = Date.now(), span = rateWin, buckets = 30, bw = span / buckets, start = now - span;
+  const cells = [];
+  for (let i = 0; i < buckets; i++) cells.push({ n: 0, gap: true });
   for (let i = 0; i < rate.length; i++) {
     const s = rate[i];
     if (s.t < start) continue;
-    // 该采样点代表 [s.t, 下一采样点] 这段区间内的增量
-    const next = rate[i + 1];
-    const segEnd = next ? Math.min(next.t, s.t + 3 * bw) : Math.min(now, s.t + bw);
     const idx = Math.floor((s.t - start) / bw);
     if (idx < 0 || idx >= buckets) continue;
-    cells[idx].n += s.inc;
-    cells[idx].gap = false;
-    if (segEnd > cells[idx].to) cells[idx].to = segEnd;
+    cells[idx].n += s.inc; cells[idx].gap = false;
   }
-  // 末格：若最后一个采样点比窗口右沿早，说明采集中断在尾部——如实标 gap
   const peak = Math.max(1, ...cells.map(c => c.n));
   const totalReq = cells.reduce((a, c) => a + c.n, 0);
   $('chart').innerHTML = cells.map(c => {
     const cls = c.n ? 'b' : (c.gap ? 'b gap' : 'b zero');
-    const h = c.n ? Math.max(8, c.n / peak * 100) : (c.gap ? 6 : 2);
-    return '<div class="' + cls + '" style="height:' + h + '%"></div>';
+    return '<div class="' + cls + '" style="height:' + (c.n ? Math.max(8, c.n / peak * 100) : (c.gap ? 6 : 2)) + '%"></div>';
   }).join('');
   const secs = Math.round(bw / 1000);
   $('chartpeak').textContent = (reset ? '⚠ 网关重启，计数归零，旧序列已丢弃 · ' : '') +
@@ -471,28 +479,30 @@ function drawRate(reset) {
   $('chartwin').textContent = '← ' + (span / 60000) + ' 分钟前 · 每格 ' + secs + 's';
 }
 
+/* ---------- 事件流 ---------- */
+
 function renderEvents(a) {
   if (a.truncated) {
     prepend('<div class="ev lost">⚠️ 事件丢失（缓冲轮转或服务重启，游标已跳至 ' + a.max_seq + '）</div>');
   }
   for (const ev of a.events) {
     cursor = Math.max(cursor, ev.seq | 0);
+    if (ev.ev === 'chat' || ev.ev === 'search') tracks.unshift(ev);
     const cls = [ev.ev, ev.refused ? 'refused' : '',
       ev.src_tenant && ev.src_tenant !== ev.tenant ? 'mismatch' : '',
-      // 缓存命中是状态而非装饰，故复用状态色（口径：绿=有状态含义，非"好看"）。
-      // 这一条在视觉重做时一度被漏掉——事件流里"这条是回放不是新算的"是运维要看的关键信息。
       ev.cache_hit === 'L1' || ev.cache_hit === 'L2' ? 'badge-l1' : ''].join(' ');
     const detail = ev.ev === 'auth' || ev.ev === 'admin' ? (ev.outcome + ' ' + (ev.reason || ev.action || '')) :
       ev.ev === 'degrade_transition' ? (ev.from + '→' + ev.to + '（' + ev.cause + '）') :
       [ev.via, ev.cache_hit !== 'none' ? ev.cache_hit : '', ev.mode,
        ev.degrade_level || '', ev.q || ev.path || ev.msg || ''].filter(Boolean).join(' · ');
     const srcAlarm = ev.src_tenant && ev.src_tenant !== ev.tenant ? ' ⚡跨租户回放!' : '';
-    // 身份前缀仅在有身份时渲染：degrade_transition 是系统事件（无 sub/level），别显示 "[?/-]" 噪声
     const who = (ev.sub || ev.level != null) ? '[' + (ev.sub || '?') + '/' + (ev.level ?? '-') + '] ' : '';
     prepend('<div class="ev ' + cls + '"><span class="t">' + new Date(ev.ts).toLocaleTimeString() +
       '</span><span class="b">' + ev.ev + '</span><span class="d">' + who + esc(detail) + srcAlarm +
       '</span></div>');
   }
+  if (tracks.length > TRACK_N) tracks.length = TRACK_N;
+  renderTracks();
   if (a.max_seq < cursor) cursor = a.max_seq;   // 服务端重启后游标对齐
 }
 function prepend(html) {
@@ -502,39 +512,12 @@ function prepend(html) {
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : s; return d.innerHTML; }
 
-// 能力边界声明块：与 OPS.md 债务闹钟表 / README 声明同源，checked=人工复核日期（改文档同步更新）
-const BOUNDS = [
-  ['单轮无状态（/v1 忽略历史，多轮由客户端拼单条）', 'ADR-0007', '2026-09-11'],
-  ['无 TLS / 端口仅环回绑定（跨机访问触发升级线）', 'OPS 债务表', '2026-09-11'],
-  ['单实例进程内 Single-Flight（>200 人或 QPS50 引分布式）', 'ADR-0003', '2026-09-11'],
-  ['无文件上传/语音/多模态端点（客户端里点了会报错）', 'OPS §7', '2026-09-11'],
-  ['日配额 5000/人（成本护栏，非防攻击）', 'QuotaService', '2026-09-12'],
-  ['审计文件 14 天滚动（长期合规引 Loki/对象存储）', 'logback', '2026-09-12'],
-  ['遥测采集/异常检测（AIOps 谱系①②）＝永久非目标，刻意不列债务表', 'README 谱系定位', '2026-09-14'],
-  ['本面板只读：零写操作、零假数据、轮询不污染审计', 'ADR-0009', '2026-09-12']];
-$('bounds').innerHTML = BOUNDS.map(x =>
-  '<li>' + esc(x[0]) + '<div class="chk">依据 ' + esc(x[1]) + ' · 最后验证 ' + x[2] + '</div></li>').join('');
-
-// AIOps 谱系自证块：与 README「AIOps 谱系定位」五域表静态同源；改文档两处同步，checked 日期随复验
-const SPECTRUM = [
-  ['① 遥测采集（metrics/traces/topology）', 'no', '永久非目标', '输入恒为文本 query，三入口皆文本协议'],
-  ['② 异常检测（统计/ML）', 'no', '永久非目标', '"何时算异常"判定权归上游告警系统'],
-  ['③ 告警降噪 / 事件收敛', 'done', '已覆盖', '同指纹 500→1（A2-5）· storm/* + ADR-0003；跨指纹关联前置已满足、已入债务账'],
-  ['④ 知识化根因辅助', 'done', '已覆盖', 'retrieval/* · eval_report 现版 es_only 64%→hybrid 88%'],
-  ['⑤ 处置闭环（自动执行/自愈）', 'debt', '待还债', '只读建议+溯源=承诺非疏漏；触发线在案 OPS §5；自举告警源已接入（ADR-0011）']];
-$('spectrum').innerHTML = SPECTRUM.map(x =>
-  '<li><span class="st ' + x[1] + '">' + x[2] + '</span><b>' + esc(x[0]) + '</b>' +
-  '<span class="ev">' + esc(x[3]) + '</span></li>').join('') +
-  '<li class="chk">同源核验 2026-09-16 · 完整证据指针（文件/ADR/测试）见 README「AIOps 谱系定位」</li>';
-
-// 时间窗切换：只改聚合粒度，不改采样数据本身（切回来还是同一批真实采样）
 $('windows').onclick = (e) => {
   const b = e.target.closest('button[data-win]'); if (!b) return;
   rateWin = +b.dataset.win;
   $('windows').querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
   drawRate(false);
 };
-
 $('copy').onclick = async () => {
   const a = await api('/api/v1/admin/audit/recent?since=' + Math.max(0, cursor - 50) + '&limit=50')
     .catch(() => null);
@@ -543,17 +526,18 @@ $('copy').onclick = async () => {
 };
 $('go').onclick = async () => {
   const t = $('jwt').value.trim(); if (!t) return;
-  // 先验证后持久化（QA P3）：无效 token 不落 localStorage，避免下次打开必 401
   try {
     const probe = await fetch('/api/v1/admin/state', { headers: { Authorization: 'Bearer ' + t } });
     if (probe.status === 401) { token = ''; showAuth(401); return; }
     if (probe.status === 403) { token = ''; showAuth(403); return; }
     if (!probe.ok) { $('authmsg').textContent = '网关返回 ' + probe.status + '，稍后重试'; return; }
   } catch (e) { $('authmsg').textContent = '网关不可达，稍后重试'; return; }
-  token = t; localStorage.setItem('opspilot.jwt', t); cursor = 0; prevMetrics = null; rate = [];
+  token = t; localStorage.setItem('opspilot.jwt', t); cursor = 0; prevMetrics = null;
+  rate = []; tracks = [];
   $('events').innerHTML = ''; poll().then(() => { if (alive) startPoll(); });
 };
 if (token) { poll().then(resyncInterval); } else showAuth(0);
+renderTracks();
 </script>
 </body>
 </html>
