@@ -16,11 +16,28 @@ import markdown_tree_chunker as md  # noqa: E402
 
 def build(corpus_dir: Path) -> list[dict]:
     chunks: list[dict] = []
+    # doc_id 是引用/评测/引用标注的文档身份，两个文件自称同一篇会让"参考[1] rb-101"
+    # 无法区分是哪篇、golden 的 expected_docs 语义含混（实测：旧 1xx 系列与新本机辖区
+    # 系列撞号，两份内容混在同一个 doc_id 下入库才发现）。chunk_id 有内容哈希兜底不会
+    # 撞，所以这里的撞号是静默的——必须在产线入口按"文件 → doc_id 声明"比对拦截。
+    owner: dict[str, str] = {}
+    dupes: list[str] = []
+
+    def claim(file_label: str, cs: list[dict]) -> None:
+        chunks.extend(cs)
+        for d in {c["doc_id"] for c in cs}:
+            prev = owner.setdefault(d, file_label)
+            if prev != file_label and d not in dupes:
+                dupes.append(d)
+
     for j in sorted((corpus_dir / "openapi").glob("*.json")):
-        chunks.extend(oa.chunk_file(str(j), doc_id=j.stem))
+        claim(f"openapi/{j.name}", oa.chunk_file(str(j), doc_id=j.stem))
     for sub in ("postmortems", "runbooks"):
         for m in sorted((corpus_dir / sub).glob("*.md")):
-            chunks.extend(md.chunk_file(str(m)))
+            claim(f"{sub}/{m.name}", md.chunk_file(str(m)))
+    if dupes:
+        # 显式 raise 而非 assert：python -O 会剥掉 assert，产线闸门不能建在会被优化掉的原语上
+        raise ValueError(f"doc_id 撞号（多个文件自称同一篇）: {dupes}")
     return chunks
 
 
@@ -43,7 +60,9 @@ def main() -> int:
     chunks = build(corpus)
 
     ids = [c["chunk_id"] for c in chunks]
-    assert len(ids) == len(set(ids)), f"chunk_id 重复: {[i for i in ids if ids.count(i) > 1]}"
+    repeated = sorted({i for i in ids if ids.count(i) > 1})
+    if repeated:
+        raise ValueError(f"chunk_id 重复: {repeated}")
 
     out = _contained(Path(args.out), offline_root, "out") if args.out else corpus / "chunks.jsonl"
     # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n，产物摘要跨平台假红（CI 2026-10-06 实测）

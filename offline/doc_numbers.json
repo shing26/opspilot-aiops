@@ -92,7 +92,19 @@
       "cited_in": [
         {
           "file": "README.md",
-          "pattern": "(\\d+) 样本"
+          "pattern": "评测集扩至 (\\d+) 样本"
+        },
+        {
+          "file": "README.md",
+          "pattern": "golden（(\\d+) 样本"
+        },
+        {
+          "file": "README.md",
+          "pattern": "# (\\d+) 样本"
+        },
+        {
+          "file": "README.md",
+          "pattern": "评测集 (\\d+) 样本"
         },
         {
           "file": "CONTEXT.md",
@@ -184,7 +196,7 @@
       "cited_in": [
         {
           "file": "README.md",
-          "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，27 口语化用例"
+          "pattern": "\\*\\*(\\d+)%\\*\\* \\| hybrid，\\d+ 口语化用例"
         },
         {
           "file": "OPS.md",

@@ -197,6 +197,23 @@ def test_gate_is_content_based_not_mtime_based(repo: Path) -> None:
     assert pv.check(repo) == 1, "内容分叉但 mtime 更旧时，mtime 判据会漏报"
 
 
+def test_hidden_tooling_files_in_corpus_do_not_pollute_digest(repo: Path) -> None:
+    """corpus 目录里的隐藏工具产物不得进摘要（2026-10-07 实测事故）。
+
+    本 session 的 Mimosa 钩子状态文件（.mimosa/hook-state/*.json，gitignored）落进了
+    corpus/runbooks/——rglob 把它算进 corpus_docs（files 70 vs 真实 69，sha 掺入不在
+    git 里的内容），本机绿、CI 干净检出必假红。隐藏路径（任一段以 . 开头）是工具层的，
+    永远不是语料：出现、变化、消失都不得让门闩变色。
+    """
+    d = repo / "corpus" / "runbooks" / ".mimosa" / "hook-state"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "sess_x.json").write_text("{}", encoding="utf-8")
+    (repo / "corpus" / "runbooks" / ".hidden.md").write_text("# 藏起来的\n", encoding="utf-8")
+    assert pv.corpus_docs_digest(repo)["files"] == 1, "隐藏路径必须被排除，语料仍是 1 篇"
+    (d / "sess_x.json").write_text("{\"n\":2}", encoding="utf-8")
+    assert pv.check(repo) == 0, "隐藏工具产物变化不得让门闩假红"
+
+
 def test_real_repo_is_same_generation() -> None:
     """对本仓库自身的门闩：入库的报告必须能从入库的语料复现。
 

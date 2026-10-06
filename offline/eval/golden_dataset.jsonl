@@ -23,7 +23,7 @@
 {"id": "exact-50141_CONNECTION_POOL_EXHAUSTED", "type": "exact", "query": "50141_CONNECTION_POOL_EXHAUSTED", "expected_docs": ["pm-001", "rb-001"], "auth_level": 3}
 {"id": "exact-50151_FEIGN_TIMEOUT", "type": "exact", "query": "50151_FEIGN_TIMEOUT", "expected_docs": ["order-center-api", "pm-007", "pm-013", "rb-005", "rb-012"], "auth_level": 3}
 {"id": "exact-50161_SENTINEL_BLOCKED", "type": "exact", "query": "50161_SENTINEL_BLOCKED", "expected_docs": ["order-center-api", "pm-003", "rb-008"], "auth_level": 3}
-{"id": "exact-51103_H2_CONCURRENT_WRITE_CORRUPTION", "type": "exact", "query": "51103_H2_CONCURRENT_WRITE_CORRUPTION", "expected_docs": ["pm-104", "rb-105"], "auth_level": 3}
+{"id": "exact-51103_H2_CONCURRENT_WRITE_CORRUPTION", "type": "exact", "query": "51103_H2_CONCURRENT_WRITE_CORRUPTION", "expected_docs": ["pm-104", "rb-115"], "auth_level": 3}
 {"id": "exact-51201_CIRCUIT_BREAKER_NO_SELFHEAL", "type": "exact", "query": "51201_CIRCUIT_BREAKER_NO_SELFHEAL", "expected_docs": ["pm-201", "rb-201"], "auth_level": 3}
 {"id": "exact-51202_CACHE_EVICTED_EARLY", "type": "exact", "query": "51202_CACHE_EVICTED_EARLY", "expected_docs": ["pm-202", "rb-202"], "auth_level": 3}
 {"id": "exact-51203_CONTAINER_MEM_BUDGET", "type": "exact", "query": "51203_CONTAINER_MEM_BUDGET", "expected_docs": ["pm-203", "rb-203"], "auth_level": 3}
@@ -59,3 +59,10 @@
 {"id": "sem-25", "type": "semantic", "query": "热点商品加购被熔断保护挡住了", "expected_docs": ["rb-008", "pm-003"], "auth_level": 3}
 {"id": "sem-26", "type": "semantic", "query": "订单创建一直转圈最后失败了", "expected_docs": ["pm-001"], "auth_level": 3}
 {"id": "sem-27", "type": "semantic", "query": "订单一直转圈圈是什么问题", "expected_docs": ["pm-001"], "auth_level": 3}
+{"id": "sem-28", "type": "semantic", "query": "这台机器的端口都被谁占着，8091 上跑的是谁的服务", "expected_docs": ["rb-101"], "auth_level": 3}
+{"id": "sem-29", "type": "semantic", "query": "容器莫名其妙退出了，退出码 137，中间件也连不上", "expected_docs": ["rb-102"], "auth_level": 3}
+{"id": "sem-30", "type": "semantic", "query": "起服务报端口被占用，查出来是别的项目把端口占了", "expected_docs": ["rb-103", "rb-114"], "auth_level": 3}
+{"id": "sem-31", "type": "semantic", "query": "面板改版后浏览器显示的还是旧版，刷新也没用", "expected_docs": ["rb-104"], "auth_level": 3}
+{"id": "sem-32", "type": "semantic", "query": "重新打包后 jar 体积不对，只有 217KB，起的是错的东西", "expected_docs": ["rb-105"], "auth_level": 3}
+{"id": "sem-33", "type": "semantic", "query": "模型 API 欠费了，流式对话没有输出但搜索还能用", "expected_docs": ["rb-111"], "auth_level": 3}
+{"id": "sem-34", "type": "semantic", "query": "Python 里调 bash 报错，手动跑却正常，像是解析到 WSL", "expected_docs": ["rb-113"], "auth_level": 3}

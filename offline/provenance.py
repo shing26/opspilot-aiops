@@ -91,13 +91,18 @@ def corpus_docs_digest(root: Path = REPO) -> dict:
 
     摘要里掺入相对路径与长度再各自加分隔符，是为了让"文件改名"与"内容变长"都能改变结果，
     且不受目录遍历顺序影响（不同文件系统的 readdir 顺序不同，直接顺序拼接会假红）。
+
+    隐藏路径（任一段以 . 开头）不进摘要：corpus 目录里出现过工具状态产物
+    （.mimosa/hook-state/*.json，gitignored）——它们不在 git 里，CI 干净检出没有这个文件，
+    计入就会"本机绿、CI 假红"，且它一变门闩就无端红。工具层的东西永远不是语料。
     """
     h = hashlib.sha256()
     files: list[Path] = []
     for rel in CORPUS_DOC_DIRS:
         d = root / rel
         if d.is_dir():
-            files.extend(p for p in d.rglob("*") if p.is_file())
+            files.extend(p for p in d.rglob("*") if p.is_file()
+                         and not any(part.startswith(".") for part in p.relative_to(d).parts))
     for p in sorted(files, key=lambda x: x.as_posix()):
         rel = p.relative_to(root).as_posix()
         data = _content_bytes(p)

@@ -71,6 +71,7 @@ cron（Linux 部署版；本机手动跑同样有效）：
 ## 5. 知识库运维与债务闹钟表
 
 - 语料改动 → `cd offline && .venv/Scripts/python chunkers/build_chunks.py` → `POST /api/v1/admin/reingest`（level≥3；busy 时 409，结果看 `/metrics` 的 `reingest_busy/reingest_last`）。零空窗，白天可操作（实测 448 chunks 24.4s，live、服务端日志口径；mock 后端 8.0s；live+账户限流最坏 ~6min）。**动语料后 `build_golden.py` 必须与 `evaluate.py` 同批跑**——只改语料不重生成评测集，会让报告与语料悄悄分叉（旧 golden 的 `exact-50012` 就是这样与入库语料不自洽的）。
+- **语料命名纪律**（2026-10-07 撞号事故后立）：md 的 doc_id 由**文件名前缀**（`[a-z]+-\d+`，如 `rb-102-*.md` → `rb-102`）派生，frontmatter 里的 `doc_id` 只是文档性记录、不参与索引。两个文件取同一前缀 = 两篇内容**静默混入同一 doc_id**——引用与 golden 的期望文档从此歧义（实测：rb-101~105 段被新旧两批共占，10 篇在索引里只占 5 个身份，chunks 行数不变、一切照常绿）。`build_chunks.py` 已加 doc_id 唯一性断言 + 回归锁，新语料落盘前先核前缀未占用。
 - **同代性不必靠记性**（2026-09-18 起）：`cd offline && python provenance.py --check` 当场判定"报告是否仍是当前语料的报告"（内容摘要判据，零凭据零网络），CI 的 `provenance` job 跑的就是它。漏跑评测时它会点名哪个输入变了并给出修复命令：`python eval/build_golden.py && python eval/evaluate.py`；`evaluate.py` 会自动刷新出处登记 `eval/reports/PROVENANCE.json`。
 - **交接/对外给证据**：`python scripts/pack_evidence.py`（加 `--zip` 出压缩包）产出自述快照到 `_archive/evidence/`，入口 `MANIFEST.md` 逐项写明出处与"当前模式下能否复核"。默认**不含**本机运行态证据（`logs/`）；要看运行史用 `--include-local-evidence`——**该档含查询内容与租户标识，别原样对外发**。
 - `scripts/gen_tokens.py` **是红队畸形 token 签发器**（A2-8b/8c 与 demo.sh 预检依赖）——不是遗留脚本，勿删。

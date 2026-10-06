@@ -12,6 +12,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "chunkers"))
 import openapi_ast_chunker as oa  # noqa: E402
 import markdown_tree_chunker as md  # noqa: E402
@@ -153,3 +155,28 @@ def test_tenant_explicit_on_every_chunk():
     bad = [c["chunk_id"] for c in all_chunks
            if not str(c["metadata"].get("tenant") or "").strip()]
     assert not bad, f"缺 tenant 的 chunk: {bad[:5]}"
+
+
+def test_doc_id_collision_fails_build(tmp_path):
+    """doc_id 撞号回归锁（2026-10-07 实测事故）：md 的 doc_id 由文件名前缀
+    （[a-z]+-\\d+）派生，两个文件取同一前缀就静默混入同一 doc_id——引用/golden
+    从此语义含混。正向：撞号 build() 必红并点名 doc_id；反向：合法语料不得红。"""
+    import build_chunks
+
+    def _write_doc(corpus: Path, name: str, title: str) -> None:
+        doc = (f"---\ndoc_id: rb-900\nservice: x\nenv: local\nauth_level: 1\n"
+               f"error_codes: []\ntenant: t-default\n---\n\n# {title}\n\n"
+               f"## 症状\n\n{name} 的正文内容，足够切出一个 section。\n")
+        (corpus / name).write_text(doc, encoding="utf-8")
+
+    (tmp_path / "openapi").mkdir()
+    (tmp_path / "postmortems").mkdir()
+    rb = tmp_path / "runbooks"
+    rb.mkdir()
+    _write_doc(rb, "rb-900-a.md", "第一篇")
+    assert build_chunks.build(tmp_path), "反向：合法语料应正常产出"
+
+    _write_doc(rb, "rb-900-b.md", "第二篇")
+    # 显式 ValueError 而非 AssertionError：assert 在 python -O 下被剥掉，闸门不能建在它上面
+    with pytest.raises(ValueError, match="rb-900"):
+        build_chunks.build(tmp_path)
