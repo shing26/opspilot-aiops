@@ -358,6 +358,7 @@ Docker Desktop 重启（升级/崩溃自恢复）会给本机留下两类**看�
 
 | 症状 | 判据（怎么确认不是应用 bug） | 恢复动作 |
 | --- | --- | --- |
+| **引擎本身 500**（2026-10-06 实测，比上两行更早一级） | `docker ps` 报 `request returned 500 Internal Server Error for API route .../containers/json`；容器、端口、health 全无从谈起；宿主内存**充裕**（排除 OOM） | 先 `wsl -t docker-desktop` 强杀发行版再启 Docker Desktop；仍 500 则**全量重启**（`Stop-Process -Name 'Docker Desktop','com.docker.backend'` → 启 `D:\Docker\Docker Desktop.exe`，本机装在 D 盘非 C 盘）。恢复后中间件按 `restart: unless-stopped` 自启，网关客户端连接实测**自愈**（~2 分钟内 health 回 UP，无需重启网关——与下一行的"不自愈"形态不同） |
 | 宿主端口代理失效 | 容器内 `redis-cli ping` 通、`docker exec … curl localhost:9200` 通，但**宿主**连 `127.0.0.1:6379/9200/6334` 被接受后零字节返回（裸 socket `PING` 收到 `b''`）；网关启动报 `RedisTimeoutException: Command execution timeout for command: (AUTH)` | `docker compose restart <service>`（实测 redis / elasticsearch / qdrant 三个都需各自重启一次；`restart` 会重建端口映射） |
 | 长跑网关的中间件连接不自愈 | 中间件起来之后网关仍 `health=DOWN`、检索返回空、**登录 500**（根因是登录路径要写 Redis 的 `auth:fail` 计数器，连接已失效 → `WriteRedisConnectionException`），实测持续 3 分钟以上未自愈 | 重启网关进程（客户端连接重建）；数据在命名卷里，重启后核对 `health.es.value` / `health.qdrant.value` 是否仍等于语料数即可确认无损 |
 
