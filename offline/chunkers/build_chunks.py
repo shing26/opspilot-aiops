@@ -46,7 +46,8 @@ def main() -> int:
     assert len(ids) == len(set(ids)), f"chunk_id 重复: {[i for i in ids if ids.count(i) > 1]}"
 
     out = _contained(Path(args.out), offline_root, "out") if args.out else corpus / "chunks.jsonl"
-    with out.open("w", encoding="utf-8") as f:
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n，产物摘要跨平台假红（CI 2026-10-06 实测）
+    with out.open("w", encoding="utf-8", newline="\n") as f:
         for c in chunks:
             f.write(json.dumps(c, ensure_ascii=False) + "\n")
 

@@ -114,7 +114,7 @@ def render_jsonl(samples: list[dict]) -> str:
 
 def main() -> int:
     samples = build_samples(_within_root("corpus/chunks.jsonl"))
-    with _within_root("eval/golden_dataset.jsonl").open("w", encoding="utf-8") as fh:
+    with _within_root("eval/golden_dataset.jsonl").open("w", encoding="utf-8", newline="\n") as fh:
         fh.write(render_jsonl(samples))
     print(f"OK golden={len(samples)} (exact={len(EXACT_CODES)} semantic={len(SEMANTIC)})")
     return 0

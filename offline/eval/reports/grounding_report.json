@@ -1,5 +1,5 @@
 {
-  "measured_at": "2026-09-28T11:33:37+08:00",
+  "measured_at": "2026-10-06T19:09:13+08:00",
   "produced_by": "offline/qa_gen_quality_probes.py（V9，复用 V2/V4 已产出答案，零额外 chat 预算）",
   "answers": 11,
   "codes_total": 16,
@@ -11,8 +11,8 @@
     "rerank": "dashscope:gte-rerank-v2",
     "embedding": "dashscope:text-embedding-v3"
   },
-  "chunks_sha256": "209018e3d0f90f665e2f3a4958df0dcbe2be3ba18ee03f760a6306fd65557792",
-  "chunks_lines": 423,
+  "chunks_sha256": "b3d6dee4a77461417edf4c874f5b3204bac656378e3d463d622109575e879eef",
+  "chunks_lines": 448,
   "chat_calls_this_run": 14,
   "judge": "offline/grounding.py——答案里出现的错误码必须落在本轮 refs 的 error_codes 并集内",
   "known_boundary": "只管**错误码**这一种精确符号；runbook 步骤编号（pm-*/rb-*）、配置项名、服务名不在管辖内（要纳入须先给出'有据'的可判读定义，否则门闩变噪音源）。另：mock 后端上本判据恒真（答案是逐字复制 chunk 正文），故本报告只在 live 口径下有意义。"

@@ -391,7 +391,10 @@ def write_grounding_report(*, answers: int, codes_total: int, ungrounded: set, r
     }
     out = Path("eval/reports/grounding_report.json")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # newline="\n"：Windows 文本模式默认会把 \n 翻译成 \r\n，让产物摘要跨平台假红
+    # （CI 2026-10-06 实测：接地报告的 chunks_sha256 与 CI 侧归一后的基线对不上）
+    out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+                   encoding="utf-8", newline="\n")
     print(f"  [V9] 接地报告已落盘 → {out}（answers={answers} codes={codes_total} "
           f"ungrounded={len(ungrounded)} rate={rate:.0%}）")
 

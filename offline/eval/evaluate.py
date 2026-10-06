@@ -95,7 +95,8 @@ def main() -> int:
     report["jailbreak"] = jailbreak_check(l1)
 
     _within_root("eval/reports").mkdir(parents=True, exist_ok=True)
-    with _within_root("eval/reports/eval_report.json").open("w", encoding="utf-8") as fh:
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n，产物摘要跨平台假红（CI 2026-10-06 实测）
+    with _within_root("eval/reports/eval_report.json").open("w", encoding="utf-8", newline="\n") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2)
 
     note = ("神经语义（DashScope live）" if backend["embedding"].startswith("dashscope:")
@@ -113,7 +114,7 @@ def main() -> int:
     jb = report["jailbreak"]
     lines += ["", f"越狱用例：{jb['cases']} 条，泄漏 {jb['leaked']} 条"
               f"（{'PASS 零泄漏' if jb['leaked'] == 0 else 'FAIL'}）"]
-    with _within_root("eval/reports/eval_report.md").open("w", encoding="utf-8") as fh:
+    with _within_root("eval/reports/eval_report.md").open("w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines) + "\n")
 
     print("\n".join(lines))
