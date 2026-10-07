@@ -105,8 +105,9 @@ def main(argv: list[str] | None = None) -> int:
                  "样本全部为 L1 命中（非 L1 即中止），不触外部 API，零 LLM 成本。"),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n（同 10-06 产物族修复）
     (REPORTS / "l1_hit_latency.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
 
     md = [
         "# L1 回放延迟实测（热点命中口径的产物）",
@@ -129,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
         "复现：`cd offline && python load/l1_latency.py`（需活体栈 + `.env`；"
         "每次请求消耗 1 次当日配额，n 次即 n 次）。",
     ]
-    (REPORTS / "l1_hit_latency.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    (REPORTS / "l1_hit_latency.md").write_text("\n".join(md) + "\n", encoding="utf-8", newline="\n")
     print(f"OK n={a.n} server_ttft p50={out['server_ttft_ms']['p50']}ms "
           f"p99={out['server_ttft_ms']['p99']}ms | client p99={out['client_end_to_end_ms']['p99']}ms "
           f"-> {REPORTS / 'l1_hit_latency.md'}")

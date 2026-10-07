@@ -175,8 +175,9 @@ def main(argv: list[str] | None = None) -> int:
                  "query 集不入库（logs/ 含查询内容与租户标识）；本报告只含聚合计数。"),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n（同 10-06 产物族修复）
     (REPORTS / "observed_probe.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
 
     def r(x):
         return "—" if x is None else f"{x:.1%}"
@@ -203,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         "复现：`cd offline && python eval/observed_probe.py --include-alerts`"
         "（需活体栈 + `.env` + 本机 `logs/` 运行史；/search 不调 LLM，零 token 成本且配额豁免）。",
     ]
-    (REPORTS / "observed_probe.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    (REPORTS / "observed_probe.md").write_text("\n".join(md) + "\n", encoding="utf-8", newline="\n")
     print(f"OK 样本 {agg['samples']} 零召回率={r(agg['zero_recall_rate'])} "
           f"快路径命中率={r(agg['fast_path_hit_rate'])} -> {REPORTS / 'observed_probe.md'}")
     return 0

@@ -283,8 +283,9 @@ def main(argv: list[str] | None = None) -> int:
                     if a.scenario == "unique" else "")),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n（同 10-06 产物族修复）
     (REPORTS / f"{a.report}.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
 
     def f(x, nd=1):
         return "—" if x is None else f"{x:.{nd}f}"
@@ -325,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
            + (f" --scenario {a.scenario}" if a.scenario != "hot" else "")
            + (f" --report {a.report}" if a.report != "concurrency_sweep" else "")
            + "`（需活体栈 + `.env` + live key；每档真实调用 LLM，有 token 成本）。"]
-    (REPORTS / f"{a.report}.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    (REPORTS / f"{a.report}.md").write_text("\n".join(md) + "\n", encoding="utf-8", newline="\n")
     print(f"OK {len(points)} 档完成（场景 {a.scenario}），首次降级档={first_l1} -> {REPORTS / (a.report + '.md')}")
     return 0
 

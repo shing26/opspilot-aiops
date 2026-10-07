@@ -148,8 +148,9 @@ def main(argv: list[str] | None = None) -> int:
                  "节省账用服务端 TTFT 做差；客户端端到端含本机栈开销，不参与。"),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n（同 10-06 产物族修复）
     (REPORTS / "cache_savings.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
 
     def fmt(s: dict) -> str:
         return "—" if s["p50"] is None else f"{s['p50']} / {s['p95']}（n={s['n']}）"
@@ -175,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
         "复现：`cd offline && python load/cache_savings.py`（需活体栈 + `.env`；"
         "每次请求消耗 1 次当日配额，冷 query 另真调 LLM）。",
     ]
-    (REPORTS / "cache_savings.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    (REPORTS / "cache_savings.md").write_text("\n".join(md) + "\n", encoding="utf-8", newline="\n")
     print(f"OK 命中率={hit_rate:.1%} hit_p50={hit_s['p50']}ms miss_p50={miss_s['p50']}ms "
           f"saved={saved_ms}ms -> {REPORTS / 'cache_savings.md'}")
     return 0

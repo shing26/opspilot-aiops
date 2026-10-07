@@ -165,8 +165,9 @@ def main(argv: list[str] | None = None) -> int:
         "都指向'多一条腿提抗漂'，把词法腿当'无用'拆掉的风险远大于收益。")
 
     REPORTS.mkdir(parents=True, exist_ok=True)
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n，产物摘要跨平台假红（同 10-06 产物族修复）
     (REPORTS / "mode_ablation.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
 
     def pct(x):
         return f"{x:.0%}"

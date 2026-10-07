@@ -147,8 +147,9 @@ def main(argv: list[str] | None = None) -> int:
                  "zero_recall_among_false_refusals 单列：零召回导致的误拒属检索问题，不是阈值标定问题。"),
     }
     REPORTS.mkdir(parents=True, exist_ok=True)
+    # newline="\n"：Windows 文本模式会把 \n 翻译成 \r\n（同 10-06 产物族修复）
     (REPORTS / "gate_matrix.json").write_text(
-        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
 
     md = [
         "# 门控混淆矩阵 + 阈值扫描",
@@ -167,7 +168,7 @@ def main(argv: list[str] | None = None) -> int:
     md += ["", out["note"], "",
            "复现：`cd offline && python eval/gate_matrix.py`（需活体栈 + `.env`；/search 不调 LLM，"
            "故零 token 成本且**配额豁免**——配额只挂 /chat/stream 与 /v1/chat/completions）。"]
-    (REPORTS / "gate_matrix.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+    (REPORTS / "gate_matrix.md").write_text("\n".join(md) + "\n", encoding="utf-8", newline="\n")
     cur = next((m for m in matrix if abs(m["threshold"] - 0.2) < 1e-9), None)
     if cur:
         print(f"OK 当前阈值 0.2：误拒率={_fmt_rate(cur['false_refusal_rate'])} "
