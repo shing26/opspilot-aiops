@@ -1,11 +1,11 @@
 {
-  "measured_at": "2026-09-28T11:32:22+08:00",
+  "measured_at": "2026-10-07T08:37:39+08:00",
   "backend": {
     "llm": "dashscope:qwen-plus",
     "rerank": "dashscope:gte-rerank-v2",
     "embedding": "dashscope:text-embedding-v3"
   },
-  "golden_samples": 59,
+  "golden_samples": 68,
   "modes": {
     "es_only": {
       "exact": {
@@ -293,9 +293,9 @@
           {
             "q": "51103_H2_CONCURRENT_WRITE_CORRUPTION",
             "top3": [
-              "rb-105",
+              "rb-115",
               "pm-104",
-              "rb-105"
+              "rb-115"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -392,20 +392,20 @@
         ]
       },
       "semantic": {
-        "n": 25,
-        "hit@1": 0.64,
-        "hit@3": 0.92,
-        "mrr": 0.7667,
-        "ci95_hit@1": 0.1882,
+        "n": 34,
+        "hit@1": 0.7059,
+        "hit@3": 0.9118,
+        "mrr": 0.7941,
+        "ci95_hit@1": 0.1532,
         "rows": [
           {
             "q": "下单一直超时页面转圈，数据库是不是扛不住了",
             "top3": [
-              "pm-101",
               "rb-001",
-              "rb-204"
+              "pm-101",
+              "pm-104"
             ],
-            "hit@1": false,
+            "hit@1": true,
             "hit@3": true,
             "es_contributed": 3
           },
@@ -414,7 +414,7 @@
             "top3": [
               "rb-001",
               "rb-001",
-              "rb-001"
+              "pm-003"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -425,7 +425,7 @@
             "top3": [
               "pm-002",
               "order-center-api",
-              "rb-105"
+              "rb-002"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -446,8 +446,8 @@
             "q": "登录失败，连不上会话存储的 Redis",
             "top3": [
               "rb-003",
-              "pm-004",
-              "order-center-api"
+              "order-center-api",
+              "pm-004"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -512,7 +512,7 @@
             "q": "明明显示有货，提交订单却说库存不足",
             "top3": [
               "rb-007",
-              "rb-102",
+              "rb-112",
               "rb-007"
             ],
             "hit@1": true,
@@ -665,11 +665,110 @@
           {
             "q": "热点商品加购被熔断保护挡住了",
             "top3": [
-              "order-center-api",
               "rb-008",
+              "order-center-api",
               "pm-201"
             ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "订单创建一直转圈最后失败了",
+            "top3": [
+              "pm-006",
+              "rb-001",
+              "pm-001"
+            ],
             "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "订单一直转圈圈是什么问题",
+            "top3": [
+              "rb-101",
+              "rb-101",
+              "rb-204"
+            ],
+            "hit@1": false,
+            "hit@3": false,
+            "es_contributed": 3
+          },
+          {
+            "q": "这台机器的端口都被谁占着，8091 上跑的是谁的服务",
+            "top3": [
+              "rb-101",
+              "rb-101",
+              "rb-101"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "容器莫名其妙退出了，退出码 137，中间件也连不上",
+            "top3": [
+              "pm-204",
+              "rb-102",
+              "rb-203"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "起服务报端口被占用，查出来是别的项目把端口占了",
+            "top3": [
+              "rb-103",
+              "rb-103",
+              "rb-103"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "面板改版后浏览器显示的还是旧版，刷新也没用",
+            "top3": [
+              "rb-104",
+              "rb-104",
+              "rb-104"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "重新打包后 jar 体积不对，只有 217KB，起的是错的东西",
+            "top3": [
+              "rb-105",
+              "rb-105",
+              "rb-105"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "模型 API 欠费了，流式对话没有输出但搜索还能用",
+            "top3": [
+              "rb-111",
+              "rb-111",
+              "rb-111"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "Python 里调 bash 报错，手动跑却正常，像是解析到 WSL",
+            "top3": [
+              "rb-113",
+              "rb-113",
+              "rb-113"
+            ],
+            "hit@1": true,
             "hit@3": true,
             "es_contributed": 3
           }
@@ -962,9 +1061,9 @@
           {
             "q": "51103_H2_CONCURRENT_WRITE_CORRUPTION",
             "top3": [
-              "rb-105",
-              "rb-105",
-              "rb-105"
+              "rb-115",
+              "rb-115",
+              "rb-115"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -1061,11 +1160,11 @@
         ]
       },
       "semantic": {
-        "n": 25,
-        "hit@1": 0.88,
+        "n": 34,
+        "hit@1": 0.8824,
         "hit@3": 1.0,
-        "mrr": 0.94,
-        "ci95_hit@1": 0.1274,
+        "mrr": 0.9363,
+        "ci95_hit@1": 0.1083,
         "rows": [
           {
             "q": "下单一直超时页面转圈，数据库是不是扛不住了",
@@ -1337,6 +1436,105 @@
               "rb-008",
               "pm-002",
               "rb-008"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "订单创建一直转圈最后失败了",
+            "top3": [
+              "pm-001",
+              "order-center-api",
+              "pm-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "订单一直转圈圈是什么问题",
+            "top3": [
+              "pm-009",
+              "rb-006",
+              "pm-001"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "这台机器的端口都被谁占着，8091 上跑的是谁的服务",
+            "top3": [
+              "rb-101",
+              "rb-103",
+              "rb-103"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "容器莫名其妙退出了，退出码 137，中间件也连不上",
+            "top3": [
+              "rb-102",
+              "rb-102",
+              "rb-102"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "起服务报端口被占用，查出来是别的项目把端口占了",
+            "top3": [
+              "rb-103",
+              "rb-103",
+              "rb-103"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "面板改版后浏览器显示的还是旧版，刷新也没用",
+            "top3": [
+              "rb-104",
+              "rb-104",
+              "rb-104"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "重新打包后 jar 体积不对，只有 217KB，起的是错的东西",
+            "top3": [
+              "rb-105",
+              "rb-105",
+              "rb-105"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "模型 API 欠费了，流式对话没有输出但搜索还能用",
+            "top3": [
+              "rb-111",
+              "rb-111",
+              "rb-111"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 0
+          },
+          {
+            "q": "Python 里调 bash 报错，手动跑却正常，像是解析到 WSL",
+            "top3": [
+              "rb-113",
+              "rb-113",
+              "rb-113"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -1631,9 +1829,9 @@
           {
             "q": "51103_H2_CONCURRENT_WRITE_CORRUPTION",
             "top3": [
-              "rb-105",
+              "rb-115",
               "pm-104",
-              "rb-105"
+              "rb-115"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -1730,11 +1928,11 @@
         ]
       },
       "semantic": {
-        "n": 25,
-        "hit@1": 0.88,
+        "n": 34,
+        "hit@1": 0.8824,
         "hit@3": 1.0,
-        "mrr": 0.94,
-        "ci95_hit@1": 0.1274,
+        "mrr": 0.9363,
+        "ci95_hit@1": 0.1083,
         "rows": [
           {
             "q": "下单一直超时页面转圈，数据库是不是扛不住了",
@@ -1928,7 +2126,7 @@
             "top3": [
               "rb-011",
               "pm-012",
-              "pm-012"
+              "rb-011"
             ],
             "hit@1": true,
             "hit@3": true,
@@ -1965,7 +2163,7 @@
             ],
             "hit@1": true,
             "hit@3": true,
-            "es_contributed": 3
+            "es_contributed": 2
           },
           {
             "q": "数据库连接泄漏，池子耗尽要重启",
@@ -2010,6 +2208,105 @@
             "hit@1": false,
             "hit@3": true,
             "es_contributed": 3
+          },
+          {
+            "q": "订单创建一直转圈最后失败了",
+            "top3": [
+              "pm-001",
+              "order-center-api",
+              "pm-006"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "订单一直转圈圈是什么问题",
+            "top3": [
+              "pm-009",
+              "rb-006",
+              "pm-001"
+            ],
+            "hit@1": false,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "这台机器的端口都被谁占着，8091 上跑的是谁的服务",
+            "top3": [
+              "rb-101",
+              "rb-103",
+              "rb-101"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "容器莫名其妙退出了，退出码 137，中间件也连不上",
+            "top3": [
+              "rb-102",
+              "rb-203",
+              "rb-102"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "起服务报端口被占用，查出来是别的项目把端口占了",
+            "top3": [
+              "rb-103",
+              "rb-103",
+              "rb-103"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "面板改版后浏览器显示的还是旧版，刷新也没用",
+            "top3": [
+              "rb-104",
+              "rb-104",
+              "rb-104"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "重新打包后 jar 体积不对，只有 217KB，起的是错的东西",
+            "top3": [
+              "rb-105",
+              "rb-105",
+              "rb-105"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "模型 API 欠费了，流式对话没有输出但搜索还能用",
+            "top3": [
+              "rb-111",
+              "rb-111",
+              "rb-111"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
+          },
+          {
+            "q": "Python 里调 bash 报错，手动跑却正常，像是解析到 WSL",
+            "top3": [
+              "rb-113",
+              "rb-113",
+              "rb-113"
+            ],
+            "hit@1": true,
+            "hit@3": true,
+            "es_contributed": 3
           }
         ]
       }
@@ -2027,11 +2324,11 @@
       "mrr_delta_vs_base": 0.0
     },
     "semantic": {
-      "n": 25,
-      "identical_top3": 21,
-      "identical_top3_ratio": 0.84,
-      "es_contributed_items_in_top3": 73,
-      "queries_with_es_contribution": 25,
+      "n": 34,
+      "identical_top3": 29,
+      "identical_top3_ratio": 0.8529,
+      "es_contributed_items_in_top3": 99,
+      "queries_with_es_contribution": 34,
       "hit@1_delta_vs_base": 0.0,
       "hit@3_delta_vs_base": 0.0,
       "mrr_delta_vs_base": 0.0
