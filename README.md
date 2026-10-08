@@ -40,7 +40,7 @@
 | ① 遥测采集（metrics/traces/topology） | **永久非目标** | 输入恒为一段文本 query（人贴堆栈或告警系统 POST），无指标流/事件总线/拓扑图；做成采集平台是另一个产品，不是本系统的缺口 | 「架构」节图入口面（三入口皆文本协议）；`gateway/CopilotController.java`、`gateway/OpenAiController.java`（全部入参=文本+元数据） |
 | ② 异常检测（统计/ML） | **永久非目标** | 全仓无检测算法路径——"何时算异常"的判定权恒归上游告警系统，本系统消费其结果 | `grep -riE "anomal|forecast" src/main` 为空；CONTEXT.md 术语表无此词条（有词条必先入术语表，反向可验） |
 | ③ 告警降噪 / 事件收敛 | **已覆盖（同指纹域）**，边界明示 | `来源×指纹` 滑窗计数 + 进程内 Single-Flight：500 并发同指纹 → LLM 仅 1 次。**跨指纹 incident 关联未覆盖**——但 2026-09-16 起**前置已满足**（自举告警源提供了真实告警流，[ADR-0011](docs/adr/0011-self-bootstrapped-alert-source.md)），该边界已入债务账并带触发线（OPS §5），不再"未在账" | `storm/FingerprintService.java`、`storm/SingleFlightRegistry.java`；[ADR-0003](docs/adr/0003-single-instance-inprocess-single-flight.md)；A2-5（`offline/acceptance_a2.py`）；台账 `docs/qa/2026-09-16-self-alert-loop.md` §2.1（11 条同故障告警 → 指纹一致、LLM 增量 0） |
-| ④ 知识化根因辅助 | **已覆盖（检索域）**，边界明示 | 双路召回 + RRF + 精排 over 68 篇复盘/Runbook + OpenAPI（**2026-10-06 起含 5 篇本机真实事故复盘**——见「复盘→知识回灌」边界的第一次真实兑现）；置信度不足显式拒答而非硬编。**边界：知识库是只读的**——运行期没有任何「结论→语料」回灌路径，语料由人工撰写、重建靠 `POST /admin/reingest` 从既有 `chunks.jsonl` 重灌；"真实排障结论沉淀回知识库"这一环**未覆盖**，已按触发线登记（OPS §5.1） | `retrieval/HybridSearchService.java`；[ADR-0001](docs/adr/0001-java-online-python-offline-split-at-jsonl.md)/[ADR-0002](docs/adr/0002-dashscope-one-stop-1024-dim.md)；`offline/eval/reports/eval_report.md`（es_only 64%→hybrid 88%，现报告版）；`ingest/IngestionRunner.java`（只读 chunks → 写派生索引） |
+| ④ 知识化根因辅助 | **已覆盖（检索域）**，边界明示 | 双路召回 + RRF + 精排 over 68 篇复盘/Runbook + OpenAPI（**2026-10-06 起含 5 篇本机真实事故复盘**——见「复盘→知识回灌」边界的第一次真实兑现）；置信度不足显式拒答而非硬编。**边界：知识库是只读的**——运行期没有任何「结论→语料」回灌路径，语料由人工撰写、重建靠 `POST /admin/reingest` 从既有 `chunks.jsonl` 重灌；"真实排障结论沉淀回知识库"这一环**未覆盖**，已按触发线登记（OPS §5.1） | `retrieval/HybridSearchService.java`；[ADR-0001](docs/adr/0001-java-online-python-offline-split-at-jsonl.md)/[ADR-0002](docs/adr/0002-dashscope-one-stop-1024-dim.md)；`offline/eval/reports/eval_report.md`（es_only 70.6%→hybrid 88.2%，现报告版）；`ingest/IngestionRunner.java`（只读 chunks → 写派生索引） |
 | ⑤ 处置闭环（动作执行/自愈） | **待还债（触发线在案）** | 当前形态=输出可溯源排障步骤供**人**执行；对目标系统零写操作是产品承诺非缺陷。触发线（合取）：接入可审计执行通道（runbook 执行引擎 + 审批链/HITL 门）后立项。**告警接入侧已解除挂起**——自举告警源已上线（ADR-0011，换源而非 adapter）；面向外部监控系统的 adapter 仍按硬约束挂起 | OPS §5 债务闹钟表"处置闭环"行（含 2026-09-16 状态注）；`docs/ops/production-readiness-2026-09-12.md` M3 |
 
 **一句话口径**：OpsPilot 做的是 AIOps 的 **③④ 两个子域的网关入口层**——"让告警风暴里的一条 query 得到可信、可溯源、越不了权的排障建议"。标题词 AIOps 指的是这个可验证子集；①②⑤ 上表三分类各归其位，欢迎按证据列逐行核验。
@@ -125,7 +125,7 @@ stateDiagram-v2
     L1 --> L2: LLM 仍失败
 ```
 
-**降级的代价（如实登记，不只讲好处）**：L1 的检索质量就是 `es_only` 模式的质量——语义 Hit@1 由 88% 退到 64%；更值得说清的是第二项代价：摘除 Rerank 后没有可依的相关性分数，**置信度门控在 L1 退为「零召回级」**，即"不知道就不答"这条主张在降级期是弱化的（不是消失：零召回仍拒答）。取舍理由与重开触发线见 [ADR-0012](docs/adr/0012-degradation-cost-semantics.md)。
+**降级的代价（如实登记，不只讲好处）**：L1 的检索质量就是 `es_only` 模式的质量——语义 Hit@1 由 88.2% 退到 70.6%；更值得说清的是第二项代价：摘除 Rerank 后没有可依的相关性分数，**置信度门控在 L1 退为「零召回级」**，即"不知道就不答"这条主张在降级期是弱化的（不是消失：零召回仍拒答）。取舍理由与重开触发线见 [ADR-0012](docs/adr/0012-degradation-cost-semantics.md)。
 
 **降级在真实负载下被触发过（2026-09-28 实测，含一条方法论纠正）**：`offline/load/reports/l1_trigger.md`——**唯一指纹场景**（每请求一个纯字母 nonce，占空比≈1）48 并发 30s，在途峰值 **137**，审计落 `L0 → L1（cause=inflight）`；同轮上游对 48 并发 LLM 返回 429，连续失败达阈再落 `L1 → L2（cause=llm_failure）`，60s 冷却到期回 `L0（cause=cooldown_expired）`。**这是本项目"过载时降级而非拒绝"第一次在真负载下被行使**（此前只有手动锁定与单测）。
 
