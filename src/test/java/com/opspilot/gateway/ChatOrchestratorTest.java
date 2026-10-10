@@ -24,6 +24,7 @@ import com.opspilot.retrieval.SearchOutcome;
 import com.opspilot.storm.FingerprintService;
 import com.opspilot.storm.SingleFlightRegistry;
 import com.opspilot.storm.SlidingWindowService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -130,7 +131,7 @@ class ChatOrchestratorTest {
         degrade = mock(DegradationStateMachine.class);
         when(degrade.current()).thenReturn(Level.L0);
         audit = mock(AuditService.class);
-        metrics = new OpsMetrics();
+        metrics = new OpsMetrics(new SimpleMeterRegistry());
         vt = Executors.newVirtualThreadPerTaskExecutor();
         orchestrator = new ChatOrchestrator(l1, l2, fps, sw, new SingleFlightRegistry(),
                 searchService, embedding, llm, pa, degrade, mock(SopFallbackService.class),

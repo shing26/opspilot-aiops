@@ -90,7 +90,17 @@ logging:
 
 # 健康面：/actuator/health 只输出聚合状态（含 redis/qdrant/es 组件的 UP/DOWN 判定，
 # 明细走鉴权端点 /api/v1/admin/health——依赖异常摘要不能对未授权访客可见）
+# 指标面（ADRs 0016）：暴露 /actuator/prometheus（Prometheus 文本格式，aiops.* 计数与比率）。
+# 该端点不带凭证（鉴权过滤器只守 /api/v1/copilot|admin 与 /v1），由抓取侧的网络策略兜住——
+# 多租户公网部署时应改为仅内网可达或加 scraper 凭证。
+# `include` 是**覆盖**而非追加默认值：漏写 health 会让 /actuator/health 直接 404，而它是
+# demo.sh 预检 / backup.sh / quickstart.sh / liveness.py 的存活判据（check_panel_contract.sh
+# 第五层把这一条钉成 CI 红）。
 management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
   endpoint:
     health:
       show-details: never

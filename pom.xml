@@ -39,6 +39,13 @@
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
     </dependency>
+    <!-- 可观测性（OPS 6）：把 OpsMetrics 的 aiops.* 计数与派生比率暴露到 /actuator/prometheus。
+         拉模型端点无凭证（JwtAuthFilter 只守 /api/v1/copilot|admin 与 /v1），由 Prometheus 抓取代办，
+         生产多租部署时该端点应交给网络策略/scraper 凭证兜住（ADRs 0016）。 -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
 
     <!-- P2 账号体系：H2 文件库（主用户数据必须落盘，Redis 只存易失计数）+ JdbcTemplate + bcrypt。
          只引 spring-security-crypto 单工件，不拉整个 security 过滤器栈（鉴权仍由 JwtAuthFilter 承担）。 -->

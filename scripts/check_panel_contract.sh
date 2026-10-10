@@ -48,5 +48,16 @@ for k in sf_groups sf_keys_top cooldown_s manual failures llm_failure_threshold 
   grep -qF "$k" "$HTML" || { echo "FAIL: 面板缺少对运行态键的消费: $k"; fail=1; }
 done
 
-if [ $fail -eq 0 ]; then echo "OK：面板契约四层一致（路径/指标→面板/面板→指标/state 键集）"; fi
+# 层 5：actuator 暴露面不得收敛掉 health（2026-10-10 实测回归后补）。
+# `management.endpoints.web.exposure.include` 是**覆盖**不是追加：加 prometheus 时漏写 health，
+# /actuator/health 当场 404，而它是 demo.sh 预检 / backup.sh / quickstart.sh / liveness.py 的
+# 存活判据——静态 grep 在这里能挡住整类"顺手改配置把探测面改没"。
+YML=src/main/resources/application.yml
+EXPOSURE=$(grep -A1 "exposure:" "$YML" | grep "include:" | head -1)
+echo "$EXPOSURE" | grep -q "health" || {
+  echo "FAIL: actuator 暴露面缺 health（会被 4 个脚本当作存活判据）: $EXPOSURE"; fail=1; }
+echo "$EXPOSURE" | grep -q "prometheus" || {
+  echo "FAIL: actuator 暴露面缺 prometheus（ADRs 0016 的抓取端）: $EXPOSURE"; fail=1; }
+
+if [ $fail -eq 0 ]; then echo "OK：面板契约四层一致（路径/指标→面板/面板→指标/state 键集）+ actuator 暴露面"; fi
 exit $fail
