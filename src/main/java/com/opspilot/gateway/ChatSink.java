@@ -1,5 +1,6 @@
 package com.opspilot.gateway;
 
+import com.opspilot.action.Action;
 import com.opspilot.gateway.dto.AnswerPayload;
 import com.opspilot.resilience.DegradationStateMachine.Level;
 import java.util.List;
@@ -21,9 +22,18 @@ public interface ChatSink {
     /** 完整答案分片下发（缓存回放/SOP 直出场景，保留打字机体验）。 */
     void streamInChunks(String answer);
 
-    /** 正常收尾：t0/firstTokenNano 供 TTFT 口径（first_token，A3-6 锁死）；refs 溯源。 */
-    void done(long t0, long firstTokenNano, List<AnswerPayload.Ref> refs);
+    /**
+     * 正常收尾：t0/firstTokenNano 供 TTFT 口径（first_token，A3-6 锁死）；refs 溯源；
+     * actions 只读行动契约（ADRs 0017，随载荷进缓存，回放路径同样有）。
+     */
+    void done(long t0, long firstTokenNano, List<AnswerPayload.Ref> refs, List<Action> actions);
 
-    /** 异常收尾：sink 自行决定错误呈现并完成流（SSE 走 error 事件；OpenAI 走提示文本+stop+[DONE]）。 */
-    void error(Throwable t);
+    /**
+     * 异常收尾：sink 自行决定错误呈现并完成流（SSE 走 error 事件；OpenAI 走提示文本+stop+[DONE]）。
+     *
+     * {@code refs}/{@code actions} 是**异常前已经到手**的检索与契约成果（ADRs 0017）：
+     * 生成侧失败不该连坐把"引用了什么、能做什么"一起吞掉——那是本系统与纯生成式问答的
+     * 唯一区别。无成果时传空表，帧形态与历史一致。
+     */
+    void error(Throwable t, List<AnswerPayload.Ref> refs, List<Action> actions);
 }

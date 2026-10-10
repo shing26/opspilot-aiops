@@ -10,6 +10,7 @@ import com.opspilot.llm.EmbeddingClient;
 import com.opspilot.llm.LlmClient;
 import com.opspilot.llm.PromptAssembler;
 import com.opspilot.metrics.AuditService;
+import com.opspilot.action.ReadOnlyActionExtractor;
 import com.opspilot.metrics.OpsMetrics;
 import com.opspilot.metrics.StageTimings;
 import com.opspilot.resilience.DegradationStateMachine;
@@ -97,7 +98,7 @@ class ChatOrchestratorTest {
         when(fps.fingerprint(any(), any(), anyString())).thenReturn("fp1");
         SlidingWindowService sw = mock(SlidingWindowService.class);
         when(sw.tryAcquire(anyString(), anyString()))
-                .thenReturn(new SlidingWindowService.WindowResult(true, 1));
+                .thenReturn(new com.opspilot.storm.SlidingWindowService.WindowResult(true, 1));
         searchService = mock(HybridSearchService.class);
         when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
                 .thenReturn(outcome("rb-001::s1"));
@@ -129,11 +130,11 @@ class ChatOrchestratorTest {
         degrade = mock(DegradationStateMachine.class);
         when(degrade.current()).thenReturn(Level.L0);
         audit = mock(AuditService.class);
-        metrics = new com.opspilot.metrics.OpsMetrics();
+        metrics = new OpsMetrics();
         vt = Executors.newVirtualThreadPerTaskExecutor();
         orchestrator = new ChatOrchestrator(l1, l2, fps, sw, new SingleFlightRegistry(),
                 searchService, embedding, llm, pa, degrade, mock(SopFallbackService.class),
-                metrics, vt, props, audit, mock(QuotaService.class));
+                metrics, vt, props, audit, mock(QuotaService.class), new ReadOnlyActionExtractor(metrics));
     }
 
     @AfterEach
@@ -168,6 +169,7 @@ class ChatOrchestratorTest {
         final StringBuilder answer = new StringBuilder();
         final CountDownLatch finished = new CountDownLatch(1);
         volatile List<AnswerPayload.Ref> refs = List.of();
+        volatile List<com.opspilot.action.Action> actions = List.of();
         volatile String cacheHit;
         volatile Boolean deduplicated;
         volatile Throwable error;
@@ -178,10 +180,14 @@ class ChatOrchestratorTest {
         }
         @Override public void delta(String token) { answer.append(token); }
         @Override public void streamInChunks(String a) { answer.append(a); }
-        @Override public void done(long t0, long ft, List<AnswerPayload.Ref> refs) {
-            this.refs = refs; finished.countDown();
+        @Override public void done(long t0, long ft, List<AnswerPayload.Ref> refs,
+                                  List<com.opspilot.action.Action> actions) {
+            this.refs = refs; this.actions = actions; finished.countDown();
         }
-        @Override public void error(Throwable t) { this.error = t; finished.countDown(); }
+        @Override public void error(Throwable t, List<AnswerPayload.Ref> refs,
+                                    List<com.opspilot.action.Action> actions) {
+            this.error = t; this.actions = actions; finished.countDown();
+        }
     }
 
     private static ChatRequest req(String query) {
@@ -277,7 +283,7 @@ class ChatOrchestratorTest {
     void replayRejectsForeignTenantPayload() throws Exception {
         String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
                 new AnswerPayload("INTERNAL-SECRET", List.of(
-                        new AnswerPayload.Ref("rb-001::s1", "面包屑", "svc")),
+                        new AnswerPayload.Ref("rb-001::s1", "面包屑", "svc")), List.of(),
                         "hybrid", false, 3, "tenant-internal", false));
         RecordingSink sink = new RecordingSink();
         orchestrator.replay(sink, json, "none", true, "fp1", System.nanoTime(), ACME, q(), "sse", "manual");
@@ -287,6 +293,36 @@ class ChatOrchestratorTest {
         verify(audit, AUDIT_WAIT).log(eq(ACME), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
                 eq("dedup_guard"), anyString(), eq(true), anyInt(), anyLong(), isNull(), isNull(), isNull(),
                 eq("L0"));
+    }
+
+    /**
+     * ADRs 0017 上线口径：模型侧失败（欠费/上游 5xx）时，**已经抽好的只读行动契约照样送达**。
+     *
+     * 为什么锁：契约是纯词法抽取（不依赖 LLM），"生成侧失败"不该连坐把"这次能做什么只读动作"
+     * 一起吞掉——那是本系统与纯生成式问答的唯一区别。错误帧只有一个出口（submit 的 catch），
+     * 内层 catch 只负责把已到手的 refs/actions 挂上去（FailedWithContract）。
+     *
+     * 变异验证（改坏必红）：把 runPipeline 的两个 `throw new FailedWithContract(...)` 改回裸
+     * `throw e` → 本用例的 actions 断言必红；删掉 catch (FailedWithContract) 分支同理。
+     */
+    @Test
+    void llmFailureStillDeliversReadOnlyContract() throws Exception {
+        ScoredChunk c = new ScoredChunk("rb-001::s1", "rb-001", "runbook",
+                "```bash\njstack <pid> | grep -A 15 \"pool\"\n```\n",
+                "支付验签失败排查手册 > 排查步骤", "pay-svc", List.of(), 3,
+                new ScoredChunk.Scores(1, 1, 1, 1));
+        when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
+                .thenReturn(new SearchOutcome(List.of(c), "hybrid", true, false, 1.0, 5, LEGS));
+        llmGate.countDown();   // 本用例只验异常路径契约送达，不需要 internal 闸锁语义
+        doThrow(new RuntimeException("DashScope 402 arrears")).when(llm).streamChat(any(), any());
+
+        RecordingSink sink = new RecordingSink();
+        orchestrator.submit(req(q()), INTERNAL, sink, "sse");
+        assertTrue(sink.finished.await(30, TimeUnit.SECONDS), "编排 30s 未收尾");
+        assertNotNull(sink.error, "LLM 失败必须以 error 收尾");
+        assertEquals(1, sink.actions.size(), "契约须在异常帧里送达: " + sink.actions);
+        assertTrue(sink.actions.get(0).command().contains("jstack"), sink.actions.toString());
+        assertTrue(sink.actions.get(0).step().contains("排查"), sink.actions.toString());
     }
 
     /** 组键口径：tenant 是第一字段——与 L1 key 的 cache:l1:<tenant>:<level>: 同构（权限维度完备）。 */
@@ -317,7 +353,7 @@ class ChatOrchestratorTest {
         RecordingSink follower = new RecordingSink();
         orchestrator.replay(follower,
                 new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
-                        new AnswerPayload("OK", List.of(), "hybrid", true, 3, "tenant-internal", false)),
+                        new AnswerPayload("OK", List.of(), List.of(), "hybrid", true, 3, "tenant-internal", false)),
                 "L1", false, "fp1", System.nanoTime(), INTERNAL, q(), "sse", "manual");
         verify(audit, AUDIT_WAIT).log(eq(INTERNAL), eq("chat"), anyString(), eq("manual"), anyString(), anyString(),
                 eq("L1"), anyString(), eq(false), anyInt(), anyLong(), eq("tenant-internal"), isNull(), isNull(),
@@ -445,7 +481,7 @@ class ChatOrchestratorTest {
         // 载荷 = 拒答分支真实写进 L1 的形状：maxAuthLevel=0、refused=true
         String json = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
                 new AnswerPayload("当前知识库无足够相关的参考（检索置信度不足），无法可靠作答。",
-                        List.of(), "hybrid", false, 0, "tenant-internal", true));
+                        List.of(), List.of(), "hybrid", false, 0, "tenant-internal", true));
         RecordingSink sink = new RecordingSink();
         orchestrator.replay(sink, json, "L1", false, "fp-refusal", System.nanoTime(),
                 INTERNAL, "今天天气怎么样", "sse", "manual");
@@ -457,5 +493,29 @@ class ChatOrchestratorTest {
                 anyString(), eq("L1"), anyString(), eq(true), eq(0), anyLong(),
                 eq("tenant-internal"),   // src_tenant 随行（回放路径既有特性）：载荷租户=请求者租户
                 isNull(), isNull(), eq("L0"));
+    }
+
+    /**
+     * 老缓存回放兼容（ADRs 0017 上线前的 L1/L2 存量）：载荷 JSON 里**没有** {@code actions} 键。
+     * AnswerPayload 反序列化后该分量为 null，{@code actionsOrEmpty()} 必须兜底成空表——
+     * 否则回放路径 NPE，而这是一次真实 Redis 里躺着的旧载荷就能触发的线上故障。
+     */
+    @Test
+    void legacyCachedPayloadWithoutActionsReplaysAsEmptyContract() throws Exception {
+        // 手写 JSON（不用 writeValueAsString）：刻意不含 "actions" 键，模拟 ADRs 0017 之前写进去的存量
+        String json = "{\"answer\":\"老答案：需要重启支付网关。\",\"refs\":[{\"chunkId\":\"rb-001::s1\","
+                + "\"breadcrumb\":\"订单超时手册 > 排查步骤\",\"service\":\"svc\"}],\"mode\":\"hybrid\","
+                + "\"fastPath\":false,\"maxAuthLevel\":3,\"tenant\":\"tenant-internal\",\"refused\":false}";
+        assertFalse(json.contains("actions"), "用例前提：存量载荷不含 actions 键");
+        assertFalse(json.contains("ts"), "用例前提：不含 ADRs 0017 之外的任何新键");
+
+        RecordingSink sink = new RecordingSink();
+        orchestrator.replay(sink, json, "L1", false, "fp-legacy", System.nanoTime(),
+                INTERNAL, q(), "sse", "manual");
+        awaitSuccess(sink);
+
+        assertTrue(sink.answer.toString().contains("老答案"), "回放文本不受影响");
+        assertEquals(1, sink.refs.size(), "老载荷的 refs 原样回放");
+        assertEquals(List.of(), sink.actions, "老载荷没有行动契约：回放为空表而非 NPE");
     }
 }

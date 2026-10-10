@@ -3,7 +3,6 @@ package com.opspilot.gateway;
 import com.opspilot.gateway.dto.AnswerPayload;
 import com.opspilot.resilience.DegradationStateMachine.Level;
 import java.util.List;
-import java.util.Map;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** ChatSink 的 SSE 实现：全部帧格式委托 SseEvents（原 /chat/stream 协议零变化）。 */
@@ -34,14 +33,14 @@ public class SseChatSink implements ChatSink {
     }
 
     @Override
-    public void done(long t0, long firstTokenNano, List<AnswerPayload.Ref> refs) {
-        events.emitDone(emitter, t0, firstTokenNano, refs);
+    public void done(long t0, long firstTokenNano, List<AnswerPayload.Ref> refs,
+                     List<com.opspilot.action.Action> actions) {
+        events.emitDone(emitter, t0, firstTokenNano, refs, actions);
     }
 
     @Override
-    public void error(Throwable t) {
-        events.trySend(emitter, "error",
-                Map.of("code", "PIPELINE_ERROR", "message", "排障链路异常，请重试或联系值班 SRE"));
-        emitter.complete();
+    public void error(Throwable t, List<AnswerPayload.Ref> refs,
+                      List<com.opspilot.action.Action> actions) {
+        events.emitError(emitter, refs, actions);
     }
 }

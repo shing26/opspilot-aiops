@@ -39,8 +39,11 @@ class OpenAiChatSinkTest {
 
         sink.delta("你好");
         sink.delta("，同学");
-        sink.done(0L, 1L, List.of(new AnswerPayload.Ref("rb-001::x", "订单超时手册", "order-service")));
+        // actions 传空表：本用例只锁 refs 注入与帧序，行动契约另有专项用例
+        sink.done(0L, 1L, List.of(new AnswerPayload.Ref("rb-001::x", "订单超时手册", "order-service")),
+                List.of());
 
+        // 空契约不发帧（无 actions 的 done 仍是 5 帧）：平白一个空 content 帧会让客户端多渲染一跳
         assertEquals(5, em.frames.size(), "role+content / content / refs / stop / [DONE]");
         String first = em.frames.get(0);
         assertTrue(first.contains("\"role\":\"assistant\""), "首帧必须携带 role");
@@ -61,7 +64,7 @@ class OpenAiChatSinkTest {
         Capturing em = new Capturing();
         OpenAiChatSink sink = new OpenAiChatSink(em, "opspilot");
         sink.delta("半句");
-        sink.error(new RuntimeException("upstream boom"));
+        sink.error(new RuntimeException("upstream boom"), List.of(), List.of());
 
         String joined = String.join("|", em.frames);
         assertTrue(joined.contains("【系统提示】"), "异常必须以文本帧呈现而非裸断流");
@@ -72,6 +75,33 @@ class OpenAiChatSinkTest {
         int before = em.frames.size();
         sink.delta("late");
         assertEquals(before, em.frames.size(), "[DONE] 后不得再发帧");
+    }
+
+    @Test
+    void errorFrameCarriesReadOnlyContractWhenModelFailed() {
+        Capturing em = new Capturing();
+        OpenAiChatSink sink = new OpenAiChatSink(em, "opspilot");
+        sink.delta("半句");
+        // ADRs 0017：模型侧失败（欠费/5xx）时，检索与契约已经跑完——不该连坐吞掉
+        sink.error(new RuntimeException("model arrears"), List.of(), List.of(
+                new com.opspilot.action.Action(1, "第一步：查进程", "jstack <pid> | grep -A 15 pool",
+                        "bash", "rb-012::s1", "线程池耗尽排查手册 > 排查步骤", "order-service")));
+
+        String joined = String.join("|", em.frames);
+        assertTrue(joined.contains("## 只读行动契约"), "异常帧仍要带行动契约: " + joined);
+        assertTrue(joined.contains("jstack <pid> | grep -A 15 pool"), "契约命令逐字下发");
+        assertTrue(joined.contains("【系统提示】"), "异常提示仍在");
+    }
+
+    @Test
+    void emptyContractEmitsNoFrame() {
+        Capturing em = new Capturing();
+        OpenAiChatSink sink = new OpenAiChatSink(em, "opspilot");
+        sink.delta("答案");
+        sink.done(0L, 1L, List.of(), List.of());
+
+        assertEquals(3, em.frames.size(), "无 refs、无契约：role+content / stop / [DONE]，不得凭空多一跳空帧");
+        assertFalse(String.join("|", em.frames).contains("只读行动契约"), "空契约不得渲染标题");
     }
 
     @Test

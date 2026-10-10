@@ -25,6 +25,8 @@ public class OpsMetrics {
     private final AtomicLong llmNetworkErrors = new AtomicLong();
     // 生成质量包 Q2=C：逐字导出被出口护栏掩码的句数（按句累计，非按请求）
     private final AtomicLong verbatimMasked = new AtomicLong();
+    // ADRs 0017：只读行动契约里被命令策略判拒的条数（判拒即丢弃、不静默；先随能力批次以裸计数落地，Micrometer 单一事实源在后一批收口）
+    private final AtomicLong actionCommandsRejected = new AtomicLong();
 
     public void llmCall() { llmCalls.incrementAndGet(); }
     public void llmRateLimited() { llmRateLimited.incrementAndGet(); }
@@ -39,6 +41,7 @@ public class OpsMetrics {
     public void lowConfidence() { lowConfidenceRefusals.incrementAndGet(); }
     public void request() { totalRequests.incrementAndGet(); }
     public void verbatimMasked(int n) { verbatimMasked.addAndGet(n); }
+    public void actionCommandRejected() { actionCommandsRejected.incrementAndGet(); }
 
     public long llmCallsValue() { return llmCalls.get(); }
 

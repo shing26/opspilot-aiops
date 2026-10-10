@@ -2,6 +2,8 @@ package com.opspilot.gateway;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opspilot.auth.UserContext;
+import com.opspilot.action.Action;
+import com.opspilot.action.ReadOnlyActionExtractor;
 import com.opspilot.cache.L1CacheService;
 import com.opspilot.cache.L2SemanticCacheService;
 import com.opspilot.config.OpsPilotProperties;
@@ -61,6 +63,7 @@ public class ChatOrchestrator {
     private final OpsPilotProperties props;
     private final AuditService audit;
     private final QuotaService quota;
+    private final ReadOnlyActionExtractor actionExtractor;
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ChatOrchestrator(L1CacheService l1, L2SemanticCacheService l2,
@@ -69,13 +72,14 @@ public class ChatOrchestrator {
                             EmbeddingClient embedding, LlmClient llm, PromptAssembler promptAssembler,
                             DegradationStateMachine degrade, SopFallbackService sopFallback,
                             OpsMetrics metrics, ExecutorService virtualThreadExecutor,
-                            OpsPilotProperties props, AuditService audit, QuotaService quota) {
+                            OpsPilotProperties props, AuditService audit, QuotaService quota,
+                            ReadOnlyActionExtractor actionExtractor) {
         this.l1 = l1; this.l2 = l2; this.fingerprintService = fingerprintService;
         this.slidingWindow = slidingWindow; this.singleFlight = singleFlight;
         this.searchService = searchService; this.embedding = embedding; this.llm = llm;
         this.promptAssembler = promptAssembler; this.degrade = degrade; this.sopFallback = sopFallback;
         this.metrics = metrics; this.vt = virtualThreadExecutor; this.props = props;
-        this.audit = audit; this.quota = quota;
+        this.audit = audit; this.quota = quota; this.actionExtractor = actionExtractor;
     }
 
     /** 同步前置（必须在 servlet 线程调用）：配额 429 与请求计数要能在 HTTP 响应面上抛出。 */
@@ -100,12 +104,12 @@ public class ChatOrchestrator {
             degrade.enter();
             try {
                 handle(req, user, sink, via);
+            } catch (FailedWithContract fc) {
+                logWarn(fc.getCause());
+                sink.error(fc.getCause(), fc.refs(), fc.actions());
             } catch (Exception e) {
-                // 服务端日志带异常 message 供运维归因（LlmClient 的 message 自拼：状态码/网络错类，
-                // 不含凭据；对外 error 帧仍是脱敏固定话术，SLO 面零泄露）。
-                log.warn("stream error: {}: {}", e.getClass().getSimpleName(),
-                        String.valueOf(e.getMessage()).substring(0, Math.min(300, String.valueOf(e.getMessage()).length())));
-                sink.error(e);
+                logWarn(e);
+                sink.error(e, List.of(), List.of());
             } finally {
                 degrade.exit();
                 org.slf4j.MDC.remove(com.opspilot.metrics.RequestIdFilter.KEY);
@@ -148,13 +152,13 @@ public class ChatOrchestrator {
             Level level = degrade.current();
             if (level != Level.L2 && ClarificationGate.needsClarification(query)) {
                 String clarify = ClarificationGate.MESSAGE;
-                AnswerPayload p = new AnswerPayload(clarify, List.of(), "clarify", false,
+                AnswerPayload p = new AnswerPayload(clarify, List.of(), List.of(), "clarify", false,
                         user.authLevel(), user.tenantId(), true);
                 String json = mapper.writeValueAsString(p);
                 sink.meta(fp, "none", level, false, false, 0);
                 long clarifyNano = System.nanoTime();
                 sink.delta(clarify);
-                sink.done(t0, clarifyNano, List.of());
+                sink.done(t0, clarifyNano, List.of(), List.of());
                 // **刻意不写 L1**（2026-09-28 code-review 抓出）：本门在 `l1.get` 之前，L0/L1 期刚写的
                 // 条目永不可读＝死写；而 L2 期门让位、`l1.get` 反会回放它——澄清抢在 SOP 直出之前，
                 // 复刻 A2-6 的已修坑（"降级期答案入缓存 → 同 query 仍回放"）。同指纹 follower 已由
@@ -206,13 +210,13 @@ public class ChatOrchestrator {
             metrics.sopFallback();
             String sop = sopFallback.lookup(query, req.service(), user.tenantId());
             String answer = sop != null ? sop : "系统高负载，已触发熔断降级，暂无可用止损清单，请联系值班 SRE。";
-            AnswerPayload p = new AnswerPayload(answer, List.of(), "sop_fallback", false,
+            AnswerPayload p = new AnswerPayload(answer, List.of(), List.of(), "sop_fallback", false,
                     user.authLevel(), user.tenantId(), false);
             String json = mapper.writeValueAsString(p);
             sink.meta(fp, "none", level, false, false, 0);
             long sopFirstDeltaNano = System.nanoTime();
             sink.streamInChunks(answer);
-            sink.done(t0, sopFirstDeltaNano, List.of());
+            sink.done(t0, sopFirstDeltaNano, List.of(), List.of());
             audit.log(user, "chat", via, source, query, fp, "none", "sop_fallback", false, user.authLevel(),
                     (System.nanoTime() - t0) / 1_000_000, null, null,
                     null,   // SOP 直出：检索与 LLM 都未发生，无分段可测（null = 没测，非"测得为 0"）
@@ -239,13 +243,13 @@ public class ChatOrchestrator {
             String refusal = "当前知识库无足够相关的参考（" + reason + "），无法可靠作答。"
                     + "请补充错误码（如 50012_DB_TIMEOUT）或服务名后重试，或联系值班 SRE。";
             // maxAuthLevel=0：拒答不触达任何语料（回放路径的审计 max_level 由此而来，live QA F-1）
-            AnswerPayload p = new AnswerPayload(refusal, List.of(), outcome.mode(), false, 0,
+            AnswerPayload p = new AnswerPayload(refusal, List.of(), List.of(), outcome.mode(), false, 0,
                     user.tenantId(), true);
             String json = mapper.writeValueAsString(p);
             sink.meta(fp, "none", level, false, false, outcome.tookMs());
             long refusalNano = System.nanoTime();
             sink.delta(refusal);
-            sink.done(t0, refusalNano, List.of());
+            sink.done(t0, refusalNano, List.of(), List.of());
             l1.put(user.tenantId(), user.authLevel(), query, json);
             audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), true, 0,
                     (System.nanoTime() - t0) / 1_000_000, null, null,
@@ -257,6 +261,11 @@ public class ChatOrchestrator {
         int maxAuth = chunks.stream().mapToInt(ScoredChunk::authLevel).max().orElse(user.authLevel());
 
         sink.meta(fp, "none", level, outcome.fastPath(), false, outcome.tookMs());
+
+        // 只读行动契约（ADRs 0017）：从**本轮引用的同一批 chunk** 逐字抽，与 refs 同源同权，
+        // 因此租户/密级闸不在这里重设。放这里（LLM 之前）而非答完后：契约与"引用了什么"绑定，
+        // 与答案生成成败解耦——LLM 失败走异常路径时本次请求照样带得出契约。
+        List<Action> actions = actionExtractor.extract(chunks);
 
         // LLM 流式（verbatim 出口护栏，生成质量包 Q2=C）：token 经句级缓冲+超阈掩码后才下发。
         // 设卡一处即可：L1/L2 写入与 SF future.complete 消费的都是 guard.finish() 掩码版——
@@ -280,8 +289,8 @@ public class ChatOrchestrator {
             int masked = guard.maskedCount();
             degrade.llmSuccess();
             if (masked > 0) metrics.verbatimMasked(masked);
-            AnswerPayload p = new AnswerPayload(answer, refs, outcome.mode(), outcome.fastPath(), maxAuth,
-                    user.tenantId(), false);
+            AnswerPayload p = new AnswerPayload(answer, refs, actions, outcome.mode(), outcome.fastPath(),
+                    maxAuth, user.tenantId(), false);
             String json = mapper.writeValueAsString(p);
             l1.put(user.tenantId(), user.authLevel(), query, json);
             // L2 写入：存完整 payload（含 refs）。**注意这里是第二次 embedding 调用**——
@@ -294,7 +303,7 @@ public class ChatOrchestrator {
             long ftNano = firstTokenNano.get();
             long llmMs = (System.nanoTime() - llmStartNano) / 1_000_000;
             long llmTtftMs = ftNano == 0 ? llmMs : (ftNano - llmStartNano) / 1_000_000;
-            sink.done(t0, ftNano == 0 ? System.nanoTime() : ftNano, refs);
+            sink.done(t0, ftNano == 0 ? System.nanoTime() : ftNano, refs, actions);
             audit.log(user, "chat", via, source, query, fp, "none", outcome.mode(), false, maxAuth,
                     (System.nanoTime() - t0) / 1_000_000, null, masked > 0 ? masked : null,
                     stageTimings(outcome, llmTtftMs, llmMs, l2StoreMs), level.name());
@@ -302,11 +311,41 @@ public class ChatOrchestrator {
         } catch (LlmClient.LlmRateLimitedException e) {
             metrics.llmRateLimited();
             degrade.llmFailure();
-            throw e;
+            throw new FailedWithContract(e, List.copyOf(refs), actions);
         } catch (Exception e) {
             degrade.llmFailure();
-            throw e;
+            throw new FailedWithContract(e, List.copyOf(refs), actions);
         }
+    }
+
+    /** 服务端日志带异常 message 供运维归因（LlmClient 的 message 自拼：状态码/网络错类，
+     *  不含凭据；对外 error 帧仍是脱敏固定话术，SLO 面零泄露）。 */
+    private static void logWarn(Throwable e) {
+        String m = String.valueOf(e.getMessage());
+        log.warn("stream error: {}: {}", e.getClass().getSimpleName(),
+                m.substring(0, Math.min(300, m.length())));
+    }
+
+    /**
+     * 生成侧异常 + 异常前已经到手的检索与契约成果（ADRs 0017）。
+     *
+     * <p>为什么要包一层：error 帧必须只有一个出口——{@link #submit} 的 catch。内层各处 catch
+     * 只负责把成果挂上去，不自己发帧，否则同一次请求会落下两个 error 帧（第二个被
+     * emitter.complete 之后静默吞掉，排查时只看见一个，语义却已经错了）。
+     */
+    static final class FailedWithContract extends RuntimeException {
+        private final List<AnswerPayload.Ref> refs;
+        private final List<Action> actions;
+
+        FailedWithContract(Throwable cause, List<AnswerPayload.Ref> refs, List<Action> actions) {
+            super(cause);
+            this.refs = refs;
+            this.actions = actions;
+        }
+
+        List<AnswerPayload.Ref> refs() { return refs; }
+
+        List<Action> actions() { return actions; }
     }
 
     /** Single-Flight 组键 = 租户+指纹+密级（P0-1 修复：租户是第一字段，跨租户永不共组）。 */
@@ -329,13 +368,14 @@ public class ChatOrchestrator {
             audit.log(user, "chat", via, source, query, fp, "dedup_guard", p.mode(), true, 0,
                     (System.nanoTime() - t0) / 1_000_000, null, null, null,   // 回放路径：无检索/LLM 分段
                     lvl.name());
-            sink.error(new IllegalStateException("shared replay tenant mismatch"));
+            sink.error(new IllegalStateException("shared replay tenant mismatch"),
+                    List.of(), List.of());
             return;
         }
         sink.meta(fp, cacheHit, lvl, p.fastPath(), deduplicated, 0);
         long replayFirstDeltaNano = System.nanoTime();
         sink.streamInChunks(p.answer());
-        sink.done(t0, replayFirstDeltaNano, p.refs());
+        sink.done(t0, replayFirstDeltaNano, p.refs(), p.actionsOrEmpty());
         // src_tenant 随行（QA P1-2"命中来源"）：与 tenant 相等=正常同租户回放；
         // grep 不等即可发现任何新的跨租户共享旁路。
         audit.log(user, "chat", via, source, query, fp, cacheHit + (deduplicated ? "+dedup" : ""),

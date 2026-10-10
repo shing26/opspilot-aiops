@@ -15,9 +15,9 @@ import org.springframework.http.MediaType;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * ChatSink 的 OpenAI chat.completions 流式实现（/v1 协议面）：
- * 首帧 delta.role=assistant，逐 token content 帧，done 时把溯源 refs 注入为
- * 答案尾部 markdown（OpenAI 纯文本协议里保住 RAG 溯源展示），再发
+ * ChatSink 的 OpenAI chat.completions 流式实现（/v1 协议面）：首帧 delta.role=assistant，
+ * 逐 token content 帧；_refs_ 与只读行动契约在 OpenAI 纯文本协议里没有结构化帧位，
+ * 都以 markdown 注入答案尾部（与 ADR-0007 同思路降级渲染），再发
  * finish_reason=stop 空帧 + data: [DONE]。meta/ttft 在 OpenAI 帧无对应位，丢弃
  * （取舍记录于 ADR-0007）。异常不断裸 TCP：提示文本帧 + stop + [DONE] 正常收尾。
  */
@@ -75,7 +75,13 @@ public class OpenAiChatSink implements ChatSink {
     }
 
     @Override
-    public void done(long t0, long firstTokenNano, List<AnswerPayload.Ref> refs) {
+    public void done(long t0, long firstTokenNano, List<AnswerPayload.Ref> refs,
+                     List<com.opspilot.action.Action> actions) {
+        // 空契约不发帧：OpenAI 客户端把空 content 帧也当一次增量渲染，平白多一跳
+        String act = actionMarkdown(actions);
+        if (!act.isEmpty()) {
+            send(Chunk.delta(requestId, model, null, act));
+        }
         if (refs != null && !refs.isEmpty()) {
             StringBuilder sb = new StringBuilder("\n\n## 参考来源\n");
             for (AnswerPayload.Ref r : refs) {
@@ -88,11 +94,33 @@ public class OpenAiChatSink implements ChatSink {
     }
 
     @Override
-    public void error(Throwable t) {
-        send(Chunk.delta(requestId, model, null,
-                "\n\n【系统提示】本轮回答因网关内部异常中断，请稍后重试或联系值班 SRE。"));
+    public void error(Throwable t, List<AnswerPayload.Ref> refs,
+                      List<com.opspilot.action.Action> actions) {
+        StringBuilder sb = new StringBuilder();
+        // ADRs 0017：异常帧同样带契约（生成侧失败不该连坐吞掉已到手的只读建议）
+        sb.append(actionMarkdown(actions));
+        if (refs != null && !refs.isEmpty()) {
+            sb.append("\n\n## 参考来源\n");
+            for (AnswerPayload.Ref r : refs) {
+                sb.append("- ").append(r.breadcrumb()).append("（").append(r.service()).append("）\n");
+            }
+        }
+        sb.append("\n\n【系统提示】本轮回答因网关内部异常中断，请稍后重试或联系值班 SRE。");
+        send(Chunk.delta(requestId, model, null, sb.toString()));
         send(Chunk.stop(requestId, model));
         sendDone();
+    }
+
+    /** 只读行动契约 → 正文 markdown（OpenAI 面没有结构化帧位，与 refs 同思路降级渲染）。 */
+    private static String actionMarkdown(List<com.opspilot.action.Action> actions) {
+        if (actions == null || actions.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("\n\n## 只读行动契约\n");
+        for (com.opspilot.action.Action a : actions) {
+            sb.append(a.n()).append(". ").append(a.step()).append("\n   `").append(a.command()).append("`\n");
+        }
+        return sb.toString();
     }
 
     private void send(Chunk chunk) {

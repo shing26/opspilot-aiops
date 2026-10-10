@@ -46,12 +46,38 @@ public class SseEvents {
         trySend(emitter, "delta", Map.of("token", token));
     }
 
-    public void emitDone(SseEmitter emitter, long t0, long firstTokenNano, List<AnswerPayload.Ref> refs) {
+    public void emitDone(SseEmitter emitter, long t0, long firstTokenNano, List<AnswerPayload.Ref> refs,
+                         List<com.opspilot.action.Action> actions) {
         long ttftMs = (firstTokenNano - t0) / 1_000_000;
         Map<String, Object> done = new LinkedHashMap<>();
         done.put("ttft_ms", ttftMs);
         done.put("refs", refs);
+        // ADRs 0017：只读行动契约随 done 下发（键恒给，空表给 []——客户端不必区分"没有"与"空了"）；
+        // 每条命令都摘自已引用的 chunk 原文并经只读策略核准，网关自身不执行
+        done.put("actions", actions == null ? List.of() : actions);
         trySend(emitter, "done", done);
+        emitter.complete();
+    }
+
+    /**
+     * 异常收尾帧：固定话术（脱敏）+ 异常前已到手的溯源与只读契约。
+     *
+     * <p>为什么要带成果：DashScope 欠费、上游 5xx 这类生成侧故障发生时，检索与契约抽取
+     * 已经跑完且不依赖 LLM——把它一并吞掉等于让客户端在最需要行动清单的时候拿到空手。
+     * 无成果时两个键都不落，帧形态与历史一致（rb-111 手册描述的 error 帧形态不变）。
+     */
+    public void emitError(SseEmitter emitter, List<AnswerPayload.Ref> refs,
+                          List<com.opspilot.action.Action> actions) {
+        Map<String, Object> err = new LinkedHashMap<>();
+        err.put("code", "PIPELINE_ERROR");
+        err.put("message", "排障链路异常，请重试或联系值班 SRE");
+        if (refs != null && !refs.isEmpty()) {
+            err.put("refs", refs);
+        }
+        if (actions != null && !actions.isEmpty()) {
+            err.put("actions", actions);
+        }
+        trySend(emitter, "error", err);
         emitter.complete();
     }
 
