@@ -95,6 +95,15 @@ def get_json(path: str, token: str, timeout: int = 10) -> dict:
         return json.load(r)
 
 
+def get_text(path: str, timeout: int = 15) -> str:
+    """GET 一段**非 JSON** 文本（当前唯一用途：/actuator/prometheus 的 Prometheus 文本格式
+    ——get_json 用 json.load 读它必抛）。该端点不在 JwtAuthFilter 守卫清单（/api/v1|copilot|admin
+    与 /v1 才守），故不发 Authorization。出口仍是 assert_local + _OPENER，不自开连接路径。"""
+    req = urllib.request.Request(assert_local(BASE + path), method="GET")
+    with _open(req, timeout) as r:
+        return r.read().decode("utf-8", "replace")
+
+
 def login(username: str, password: str | None = None) -> str:
     """P2 账号体系：/api/v1/auth/login 换 24h token。口令缺省读 DEMO_PASSWORD 环境变量。
 
