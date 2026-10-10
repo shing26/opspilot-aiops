@@ -68,7 +68,7 @@ class DegradationTransitionTest {
         assertEquals(List.of("L0→L2(llm_failure)"), transitions().stream().map(DegradationTransitionTest::triple).toList());
 
         Thread.sleep(1_150);
-        assertEquals(DegradationStateMachine.Level.L0, s.current(), "冷却到期半开回 L0");
+        assertEquals(DegradationState.Level.L0, s.current(), "冷却到期半开回 L0");
         assertEquals(List.of("L0→L2(llm_failure)", "L2→L0(cooldown_expired)"),
                 transitions().stream().map(DegradationTransitionTest::triple).toList());
     }
@@ -77,7 +77,7 @@ class DegradationTransitionTest {
     @Test
     void manualLockAndClearUseDistinctCauses() {
         DegradationStateMachine s = sm(40, 3, 60);
-        s.manualSet(DegradationStateMachine.Level.L2);
+        s.manualSet(DegradationState.Level.L2);
         assertEquals(List.of("L0→L2(manual)"), transitions().stream().map(DegradationTransitionTest::triple).toList());
 
         s.manualClear();
@@ -104,7 +104,7 @@ class DegradationTransitionTest {
         s.enter();                                  // inflight
         s.exit();                                   // load_subsided
         s.llmFailure(); s.llmFailure();             // llm_failure
-        s.manualSet(DegradationStateMachine.Level.L1);   // manual
+        s.manualSet(DegradationState.Level.L1);   // manual
         s.manualClear();                            // manual_clear
         var allowed = java.util.Set.of("inflight", "load_subsided", "llm_failure", "cooldown_expired",
                 "manual", "manual_clear", "observed");

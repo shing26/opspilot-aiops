@@ -108,7 +108,7 @@ class OpenAiChatSinkTest {
     void metaIsDroppedWithoutSideEffects() {
         Capturing em = new Capturing();
         new OpenAiChatSink(em, "opspilot")
-                .meta("fp", "none", com.opspilot.resilience.DegradationStateMachine.Level.L0, false, false, 0);
+                .meta("fp", "none", com.opspilot.resilience.DegradationState.Level.L0, false, false, 0);
         assertTrue(em.frames.isEmpty(), "meta 在 OpenAI 帧无位置：丢弃且不产生输出");
     }
 }

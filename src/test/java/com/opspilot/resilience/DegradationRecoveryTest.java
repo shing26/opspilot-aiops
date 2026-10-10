@@ -29,23 +29,23 @@ class DegradationRecoveryTest {
     void cooldownExpiryHalfOpensBackToL0() throws Exception {
         DegradationStateMachine s = sm(1);
         s.llmFailure(); s.llmFailure(); s.llmFailure();
-        assertEquals(DegradationStateMachine.Level.L2, s.current(), "达阈即熔断");
+        assertEquals(DegradationState.Level.L2, s.current(), "达阈即熔断");
         Thread.sleep(1_150);
-        assertEquals(DegradationStateMachine.Level.L0, s.current(),
+        assertEquals(DegradationState.Level.L0, s.current(),
                 "冷却过期必须回 L0（半开放行）——否则熔断永不自愈");
         s.llmSuccess();
-        assertEquals(DegradationStateMachine.Level.L0, s.current());
+        assertEquals(DegradationState.Level.L0, s.current());
     }
 
     @Test
     void halfOpenProbeFailuresReopenBreaker() throws Exception {
         DegradationStateMachine s = sm(1);
         s.llmFailure(); s.llmFailure(); s.llmFailure();
-        assertEquals(DegradationStateMachine.Level.L2, s.current());
+        assertEquals(DegradationState.Level.L2, s.current());
         Thread.sleep(1_150);
-        assertEquals(DegradationStateMachine.Level.L0, s.current(), "半开：放行");
+        assertEquals(DegradationState.Level.L0, s.current(), "半开：放行");
         s.llmFailure(); s.llmFailure(); s.llmFailure();
-        assertEquals(DegradationStateMachine.Level.L2, s.current(),
+        assertEquals(DegradationState.Level.L2, s.current(),
                 "半开期再次连败=上游仍坏，熔断重开");
     }
 
@@ -53,9 +53,9 @@ class DegradationRecoveryTest {
     void manualLockStillOverridesAutoHalfOpen() throws Exception {
         DegradationStateMachine s = sm(1);
         s.llmFailure(); s.llmFailure(); s.llmFailure();
-        s.manualSet(DegradationStateMachine.Level.L1);
-        assertEquals(DegradationStateMachine.Level.L1, s.current(), "演示手动锁优先（A2-6 语义不回归）");
+        s.manualSet(DegradationState.Level.L1);
+        assertEquals(DegradationState.Level.L1, s.current(), "演示手动锁优先（A2-6 语义不回归）");
         s.manualClear();
-        assertEquals(DegradationStateMachine.Level.L2, s.current(), "解锁后回到自动判定（冷却未过）");
+        assertEquals(DegradationState.Level.L2, s.current(), "解锁后回到自动判定（冷却未过）");
     }
 }

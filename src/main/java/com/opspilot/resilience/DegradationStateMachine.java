@@ -10,7 +10,7 @@ import com.opspilot.config.OpsPilotProperties;
 import com.opspilot.metrics.AuditService;
 
 /**
- * 三级自适应降级状态机：
+ * 进程内三级自适应降级状态机（{@link DegradationState} 默认实现）：
  * L0 全链路；L1 摘向量+Rerank（纯 ES）；L2 熔断 LLM 直出静态 SOP。
  * 触发：inflight 超阈 → L1；LLM 连续失败/429 → L2（冷却到期半开：放行探测，
  * 成功自愈、再败重开——勿改回"过期仍判 L2"，那会把熔断锁死）。
@@ -27,18 +27,13 @@ import com.opspilot.metrics.AuditService;
  * 后续请求；② {@link #current()} 被调用时（每请求与面板 1s 轮询 {@code /state}）。故"既无请求、
  * 又无人看 /state"的静默期内发生的切换会与下一次观察合并——这是拉模型的固有边界，不是丢事件。
  * 并发下由 {@code transitionLock} 双检去重，同一次切换只落一条。
+ *
+ * <p>分布式演进（Redis 原子计数 + Lua 判档）见 {@link DegradationState} 契约注释与 ADR-0015。
  */
 @Service
-public class DegradationStateMachine {
+public class DegradationStateMachine implements DegradationState {
 
     private static final Logger log = LoggerFactory.getLogger(DegradationStateMachine.class);
-
-    public enum Level { L0, L1, L2 }
-
-    /** 档位转移观察者（审计落痕用）。默认空实现——单测构造纯状态机时不产生任何副作用。 */
-    public interface TransitionSink {
-        void on(Level from, Level to, String cause);
-    }
 
     private final OpsPilotProperties props;
     private final AtomicInteger inflight = new AtomicInteger();
@@ -65,25 +60,30 @@ public class DegradationStateMachine {
         this.sink = (from, to, cause) -> audit.logDegradeTransition(from.name(), to.name(), cause);
     }
 
+    @Override
     public Level current() {
         return observe(null);
     }
 
+    @Override
     public void enter() {
         inflight.incrementAndGet();
         observe(null);   // 跨过阈值的那一次递增必须当场落痕
     }
 
+    @Override
     public void exit() {
         inflight.decrementAndGet();
         observe(null);   // 负载回落→L0 在此落痕：压测停了已无新请求，等 current() 会把这次回落漏掉
     }
 
+    @Override
     public void llmSuccess() {
         llmConsecutiveFailures.set(0);
         observe(null);
     }
 
+    @Override
     public void llmFailure() {
         int f = llmConsecutiveFailures.incrementAndGet();
         if (f >= props.degrade().llmFailureThreshold()) {
@@ -93,24 +93,30 @@ public class DegradationStateMachine {
         observe(null);
     }
 
+    @Override
     public void manualSet(Level level) {
         this.manualLock = level;
         observe("manual");
     }
 
+    @Override
     public void manualClear() {
         this.manualLock = null;
         observe("manual_clear");
     }
 
+    @Override
     public boolean isManual() { return manualLock != null; }
 
+    @Override
     public int inflightValue() { return inflight.get(); }
 
     /** 只读（Ops Console）：LLM 连续失败计数（熔断阈值进度 K/N）。 */
+    @Override
     public int llmConsecutiveFailures() { return llmConsecutiveFailures.get(); }
 
     /** 只读：熔断（含手动锁 L2 不计）剩余冷却秒数，无冷却返回 0。 */
+    @Override
     public long l2CooldownRemainingSeconds() {
         long remain = l2UntilEpochMs.get() - System.currentTimeMillis();
         return remain > 0 ? (remain + 999) / 1000 : 0;

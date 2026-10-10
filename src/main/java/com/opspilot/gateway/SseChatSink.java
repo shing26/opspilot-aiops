@@ -1,7 +1,7 @@
 package com.opspilot.gateway;
 
 import com.opspilot.gateway.dto.AnswerPayload;
-import com.opspilot.resilience.DegradationStateMachine.Level;
+import com.opspilot.resilience.DegradationState.Level;
 import java.util.List;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 

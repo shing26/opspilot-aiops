@@ -16,16 +16,16 @@ import com.opspilot.llm.VerbatimStreamFilter;
 import com.opspilot.metrics.AuditService;
 import com.opspilot.metrics.OpsMetrics;
 import com.opspilot.metrics.StageTimings;
-import com.opspilot.resilience.DegradationStateMachine;
-import com.opspilot.resilience.DegradationStateMachine.Level;
+import com.opspilot.resilience.DegradationState;
+import com.opspilot.resilience.DegradationState.Level;
 import com.opspilot.resilience.QuotaService;
 import com.opspilot.resilience.SopFallbackService;
 import com.opspilot.retrieval.HybridSearchService;
 import com.opspilot.retrieval.ScoredChunk;
 import com.opspilot.retrieval.SearchOutcome;
 import com.opspilot.storm.FingerprintService;
-import com.opspilot.storm.SingleFlightRegistry;
-import com.opspilot.storm.SlidingWindowService;
+import com.opspilot.storm.SingleFlight;
+import com.opspilot.storm.SlidingWindow;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -50,13 +50,13 @@ public class ChatOrchestrator {
     private final L1CacheService l1;
     private final L2SemanticCacheService l2;
     private final FingerprintService fingerprintService;
-    private final SlidingWindowService slidingWindow;
-    private final SingleFlightRegistry singleFlight;
+    private final SlidingWindow slidingWindow;
+    private final SingleFlight singleFlight;
     private final HybridSearchService searchService;
     private final EmbeddingClient embedding;
     private final LlmClient llm;
     private final PromptAssembler promptAssembler;
-    private final DegradationStateMachine degrade;
+    private final DegradationState degrade;
     private final SopFallbackService sopFallback;
     private final OpsMetrics metrics;
     private final ExecutorService vt;
@@ -67,10 +67,10 @@ public class ChatOrchestrator {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public ChatOrchestrator(L1CacheService l1, L2SemanticCacheService l2,
-                            FingerprintService fingerprintService, SlidingWindowService slidingWindow,
-                            SingleFlightRegistry singleFlight, HybridSearchService searchService,
+                            FingerprintService fingerprintService, SlidingWindow slidingWindow,
+                            SingleFlight singleFlight, HybridSearchService searchService,
                             EmbeddingClient embedding, LlmClient llm, PromptAssembler promptAssembler,
-                            DegradationStateMachine degrade, SopFallbackService sopFallback,
+                            DegradationState degrade, SopFallbackService sopFallback,
                             OpsMetrics metrics, ExecutorService virtualThreadExecutor,
                             OpsPilotProperties props, AuditService audit, QuotaService quota,
                             ReadOnlyActionExtractor actionExtractor) {
@@ -130,7 +130,7 @@ public class ChatOrchestrator {
         // 全文+引用（引擎层过滤管不到"共享在途结果"这条旁路）。权限维度必须完备：
         // 租户×密级（ADR-0008），与 L1 key 的 cache:l1:<tenant>:<level>: 同构。
         String sfKey = singleFlightKey(user, fp);
-        SingleFlightRegistry.Registration reg = singleFlight.getOrCreate(sfKey);
+        SingleFlight.Registration reg = singleFlight.getOrCreate(sfKey);
         if (!reg.leader()) {
             String shared = reg.future().get(90, TimeUnit.SECONDS);
             metrics.dedupAggregated();
@@ -146,7 +146,7 @@ public class ChatOrchestrator {
         // 注意必须**在下面的 try 之内**：单飞登记靠 finally 收尾，放到 try 外会让异常路径漏掉
         // `singleFlight.finish`，同指纹后续请求将阻塞在永不完成的 future 上（90s 超时）。
         try {
-            SlidingWindowService.WindowResult win = slidingWindow.tryAcquire(fp, source);
+            SlidingWindow.WindowResult win = slidingWindow.tryAcquire(fp, source);
             if (!win.first()) metrics.dedupAggregated();
 
             Level level = degrade.current();

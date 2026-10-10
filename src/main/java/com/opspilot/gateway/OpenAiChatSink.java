@@ -4,7 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.opspilot.gateway.dto.AnswerPayload;
-import com.opspilot.resilience.DegradationStateMachine.Level;
+import com.opspilot.resilience.DegradationState.Level;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.List;

@@ -6,7 +6,9 @@ import com.opspilot.cache.L1CacheService;
 import com.opspilot.cache.L2SemanticCacheService;
 import com.opspilot.config.OpsPilotProperties;
 import com.opspilot.metrics.OpsMetrics;
-import com.opspilot.resilience.DegradationStateMachine;
+import com.opspilot.resilience.DegradationState;
+import com.opspilot.resilience.DegradationState.Level;
+import com.opspilot.resilience.QuotaService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -34,7 +36,7 @@ public class AdminController {
     private static final Set<String> VALID_LEVELS = Set.of("L0", "L1", "L2", "auto");
 
     private final OpsMetrics metrics;
-    private final DegradationStateMachine degrade;
+    private final DegradationState degrade;
     private final L1CacheService l1;
     private final L2SemanticCacheService l2;
     private final OpsPilotProperties props;
@@ -42,15 +44,15 @@ public class AdminController {
     private final com.opspilot.auth.UserStore users;
     private final com.opspilot.health.HealthProbe healthProbe;
     private final com.opspilot.metrics.AuditService audit;
-    private final com.opspilot.storm.SingleFlightRegistry singleFlight;
+    private final com.opspilot.storm.SingleFlight singleFlight;
     private final com.opspilot.resilience.QuotaService quota;
     private final org.springframework.boot.info.BuildProperties build; // 面板 build 指纹（build-info 缺省时为 null）
 
-    public AdminController(OpsMetrics metrics, DegradationStateMachine degrade,
+    public AdminController(OpsMetrics metrics, DegradationState degrade,
                            L1CacheService l1, L2SemanticCacheService l2, OpsPilotProperties props,
                            com.opspilot.ingest.IngestionRunner ingestion, com.opspilot.auth.UserStore users,
                            com.opspilot.health.HealthProbe healthProbe, com.opspilot.metrics.AuditService audit,
-                           com.opspilot.storm.SingleFlightRegistry singleFlight,
+                           com.opspilot.storm.SingleFlight singleFlight,
                            com.opspilot.resilience.QuotaService quota,
                            @org.springframework.lang.Nullable org.springframework.boot.info.BuildProperties build) {
         this.metrics = metrics;
@@ -111,7 +113,7 @@ public class AdminController {
         if ("auto".equalsIgnoreCase(level)) {
             degrade.manualClear();
         } else {
-            degrade.manualSet(DegradationStateMachine.Level.valueOf(level.toUpperCase()));
+            degrade.manualSet(Level.valueOf(level.toUpperCase()));
         }
         audit.logAdmin(JwtAuthFilter.from(http), "degrade", "ok", "level=" + level);
         return Map.of("degradation_level", degrade.current().name(), "manual", degrade.isManual());

@@ -13,8 +13,8 @@ import com.opspilot.metrics.AuditService;
 import com.opspilot.action.ReadOnlyActionExtractor;
 import com.opspilot.metrics.OpsMetrics;
 import com.opspilot.metrics.StageTimings;
-import com.opspilot.resilience.DegradationStateMachine;
-import com.opspilot.resilience.DegradationStateMachine.Level;
+import com.opspilot.resilience.DegradationState;
+import com.opspilot.resilience.DegradationState.Level;
 import com.opspilot.resilience.QuotaService;
 import com.opspilot.resilience.SopFallbackService;
 import com.opspilot.retrieval.HybridSearchService;
@@ -83,7 +83,7 @@ class ChatOrchestratorTest {
     private LlmClient llm;
     private AuditService audit;
     private PromptAssembler pa;
-    private DegradationStateMachine degrade;
+    private DegradationState degrade;
     private com.opspilot.metrics.OpsMetrics metrics;   // 生成质量包：真计数对象，verbatim_masked 可断言
     private ChatOrchestrator orchestrator;
     private ExecutorService vt;
@@ -99,7 +99,7 @@ class ChatOrchestratorTest {
         when(fps.fingerprint(any(), any(), anyString())).thenReturn("fp1");
         SlidingWindowService sw = mock(SlidingWindowService.class);
         when(sw.tryAcquire(anyString(), anyString()))
-                .thenReturn(new com.opspilot.storm.SlidingWindowService.WindowResult(true, 1));
+                .thenReturn(new com.opspilot.storm.SlidingWindow.WindowResult(true, 1));
         searchService = mock(HybridSearchService.class);
         when(searchService.search(anyString(), eq("tenant-internal"), anyInt(), anyString()))
                 .thenReturn(outcome("rb-001::s1"));
@@ -128,7 +128,7 @@ class ChatOrchestratorTest {
             onToken.accept("ACME-OWN-ANSWER");
             return "ACME-OWN-ANSWER";
         });
-        degrade = mock(DegradationStateMachine.class);
+        degrade = mock(DegradationState.class);
         when(degrade.current()).thenReturn(Level.L0);
         audit = mock(AuditService.class);
         metrics = new OpsMetrics(new SimpleMeterRegistry());

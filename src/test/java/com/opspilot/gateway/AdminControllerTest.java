@@ -8,7 +8,7 @@ import com.opspilot.config.OpsPilotProperties;
 import com.opspilot.health.HealthProbe;
 import com.opspilot.ingest.IngestionRunner;
 import com.opspilot.metrics.OpsMetrics;
-import com.opspilot.resilience.DegradationStateMachine;
+import com.opspilot.resilience.DegradationState;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -44,8 +44,8 @@ class AdminControllerTest {
     void setUp() {
         OpsMetrics metrics = mock(OpsMetrics.class);
         when(metrics.snapshot()).thenReturn(Map.of("total_requests", 1));
-        DegradationStateMachine degrade = mock(DegradationStateMachine.class);
-        when(degrade.current()).thenReturn(DegradationStateMachine.Level.L0);
+        DegradationState degrade = mock(DegradationState.class);
+        when(degrade.current()).thenReturn(DegradationState.Level.L0);
         L1CacheService l1 = mock(L1CacheService.class);
         L2SemanticCacheService l2 = mock(L2SemanticCacheService.class);
         OpsPilotProperties props = new OpsPilotProperties(

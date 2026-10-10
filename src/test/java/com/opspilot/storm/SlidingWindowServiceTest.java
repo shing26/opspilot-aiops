@@ -81,7 +81,7 @@ class SlidingWindowServiceTest {
         when(zset.size()).thenReturn(0, 5);
 
         assertTrue(svc.tryAcquire("fp1", "alert").first());
-        SlidingWindowService.WindowResult again = svc.tryAcquire("fp1", "alert");
+        SlidingWindow.WindowResult again = svc.tryAcquire("fp1", "alert");
         assertFalse(again.first());
         assertEquals(5, again.aggregated());
         verify(zset, times(2)).add(anyDouble(), anyString());   // 两源请求都照常计数

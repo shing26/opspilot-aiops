@@ -47,6 +47,6 @@ class ResilienceReadTest {
 
         sm.llmSuccess();
         assertEquals(0, sm.llmConsecutiveFailures(), "成功清零计数（冷却窗仍至时限）");
-        assertEquals(DegradationStateMachine.Level.L2, sm.current());
+        assertEquals(DegradationState.Level.L2, sm.current());
     }
 }
