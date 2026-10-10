@@ -22,8 +22,8 @@
 | 路径 | 是什么 | 入库 |
 | --- | --- | --- |
 | `src/main/java/com/opspilot/` | 在线面：`gateway`(协议/编排) `retrieval` `llm` `resilience` `auth` `cache` `storm` `metrics` `health` `ingest` `chunk` `config` | ✅ |
-| `src/test/java/` | 单测与集成（190 用例，`@Test` 声明数） | ✅ |
-| `docs/adr/` | 13 项架构决策（每份含否决项与后果）——**改架构先写 ADR** | ✅ |
+| `src/test/java/` | 单测与集成（223 用例，`@Test` 声明数） | ✅ |
+| `docs/adr/` | 17 项架构决策（每份含否决项与后果）——**改架构先写 ADR** | ✅ |
 | `docs/qa/` | 红队缺陷台账 / 模块复验台账（缺陷与验证的单一事实源） | ✅ |
 | `docs/ops/` | 生产化就绪度台账（现行状态置顶 + 历史归档） | ✅ |
 | `LICENSE` | MIT 许可（**根级唯一许可文件**；不纳入证据快照，理由见 README §许可） | ✅ |
@@ -38,7 +38,7 @@
 | `offline/load/` | Locust 压测脚本与报告 | ✅ |
 | `offline/load/sweep.py` | **并发-延迟曲线**：扫 25/50/100/200/300/500 六档出 P50/P95/P99 + 失败率 + RPS，标出**首次 L1 触发档**与各档**实到并发/在途峰值**。原始 locust 产物留本地（`.gitignore`），只入汇总报告 | ✅ |
 | `offline/load/cache_savings.py` | **缓存节省账**：受控混合负载 → 命中/未命中延迟差 × 命中率 = 单请求平均节省。归因靠本脚本自己的负载（`hits/total_requests` 的分母含 Single-Flight follower，是浑的） | ✅ |
-| `offline/tests/` | pytest（切分器不变量 + 告警生产者判定/闸门 + 本地 HTTP 契约，**不触网**由 fixture 强制） | ✅ |
+| `offline/tests/` | pytest（切分器不变量 + 告警生产者判定/闸门 + 本地 HTTP 契约 + 行动契约探针的判据极性/变异，**不触网**由 fixture 强制） | ✅ |
 | `offline/requirements-dev.txt` | 开发/验证依赖的**锁定版本**（运行时代码零第三方依赖，全 stdlib） | ✅ |
 | `offline/localapi.py` | **验收/评测脚本的本机 HTTP 单点**（SSRF 白名单 + token 路径解析；基址可用 `OPSPILOT_BASE` 覆盖）——新增脚本复用它，别再造轮子 | ✅ |
 | `offline/acceptance_a2.py` / `acceptance_a3.py` | A2 机制验收 / A3 综合验收 | ✅ |
@@ -46,6 +46,7 @@
 | `offline/grounding.py` | **答案接地判据**（V9 的纯函数实现）：答案中的错误码是否都落在本轮 refs 覆盖内——防幻觉链路的**事后**环（前几道管"没证据就不答"，这项管"答了的都有据"）。词法复用 `chunkers/errorcode.py`，不另立副本 | ✅ |
 | `offline/console_client.py` | 控制台演示客户端（SSE 打字机 / 风暴模拟） | ✅ |
 | `offline/alert_producer.py` | **自举告警生产者**（[ADR-0011](adr/0011-self-bootstrapped-alert-source.md)）：读运行态真相面 → 命中即以 `source=alert` 回打自身链路 | ✅ |
+| `offline/action_contract_probe.py` | **只读行动契约的活体复核探针**（[ADR-0017](adr/0017-read-only-action-contract.md)）：把单测已锁的四条不变式搬到线上流量——`actions` 帧形状 / 命令逐字于来源 chunk / 契约⊆引用（含段名闸、写操作段黑名单、编号连续）/ 破坏性形态绊线 / 缓存回放保真 / 跨租户不出界（含 tenant-acme 零围栏块⇒契约必须空）/ 拒绝计数器单调。**自己也只读**：只 login+chat+actuator，`/admin` 一条不打（连 cache/flush 也不打——没有判据需要它），HTTP 复用 localapi。判据极性由 `tests/test_action_contract_probe.py` 用合成坏响应逐条钉住 | ✅ |
 | `scripts/` | 运维与入口脚本，逐个见下表 | ✅ |
 | `data/` | H2 用户主库（含凭据散列） | ❌ |
 | `logs/` | 运行日志 + `audit.jsonl` 合规审计 | ❌ |

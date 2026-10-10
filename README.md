@@ -55,7 +55,7 @@
 4. **溯源是合同不是装饰**：答案 refs 进 L1/L2 缓存 payload、随 Single-Flight 回放、落 SSE done 帧——引用标号在缓存命中路径与现网生成路径逐字节一致（第四轮 QA 曾把"L2 命中丢 refs"按缺陷修复并入回归锁）。→ `cache/L2SemanticCacheService.java`、A2-3/A2-9 引用断言。
 5. **风暴与故障是设计输入，不是运行时异常**：同指纹 500 并发→1 次 LLM 穿透；过载降纯 ES、LLM 熔断直出预热静态 SOP、冷却到期半开自探（修复见 `e966feb`）——降级是状态机的一等公民，不是 catch 块。→ `storm/SingleFlightRegistry.java`、`resilience/DegradationStateMachine.java`、A2-5/A2-6、`DegradationRecoveryTest`。
 
-> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——190 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V9（其中 live 六道 V2/V3/V4/V5/V7/V9 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对；V9=答案接地一致性，复用 V2/V4 已产出答案故不占 chat 预算）+ 越狱/风暴/降级/留痕矩阵。
+> 五条合起来是一次**成功标准的换位**：朴素 RAG 的成败判据在检索指标；本系统的判据在"每个出口都可信"。这也解释了测试面为何比检索评测宽得多——223 单测（`@Test` 声明数）+ A2 十项 + 生成质量门禁 V1–V9（其中 live 六道 V2/V3/V4/V5/V7/V9 由 `offline/qa_gen_quality_probes.py` 承担，V1=Java 单测、V6=ZSET 混源用例、V8=文档核对；V9=答案接地一致性，复用 V2/V4 已产出答案故不占 chat 预算）+ 越狱/风暴/降级/留痕矩阵。
 
 ## 与 agent 的关系：它是 agent 的**可信底座**，不是第 4 个 agent
 
@@ -76,7 +76,7 @@
 ```mermaid
 flowchart TD
     subgraph ENTRY[三个入口 · 同一编排]
-        SSE[Console 客户端<br/>POST /api/v1/copilot/chat/stream · SSE]
+        SSE[Console / 排障查询客户端<br/>POST /api/v1/copilot/chat/stream · SSE]
         OAI[任意 OpenAI 客户端<br/>POST /v1/chat/completions · chunk]
         PANEL[Ops Console 面板<br/>只读 · /admin/state + audit 流]
     end
@@ -215,6 +215,22 @@ bash scripts/seed_demo_users.sh
 
 设计口径与 LobeChat 撤壳（ADR-0007）互为注脚：**UI 壳证明兼容性，面板承载运维真相**——本页零写操作、零模拟动画（速率=前端对真实累计值求差）、成功读路径不落审计（实测轮询 60s audit 行增量 0）；事件游标用全局 seq 且轮转/重启以 `truncated` 显式告警，禁静默空洞。键名契约由 `scripts/check_panel_contract.sh` 在 CI 双向钉死（后端改名不同步面板即红）。演示用法见 DEMO 幕④⑥口播。
 
+面板答"人在看的时候发生了什么"，时序库答"过去一段时间里发生了什么"——两者共用同一份 counter，不会各说各话（ADRs 0016）。核心指标按 `aiops.*` 层级名暴露在 **`http://localhost:8081/actuator/prometheus`**（Prometheus 文本格式，匿名可读——拉模型端点的正常形态，鉴权过滤器只守 `/api/v1/copilot|admin` 与 `/v1`）：计数器 `aiops_requests_total` / `aiops_llm_calls_total` / `aiops_llm_retries_total` / `aiops_llm_rate_limited_total` / `aiops_dedup_aggregated_total` / `aiops_cache_l1_hits_total` / `aiops_cache_l2_hits_total` / `aiops_es_only_requests_total` / `aiops_sop_fallbacks_total` / `aiops_guard_refusals_total` / `aiops_guard_verbatim_masked_total` / `aiops_guard_action_commands_rejected_total`；gauge `aiops_storm_suppression_ratio`（风暴抑制率）、`aiops_cache_hit_rate`（双层总命中率，另有 L1/L2 拆分）、`aiops_degradation_state`（0=L0 全链路 / 1=L1 仅 ES / 2=L2 SOP 兜底）。面板 snapshot 与抓取体读同一处自增；比率在零请求时给 `0.0` 而非 `NaN`（空负载是新实例首次被抓取的真实状态）。
+
+## 排障查询页 + 只读行动契约（ADR-0017）
+
+浏览器开 **`http://localhost:8081/troubleshoot.html`**（同源静态单页，与 Ops Console 共用同一枚 JWT）：输入报错堆栈或口语化描述，答案流式吐字，正文下方渲染**只读行动契约**——编号步骤、等宽命令、来源面包屑、一键复制，卡片头固定一句「只读 · 网关不执行」。
+
+契约不是生成的，是从**本次引用的 chunk 原文**里逐字抽的：段名闸（只认标题含「排查」的段，排除「陷阱/误判」）→ 四层只读命令策略（工具白名单 / 多态工具子动词闭集 / 外壳负载递归校验 / 旗标与重定向）→ 判拒计入 `aiops_guard_action_commands_rejected`（只进 Prometheus，不进面板契约）。448 chunks 全量扫描实测抽得 41 条、判拒 8 条，每条都能在来源原文里逐字找到——**零幻觉是可静态判定的，不是承诺**。
+
+但那 41 条是**抽取能力**的上限，不是单次请求的产额：一次请求喂给抽取器的只有**本次引用的 top-3**（`final-top-k: 3`），而"契约 ⊆ 引用"是构造保证。实测（2026-10-10，live，清 L1+L2 后逐个跑 11 个固定查询形状、11 个读到 `cache_hit=none`）**6/11 出非空契约**；11 个形状的目标文档全都有 2~3 个可抽的排查段叶 chunk，**语料不是瓶颈、top-3 才是**——命中的查询都引用了编号叶（`排查步骤 > 第二步：定位慢 SQL`），落空的三个槽被文档标题、段头（`排查步骤`）与症状摘要占满。这是登记在案的软上限（OPS §5 闹钟表 + ADR-0017 软上限表），两个候选修法各有代价：抬高 `final-top-k` 要连带重跑评测、重登现役口径那组数字（精确 Top-1 100% / 语义 Hit@3 100% / 语义 Top-1 88.2%）；同文档兄弟段扩张会打破"契约 ⊆ 引用"、须先做权限复核。
+
+契约同时落在三条出口：SSE `done` 帧恒带 `actions` 键（空表也是 `[]`，客户端不必判存在性）、OpenAI 面降级为答案尾部 markdown、缓存 payload 随 L1/L2 回放一起送达（老缓存无该字段走空表，2h TTL 内自然换代）。**连模型侧失败也带得出**：异常帧照常带 refs 与 actions——"生成失败"不该连坐吞掉"这次能做什么"。
+
+这四条不变式不只锁在单测里，还有 live 复核：`offline/action_contract_probe.py` 在真实流量上逐条核（帧形状 / 逐字性 / 契约 ⊆ 引用 / 破坏性形态绊线 / 回放保真 / **跨租户不出界** / 判拒计数器单调）。探针自己也守同一条红线——只读 login + chat/stream + actuator/prometheus，`/admin` 一条都不打；判据极性由 `offline/tests/test_action_contract_probe.py` 用合成坏响应钉着，五项变异实测全红。
+
+边界写死在 ADR-0017：网关只描述该跑什么，自己不执行、不推导写操作、不设任何执行回路（ADR-0013）。所谓行动契约是**可复制**，不是可点击执行。
+
 ## OpenAI 兼容面（/v1）
 
 网关自带 OpenAI 规范端点，任何标准客户端（LobeChat / Dify / OpenAI SDK）可直连：
@@ -319,7 +335,7 @@ $PY load/l1_latency.py       # L1 回放延迟（热点命中口径）→ load/r
 
 ## 规模与目录
 
-**规模**：190 单测（`@Test` 声明数）· 13 项架构决策（ADR）· 448 chunks（切分产物行数）· 68 篇复盘/Runbook 语料（另加 OpenAPI 文档，共 69 篇）· 评测集 68 样本（34 精确码 + 34 语义）· 15 个运维脚本。CI 五 job：`java` / `panel-contract` / `provenance` / `python` / `shell`。
+**规模**：223 单测（`@Test` 声明数）· 17 项架构决策（ADR）· 448 chunks（切分产物行数）· 68 篇复盘/Runbook 语料（另加 OpenAPI 文档，共 69 篇）· 评测集 68 样本（34 精确码 + 34 语义）· 15 个运维脚本。CI 五 job：`java` / `panel-contract` / `provenance` / `python` / `shell`。
 
 **四份根文档按读者分工**（互不重复）：判断值不值得看 → 本文；起服务/跑演示 → [DEMO.md](DEMO.md)；日常运维与**债务触发线** → [OPS.md](OPS.md)；领域词汇 → [CONTEXT.md](CONTEXT.md)。
 
